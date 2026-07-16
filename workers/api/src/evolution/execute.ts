@@ -1,10 +1,6 @@
-import type {
-  AnalysisFallbackReason,
-  AnalysisMode,
-  MutationProposal,
-} from '@darwin/shared';
+import type { AnalysisMode, MutationProposal } from '@darwin/shared';
 
-import { MockEvolutionAnalyzer, type EvolutionAnalysisInput } from './analyzer';
+import type { EvolutionAnalysisInput } from './analyzer';
 import {
   OpenAIAnalysisError,
   OpenAIEvolutionAnalyzer,
@@ -24,50 +20,33 @@ export interface EvolutionExecutionResult {
   proposal: MutationProposal;
   mode: AnalysisMode;
   model: string;
-  fallbackReason?: AnalysisFallbackReason;
 }
-
-const fallbackReason = (error: unknown): AnalysisFallbackReason =>
-  error instanceof OpenAIAnalysisError ? error.code : 'invalid_response';
 
 export const executeEvolutionAnalysis = async (
   input: EvolutionAnalysisInput,
   options: EvolutionExecutionOptions = {},
 ): Promise<EvolutionExecutionResult> => {
-  const mock = new MockEvolutionAnalyzer();
   if (options.requestedMode !== 'live') {
-    return {
-      proposal: await mock.analyse(input),
-      mode: 'mock',
-      model: 'deterministic-mock',
-    };
+    throw new OpenAIAnalysisError(
+      'Live GPT analysis is not configured; no recommendation was generated.',
+      'missing_api_key',
+    );
   }
 
   if (!options.apiKey) {
-    return {
-      proposal: await mock.analyse(input),
-      mode: 'fallback',
-      model: 'deterministic-mock',
-      fallbackReason: 'missing_api_key',
-    };
+    throw new OpenAIAnalysisError(
+      'OPENAI_API_KEY is required; no recommendation was generated.',
+      'missing_api_key',
+    );
   }
 
   const model = options.model ?? 'gpt-5.6';
-  try {
-    const proposal = await new OpenAIEvolutionAnalyzer({
-      apiKey: options.apiKey,
-      model,
-      timeoutMs: options.timeoutMs,
-      fetch: options.fetch,
-      logger: options.logger,
-    }).analyse(input);
-    return { proposal, mode: 'live', model };
-  } catch (error) {
-    return {
-      proposal: await mock.analyse(input),
-      mode: 'fallback',
-      model: 'deterministic-mock',
-      fallbackReason: fallbackReason(error),
-    };
-  }
+  const proposal = await new OpenAIEvolutionAnalyzer({
+    apiKey: options.apiKey,
+    model,
+    timeoutMs: options.timeoutMs,
+    fetch: options.fetch,
+    logger: options.logger,
+  }).analyse(input);
+  return { proposal, mode: 'live', model };
 };

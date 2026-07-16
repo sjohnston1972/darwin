@@ -27,13 +27,12 @@ human telemetry.
 Must show:
 - Darwin wordmark
 - “Helping your software evolve.”
-- connected organism: ProjectFlow
+- connected target application: ProjectFlow
 - current genome version
 - interactions observed
 - evolution cycles
 - fitness score
-- primary CTA: `Inspect real evidence`
-- separate secondary action: `Replay 10,000 synthetic events`
+- primary CTA: `Open measured study`
 
 ### 6.2 ProjectFlow organism
 A standalone functional study application plus a toggleable control-room preview.
@@ -56,11 +55,11 @@ Evolved:
 - concise dashboard
 
 ### 6.3 Observation stream
-Animated but truthful display of:
+Truthful display of:
 - real event receipt time and source provenance
 - participant, session and task-attempt identity
-- separately labelled synthetic replay activity
-- real, automated and synthetic event counts
+- real measured event, session, and participant counts
+- evidence coverage and recurrence counts
 - friction signals
 - workflow abandonment
 
@@ -107,8 +106,9 @@ Generate exactly 10,000 seeded synthetic events within seconds and keep them
 separate from real-study evidence.
 
 ### FR-4 Analysis
-Return a schema-valid mutation proposal from mock or GPT-5.6 analysis, with every
-behavioural claim citing a known evidence ID.
+Return a live GPT-5.6 portfolio containing one selected mutation and two to five
+alternatives, with every behavioral claim citing a known evidence ID. Fail closed
+when live reasoning is unavailable.
 
 ### FR-5 Approval
 No mutation is applied without explicit approval in the UI.
@@ -122,8 +122,9 @@ The organism must visibly change between baseline and evolved states without a r
 ### FR-8 Timeline
 Persist evolution cycles locally or in D1.
 
-### FR-9 Offline demo mode
-The entire flow works without an OpenAI key using deterministic fixtures.
+### FR-9 Evidence availability
+Collection and deterministic evidence parsing work without an OpenAI key. The UI
+must clearly report that reasoning is unavailable and must not invent a proposal.
 
 ## 8. Non-functional requirements
 - Complete demo flow under three minutes.

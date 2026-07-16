@@ -2,6 +2,7 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidenceMutationCandidateSchema,
+  EvidencePressureClusterSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
@@ -14,7 +15,7 @@ import {
   projectFlowReasoningContextVersion,
 } from './generated-context';
 
-export const evidencePromptVersion = '1.1.0' as const;
+export const evidencePromptVersion = '2.0.0' as const;
 export const codexAllowedPaths = [
   'apps/projectflow/src/App.tsx',
   'apps/projectflow/src/styles.css',
@@ -27,8 +28,13 @@ export const codexProtectedPaths = [
 ] as const;
 
 const modelOutputSchema = z.object({
+  evidenceAssessment: z.object({
+    summary: z.string().min(1),
+    pressureClusters: z.array(EvidencePressureClusterSchema).min(1).max(8),
+    selectionRationale: z.string().min(1),
+  }),
   selectedMutation: EvidenceMutationCandidateSchema,
-  alternatives: z.array(EvidenceMutationCandidateSchema).max(2),
+  alternatives: z.array(EvidenceMutationCandidateSchema).min(2).max(5),
   unsupportedIdeasRejected: z.array(
     z.object({ idea: z.string().min(1), reason: z.string().min(1) }),
   ),
@@ -45,6 +51,11 @@ const candidateJsonSchema = {
       minItems: 1,
       items: { type: 'string', pattern: '^EV-\\d{3}$' },
     },
+    pressureClusterIds: {
+      type: 'array',
+      minItems: 1,
+      items: { type: 'string', minLength: 1 },
+    },
     hypothesis: { type: 'string', minLength: 1 },
     change: { type: 'string', minLength: 1 },
     predictedImpact: {
@@ -58,7 +69,30 @@ const candidateJsonSchema = {
       additionalProperties: false,
     },
     confidence: { type: 'number', minimum: 0, maximum: 1 },
+    scorecard: {
+      type: 'object',
+      properties: {
+        evidenceStrength: { type: 'integer', minimum: 0, maximum: 100 },
+        userImpact: { type: 'integer', minimum: 0, maximum: 100 },
+        feasibility: { type: 'integer', minimum: 0, maximum: 100 },
+        validationClarity: { type: 'integer', minimum: 0, maximum: 100 },
+        total: { type: 'integer', minimum: 0, maximum: 100 },
+      },
+      required: [
+        'evidenceStrength',
+        'userImpact',
+        'feasibility',
+        'validationClarity',
+        'total',
+      ],
+      additionalProperties: false,
+    },
     scope: {
+      type: 'array',
+      minItems: 1,
+      items: { type: 'string', minLength: 1 },
+    },
+    tradeoffs: {
       type: 'array',
       minItems: 1,
       items: { type: 'string', minLength: 1 },
@@ -68,6 +102,21 @@ const candidateJsonSchema = {
       minItems: 1,
       items: { type: 'string', minLength: 1 },
     },
+    validationPlan: {
+      type: 'object',
+      properties: {
+        primaryMetric: { type: 'string', minLength: 1 },
+        baseline: { type: 'string', minLength: 1 },
+        successThreshold: { type: 'string', minLength: 1 },
+        guardrails: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', minLength: 1 },
+        },
+      },
+      required: ['primaryMetric', 'baseline', 'successThreshold', 'guardrails'],
+      additionalProperties: false,
+    },
     codexBrief: { type: 'string', minLength: 1 },
   },
   required: [
@@ -75,12 +124,16 @@ const candidateJsonSchema = {
     'title',
     'problem',
     'evidenceIds',
+    'pressureClusterIds',
     'hypothesis',
     'change',
     'predictedImpact',
     'confidence',
+    'scorecard',
     'scope',
+    'tradeoffs',
     'acceptanceCriteria',
+    'validationPlan',
     'codexBrief',
   ],
   additionalProperties: false,
@@ -89,10 +142,60 @@ const candidateJsonSchema = {
 export const evidenceAnalysisJsonSchema = {
   type: 'object',
   properties: {
+    evidenceAssessment: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', minLength: 1 },
+        pressureClusters: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 8,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', minLength: 1 },
+              title: { type: 'string', minLength: 1 },
+              interpretation: { type: 'string', minLength: 1 },
+              evidenceIds: {
+                type: 'array',
+                minItems: 1,
+                items: { type: 'string', pattern: '^EV-\\d{3}$' },
+              },
+              affectedTargets: {
+                type: 'array',
+                items: { type: 'string', minLength: 1 },
+              },
+              userConsequence: { type: 'string', minLength: 1 },
+              competingExplanations: {
+                type: 'array',
+                minItems: 1,
+                items: { type: 'string', minLength: 1 },
+              },
+              mutationOpportunity: { type: 'string', minLength: 1 },
+            },
+            required: [
+              'id',
+              'title',
+              'interpretation',
+              'evidenceIds',
+              'affectedTargets',
+              'userConsequence',
+              'competingExplanations',
+              'mutationOpportunity',
+            ],
+            additionalProperties: false,
+          },
+        },
+        selectionRationale: { type: 'string', minLength: 1 },
+      },
+      required: ['summary', 'pressureClusters', 'selectionRationale'],
+      additionalProperties: false,
+    },
     selectedMutation: candidateJsonSchema,
     alternatives: {
       type: 'array',
-      maxItems: 2,
+      minItems: 2,
+      maxItems: 5,
       items: candidateJsonSchema,
     },
     unsupportedIdeasRejected: {
@@ -108,22 +211,26 @@ export const evidenceAnalysisJsonSchema = {
       },
     },
   },
-  required: ['selectedMutation', 'alternatives', 'unsupportedIdeasRejected'],
+  required: [
+    'evidenceAssessment',
+    'selectedMutation',
+    'alternatives',
+    'unsupportedIdeasRejected',
+  ],
   additionalProperties: false,
 } as const;
 
-export const evidenceAnalysisSystemPrompt = `You are Darwin's evidence analyst. Propose one selected mutation and no more than two alternatives for ProjectFlow.
+export const evidenceAnalysisSystemPrompt = `You are Darwin's senior product evolution analyst. Analyse measured ProjectFlow behavior deeply enough that a product team could defend the resulting mutation.
 
-First understand the supplied product, active variant, interface inventory, domain entities, user goals, and available capabilities. Use that application context to interpret the evidence, but make behavioral claims only from supplied evidence signals and cite their evidence IDs.
+Reconstruct each supplied ordered journey before interpreting detector signals. Inspect the supplied application source to determine what the affected controls actually do, including inert controls, missing handlers, hidden state changes, misleading affordances, and available destinations. Detector signals are leads, not conclusions.
 
-Use these evidence-to-remediation priors when the corresponding signal is strongest:
-- hover_hesitation: expose useful contextual stats or detail on that exact item on hover and keyboard focus;
-- drag_expectation: make that exact item draggable with an accessible equivalent when the domain permits reordering;
-- false_affordance: make the clicked surface navigate to the most useful related destination;
-- browser_back_dependency: add a visible in-app Back control on the affected nested route;
-- zoom_readability: increase base and compact-label font sizes while preserving responsive layout.
+Group related evidence into causal pressure clusters. For every cluster state the most likely interpretation, user consequence, affected targets, and at least one credible competing explanation. Never turn a single hover, drag, zoom, or click into a product-wide claim without acknowledging weak coverage.
 
-Every scope value must come from mutableAreas. Never target protectedAreas. Keep changes small, target-specific, testable, and human-approved. Predictions are hypotheses, not measured outcomes. The Codex brief must contain implementation intent and acceptance criteria, never raw telemetry or personal identifiers. Return only the requested structured output.`;
+The evolution catalogue contains concrete examples of powerful mutations that may be adopted when matching evidence exists. It is not evidence, a mandatory mapping, or a list of default answers. Prefer functional mutations that remove broken or missing behavior over cosmetic changes. Consider combined mutations when multiple signals share one cause.
+
+Produce a portfolio containing one selected mutation and two to five genuine alternatives spanning the meaningful pressure clusters. Score each candidate for evidence strength, user impact, feasibility, and validation clarity. Evidence strength must reflect recurrence across events, sessions, participants, and completed tasks. Predictions are hypotheses, not outcomes.
+
+Every behavioral claim and candidate must cite supplied evidence IDs. Every scope value must come from mutableAreas. Never target protectedAreas. Keep the implementation human-approved and bounded to ProjectFlow, but do not reduce a powerful supported mutation to a superficial label or tooltip. Return only the requested structured output.`;
 
 export class EvidenceReasoningError extends Error {
   constructor(message: string) {
@@ -160,6 +267,7 @@ const sha256 = async (value: string) => {
 export const analysisCacheKey = (evidenceHash: string, model: string) =>
   sha256(
     canonicalStringify({
+      contextVersion: projectFlowReasoningContextVersion,
       evidenceHash,
       model,
       promptVersion: evidencePromptVersion,
@@ -175,13 +283,39 @@ export function validateModelOutput(
   const knownEvidence = new Set(
     pack.frictionSignals.map((signal) => signal.evidenceId),
   );
+  const knownClusters = new Set(
+    output.evidenceAssessment.pressureClusters.map((cluster) => cluster.id),
+  );
+  const knownTargets = new Set(
+    pack.frictionSignals.flatMap((signal) =>
+      signal.trace.flatMap((event) => (event.targetId ? [event.targetId] : [])),
+    ),
+  );
   const mutableAreas = new Set(pack.applicationMap.mutableAreas);
   const protectedAreas = new Set(pack.applicationMap.protectedAreas);
+
+  for (const cluster of output.evidenceAssessment.pressureClusters) {
+    if (cluster.evidenceIds.some((id) => !knownEvidence.has(id))) {
+      throw new EvidenceReasoningError(
+        `Pressure cluster ${cluster.id} cites an unknown evidence ID.`,
+      );
+    }
+    if (cluster.affectedTargets.some((target) => !knownTargets.has(target))) {
+      throw new EvidenceReasoningError(
+        `Pressure cluster ${cluster.id} cites an unobserved semantic target.`,
+      );
+    }
+  }
 
   for (const candidate of candidates) {
     if (candidate.evidenceIds.some((id) => !knownEvidence.has(id))) {
       throw new EvidenceReasoningError(
         `Mutation ${candidate.id} cites an unknown evidence ID.`,
+      );
+    }
+    if (candidate.pressureClusterIds.some((id) => !knownClusters.has(id))) {
+      throw new EvidenceReasoningError(
+        `Mutation ${candidate.id} cites an unknown pressure cluster.`,
       );
     }
     if (
@@ -194,215 +328,60 @@ export function validateModelOutput(
       );
     }
   }
-  return output;
+  const normalized = candidates
+    .map((candidate) => normalizeCandidateScore(candidate, pack))
+    .sort((left, right) => right.scorecard.total - left.scorecard.total);
+  const selectedMutation = normalized[0]!;
+  const modelSelectionChanged =
+    selectedMutation.id !== output.selectedMutation.id;
+  return {
+    ...output,
+    evidenceAssessment: {
+      ...output.evidenceAssessment,
+      selectionRationale: modelSelectionChanged
+        ? `${selectedMutation.title} ranked highest after Darwin normalized evidence recurrence and portfolio scores. ${output.evidenceAssessment.selectionRationale}`
+        : output.evidenceAssessment.selectionRationale,
+    },
+    selectedMutation,
+    alternatives: normalized.slice(1),
+  };
 }
 
-const targetedBehaviorMutation = (
+function normalizeCandidateScore(
+  candidate: EvidenceMutationCandidate,
   pack: EvidencePack,
-): EvidenceMutationCandidate | null => {
-  const primary = pack.frictionSignals[0];
-  if (!primary) return null;
-  const target = primary.trace.find((event) => event.targetId)?.targetId;
-  const item = target ?? 'the affected item';
-  const evidenceIds = [primary.evidenceId];
-  const shared = { problem: primary.summary, evidenceIds };
-
-  switch (primary.ruleId) {
-    case 'hover_hesitation':
-      return {
-        ...shared,
-        id: 'show-item-hover-context',
-        title: `Show contextual stats for ${item}`,
-        hypothesis:
-          'Useful item-level detail on hover and keyboard focus will turn consideration into informed action.',
-        change: `Expose contextual stats and relevant status directly on ${item} during hover and keyboard focus.`,
-        predictedImpact: {
-          metric: 'feature discovery',
-          direction: 'increase',
-          rationale:
-            'The user can evaluate the item without guessing what it contains or leaving the current context.',
-        },
-        confidence: 0.78,
-        scope: ['item-presentation', 'contextual-help'],
-        acceptanceCriteria: [
-          `${item} exposes useful contextual stats on hover and keyboard focus.`,
-          'The detail surface does not shift surrounding layout or obscure the item action.',
-          'The existing semantic telemetry target remains stable.',
-        ],
-        codexBrief: `Add a compact contextual stats surface to ${item} for hover and keyboard focus. Keep it accessible, responsive, and bound to the existing semantic target. Add focused interaction tests.`,
-      };
-    case 'drag_expectation':
-      return {
-        ...shared,
-        id: 'enable-item-dragging',
-        title: `Make ${item} draggable`,
-        hypothesis:
-          'Supporting the observed drag expectation will make item organization match the user’s interaction model.',
-        change: `Make ${item} draggable with an explicit handle, reorder behavior, and an equivalent keyboard action.`,
-        predictedImpact: {
-          metric: 'interaction efficiency',
-          direction: 'increase',
-          rationale:
-            'The attempted direct manipulation becomes a supported action instead of a dead gesture.',
-        },
-        confidence: 0.8,
-        scope: ['interaction-behavior', 'drag-and-drop'],
-        acceptanceCriteria: [
-          `${item} can be reordered with pointer drag-and-drop.`,
-          'A keyboard-accessible reorder action produces the same result.',
-          'Drag state is visibly communicated and the new order is retained.',
-        ],
-        codexBrief: `Implement accessible drag-and-drop reordering for ${item}, including a visible handle, keyboard equivalent, retained ordering, semantic telemetry, and focused tests.`,
-      };
-    case 'false_affordance':
-      return {
-        ...shared,
-        id: 'activate-false-affordance',
-        title: `Make ${item} lead somewhere useful`,
-        hypothesis:
-          'Routing the clicked surface to its most relevant detail view will satisfy the action users already expect.',
-        change: `Make ${item} an accessible link or button that opens the most useful related ProjectFlow destination.`,
-        predictedImpact: {
-          metric: 'navigation efficiency',
-          direction: 'increase',
-          rationale:
-            'A currently dead click becomes a direct route to relevant work.',
-        },
-        confidence: 0.84,
-        scope: ['navigation', 'interaction-behavior'],
-        acceptanceCriteria: [
-          `${item} opens the most relevant related route on click or keyboard activation.`,
-          'Its visual affordance and accessible role accurately communicate the action.',
-          'The destination preserves a clear route back to the originating context.',
-        ],
-        codexBrief: `Convert ${item} into a useful accessible navigation action. Choose the closest related ProjectFlow route from the supplied application map, retain its semantic target, and add click and keyboard tests.`,
-      };
-    case 'browser_back_dependency':
-      return {
-        ...shared,
-        id: 'add-in-app-back-control',
-        title: 'Add an in-app Back control',
-        hypothesis:
-          'A visible contextual Back control will reduce dependence on browser history for returning from nested work.',
-        change:
-          'Add a Back control to nested ProjectFlow routes that returns to the previous meaningful in-app view.',
-        predictedImpact: {
-          metric: 'navigation efficiency',
-          direction: 'increase',
-          rationale:
-            'Return navigation becomes visible, predictable, and available inside the application.',
-        },
-        confidence: 0.86,
-        scope: ['navigation', 'in-app-history'],
-        acceptanceCriteria: [
-          'Nested project and task routes expose a visible Back control.',
-          'The control returns to the previous meaningful ProjectFlow view without leaving the application.',
-          'Browser Back and the in-app control preserve coherent route history.',
-        ],
-        codexBrief:
-          'Add an accessible in-app Back control to nested ProjectFlow views using the existing history state. Preserve browser Back behavior, emit semantic telemetry, and test both navigation paths.',
-      };
-    case 'zoom_readability':
-      return {
-        ...shared,
-        id: 'increase-interface-type-scale',
-        title: 'Increase interface font sizes',
-        hypothesis:
-          'A larger default type scale will reduce the need for users to increase browser zoom to read compact interface text.',
-        change:
-          'Increase base text, compact labels, metadata, and control font sizes while preserving information hierarchy.',
-        predictedImpact: {
-          metric: 'readability',
-          direction: 'increase',
-          rationale:
-            'Frequently read interface text becomes legible at the default browser zoom.',
-        },
-        confidence: 0.76,
-        scope: ['typography', 'item-presentation'],
-        acceptanceCriteria: [
-          'Base body text and compact metadata use a larger documented minimum size.',
-          'Controls and labels remain unclipped at mobile widths and 200% browser zoom.',
-          'Heading hierarchy and dense data layouts remain scannable.',
-        ],
-        codexBrief:
-          'Raise the ProjectFlow base and compact-label type scale, then adjust spacing where required. Verify mobile layouts and 200% browser zoom with focused visual and overflow tests.',
-      };
-    default:
-      return null;
-  }
-};
-
-const mockOutput = (pack: EvidencePack) => {
-  const primary = pack.frictionSignals[0];
-  if (!primary) {
-    throw new EvidenceReasoningError(
-      'Evidence analysis requires at least one friction signal.',
-    );
-  }
-  const targeted = targetedBehaviorMutation(pack);
-  const evidenceIds = [primary.evidenceId];
-  return {
-    selectedMutation: targeted ?? {
-      id: 'promote-task-discovery',
-      title: 'Promote task discovery',
-      problem: primary.summary,
-      evidenceIds,
-      hypothesis:
-        'A direct My Work entry point and global search will reduce the path required to find assigned work.',
-      change:
-        'Promote My Work in primary navigation and expose task search in the global header.',
-      predictedImpact: {
-        metric: 'navigation efficiency',
-        direction: 'increase' as const,
-        rationale:
-          'The selected path removes intermediate project and task-list navigation.',
-      },
-      confidence: 0.82,
-      scope: ['navigation', 'search', 'task-discovery'],
-      acceptanceCriteria: [
-        'Assigned tasks are reachable directly from My Work.',
-        'Task search is available without first opening the Tasks page.',
-        'The baseline workflow remains available behind the variant switch.',
-      ],
-      codexBrief:
-        'Implement the evolved ProjectFlow variant by adding My Work to primary navigation and global task search. Preserve the baseline variant and existing telemetry semantics. Add focused tests for both paths.',
+): EvidenceMutationCandidate {
+  const citedSignals = pack.frictionSignals.filter((signal) =>
+    candidate.evidenceIds.includes(signal.evidenceId),
+  );
+  const recurrence = citedSignals.length
+    ? citedSignals.reduce(
+        (total, signal) =>
+          total +
+          Math.min(30, signal.support.events * 6) +
+          Math.min(25, signal.support.sessions * 12) +
+          Math.min(25, signal.support.participants * 12) +
+          Math.min(20, signal.support.attempts * 10),
+        0,
+      ) / citedSignals.length
+    : 0;
+  const evidenceStrength = Math.min(pack.quality.score, Math.round(recurrence));
+  const total = Math.round(
+    evidenceStrength * 0.35 +
+      candidate.scorecard.userImpact * 0.25 +
+      candidate.scorecard.feasibility * 0.2 +
+      candidate.scorecard.validationClarity * 0.2,
+  );
+  return EvidenceMutationCandidateSchema.parse({
+    ...candidate,
+    confidence: evidenceStrength / 100,
+    scorecard: {
+      ...candidate.scorecard,
+      evidenceStrength,
+      total,
     },
-    alternatives: targeted
-      ? []
-      : [
-          {
-            id: 'task-quick-create',
-            title: 'Add global task creation',
-            problem: primary.summary,
-            evidenceIds,
-            hypothesis:
-              'A global creation action may reduce navigation before task entry.',
-            change:
-              'Expose a compact task creation action in the application header.',
-            predictedImpact: {
-              metric: 'task duration',
-              direction: 'decrease' as const,
-              rationale:
-                'The action removes route changes before opening task entry.',
-            },
-            confidence: 0.61,
-            scope: ['navigation'],
-            acceptanceCriteria: [
-              'Task creation opens from every primary route.',
-            ],
-            codexBrief:
-              'Add a globally reachable task creation action while preserving current validation and telemetry targets.',
-          },
-        ],
-    unsupportedIdeasRejected: [
-      {
-        idea: 'Rewrite the telemetry pipeline',
-        reason:
-          'Telemetry history is protected; the selected mutation stays inside the target application.',
-      },
-    ],
-  };
-};
+  });
+}
 
 const responseText = (payload: unknown): string | null => {
   if (!payload || typeof payload !== 'object') return null;
@@ -450,8 +429,10 @@ async function callOpenAI(
             content: JSON.stringify({
               evidenceHash: pack.evidenceHash,
               evidenceClass: pack.evidenceClass,
+              evidenceQuality: pack.quality,
               taskSummaries: pack.tasks,
               frictionSignals: pack.frictionSignals,
+              orderedJourneys: pack.journeys,
               applicationMap: pack.applicationMap,
             }),
           },
@@ -464,7 +445,7 @@ async function callOpenAI(
             strict: true,
           },
         },
-        max_output_tokens: 2_400,
+        max_output_tokens: 5_000,
       }),
       signal: controller.signal,
     });
@@ -502,45 +483,33 @@ export async function analyseEvidence(
 ): Promise<EvidenceAnalysis> {
   const model = options.model || 'gpt-5.6';
   const cacheKey = await analysisCacheKey(pack.evidenceHash, model);
-  let mode: EvidenceAnalysis['mode'] = 'mock';
-  let output: unknown;
-  let validated: z.infer<typeof modelOutputSchema>;
-  let fallbackReason: string | undefined;
-  let cachedTokens: number | undefined;
   const promptCacheKey = `darwin-${projectFlowReasoningContextVersion}`;
-
-  if (options.requestedMode === 'live' && options.apiKey) {
-    try {
-      const liveResult = await callOpenAI(
-        pack,
-        options.apiKey,
-        model,
-        options.timeoutMs ?? 12_000,
-        options.fetch ?? fetch,
-      );
-      output = liveResult.output;
-      cachedTokens = liveResult.cachedTokens;
-      validated = validateModelOutput(output, pack);
-      mode = 'live';
-    } catch (error) {
-      output = mockOutput(pack);
-      validated = validateModelOutput(output, pack);
-      mode = 'fallback';
-      fallbackReason =
-        error instanceof EvidenceReasoningError
-          ? error.message.slice(0, 240)
-          : error instanceof Error && error.name === 'AbortError'
-            ? 'OpenAI Responses API request timed out.'
-            : 'OpenAI returned an invalid structured evidence analysis.';
-    }
-  } else {
-    output = mockOutput(pack);
-    validated = validateModelOutput(output, pack);
-    mode = options.requestedMode === 'live' ? 'fallback' : 'mock';
-    if (mode === 'fallback') {
-      fallbackReason = 'Live analysis was requested without an API key.';
-    }
+  if (options.requestedMode !== 'live' || !options.apiKey) {
+    throw new EvidenceReasoningError(
+      'Live GPT reasoning is unavailable. Darwin will not substitute a recommendation.',
+    );
   }
+  let liveResult: Awaited<ReturnType<typeof callOpenAI>>;
+  try {
+    liveResult = await callOpenAI(
+      pack,
+      options.apiKey,
+      model,
+      options.timeoutMs ?? 30_000,
+      options.fetch ?? fetch,
+    );
+  } catch (error) {
+    if (error instanceof EvidenceReasoningError) throw error;
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new EvidenceReasoningError(
+        'Live GPT reasoning timed out; no recommendation was generated.',
+      );
+    }
+    throw new EvidenceReasoningError(
+      'Live GPT reasoning failed; no recommendation was generated.',
+    );
+  }
+  const validated = validateModelOutput(liveResult.output, pack);
 
   return EvidenceAnalysisSchema.parse({
     analysisId: `analysis-${cacheKey.slice(0, 12)}`,
@@ -548,21 +517,24 @@ export async function analyseEvidence(
     evidenceHash: pack.evidenceHash,
     cacheKey,
     promptVersion: evidencePromptVersion,
-    mode,
-    ...(fallbackReason ? { fallbackReason } : {}),
+    mode: 'live',
     model,
-    ...(options.requestedMode === 'live'
-      ? {
-          promptCache: {
-            key: promptCacheKey,
-            contextVersion: projectFlowReasoningContextVersion,
-            retention: '24h' as const,
-            ...(cachedTokens === undefined ? {} : { cachedTokens }),
-          },
-        }
-      : {}),
+    promptCache: {
+      key: promptCacheKey,
+      contextVersion: projectFlowReasoningContextVersion,
+      retention: '24h' as const,
+      ...(liveResult.cachedTokens === undefined
+        ? {}
+        : { cachedTokens: liveResult.cachedTokens }),
+    },
     createdAt: options.createdAt ?? new Date().toISOString(),
-    ...validated,
+    evidenceAssessment: {
+      ...validated.evidenceAssessment,
+      quality: pack.quality,
+    },
+    selectedMutation: validated.selectedMutation,
+    alternatives: validated.alternatives,
+    unsupportedIdeasRejected: validated.unsupportedIdeasRejected,
   });
 }
 

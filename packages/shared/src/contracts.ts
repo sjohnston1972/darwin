@@ -441,16 +441,58 @@ export const EvidenceTraceEventSchema = z.object({
   targetId: SemanticTargetSchema.optional(),
 });
 
+const EvidenceAttributeValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+
+export const EvidenceJourneyEventSchema = z.object({
+  eventRef: z.string().regex(/^E-\d{3}$/),
+  sequence: z.number().int().nonnegative(),
+  offsetMs: z.number().int().nonnegative(),
+  eventType: z.string().min(1),
+  route: StudyRouteSchema,
+  targetId: SemanticTargetSchema.optional(),
+  attributes: z.record(z.string(), EvidenceAttributeValueSchema),
+});
+
+export const EvidenceJourneySchema = z.object({
+  journeyId: z.string().regex(/^J-\d{3}$/),
+  appVersion: z.string().min(1),
+  source: z.enum(['real_user', 'automated']),
+  viewport: ViewportClassSchema,
+  eventCount: z.number().int().positive(),
+  events: z.array(EvidenceJourneyEventSchema).min(1).max(500),
+});
+
+export const EvidenceQualitySchema = z.object({
+  strength: z.enum(['insufficient', 'directional', 'substantial']),
+  score: z.number().int().min(0).max(100),
+  eventCount: z.number().int().nonnegative(),
+  sessionCount: z.number().int().nonnegative(),
+  participantCount: z.number().int().nonnegative(),
+  completedAttemptCount: z.number().int().nonnegative(),
+  limitations: z.array(z.string().min(1)),
+});
+
 export const EvidenceSignalSchema = z.object({
   evidenceId: z.string().regex(/^EV-\d{3}$/),
   ruleId: FrictionRuleSchema,
-  ruleVersion: z.enum(['1.0.0', '1.1.0']),
+  ruleVersion: z.enum(['1.0.0', '1.1.0', '1.2.0']),
   severity: z.enum(['low', 'medium', 'high']),
   taskId: StudyIdentifierSchema.optional(),
   summary: z.string().min(1),
   affectedAttemptIds: z.array(StudyIdentifierSchema),
   supportingEventIds: z.array(z.string().uuid()).min(1),
   trace: z.array(EvidenceTraceEventSchema).min(1).max(12),
+  support: z.object({
+    events: z.number().int().positive(),
+    attempts: z.number().int().nonnegative(),
+    sessions: z.number().int().positive(),
+    participants: z.number().int().positive(),
+  }),
 });
 
 export const EvidenceTaskSummarySchema = z.object({
@@ -473,7 +515,7 @@ export const EvidencePackSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   generatedAt: z.string().datetime(),
-  parserVersion: z.enum(['1.0.0', '1.1.0']),
+  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0']),
   evidenceClass: EvidenceClassSchema,
   study: z.object({
     studyId: StudyIdentifierSchema,
@@ -485,6 +527,8 @@ export const EvidencePackSchema = z.object({
   }),
   taskAttempts: z.array(TaskAttemptSchema),
   tasks: z.array(EvidenceTaskSummarySchema),
+  quality: EvidenceQualitySchema,
+  journeys: z.array(EvidenceJourneySchema).min(1).max(50),
   frictionSignals: z.array(EvidenceSignalSchema),
   applicationMap: z.object({
     product: z.object({
@@ -520,6 +564,7 @@ export const EvidenceMutationCandidateSchema = z.object({
   title: z.string().min(1),
   problem: z.string().min(1),
   evidenceIds: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  pressureClusterIds: z.array(StudyIdentifierSchema).min(1),
   hypothesis: z.string().min(1),
   change: z.string().min(1),
   predictedImpact: z.object({
@@ -528,9 +573,34 @@ export const EvidenceMutationCandidateSchema = z.object({
     rationale: z.string().min(1),
   }),
   confidence: z.number().min(0).max(1),
+  scorecard: z.object({
+    evidenceStrength: z.number().int().min(0).max(100),
+    userImpact: z.number().int().min(0).max(100),
+    feasibility: z.number().int().min(0).max(100),
+    validationClarity: z.number().int().min(0).max(100),
+    total: z.number().int().min(0).max(100),
+  }),
   scope: z.array(z.string().min(1)).min(1),
+  tradeoffs: z.array(z.string().min(1)).min(1),
   acceptanceCriteria: z.array(z.string().min(1)).min(1),
+  validationPlan: z.object({
+    primaryMetric: z.string().min(1),
+    baseline: z.string().min(1),
+    successThreshold: z.string().min(1),
+    guardrails: z.array(z.string().min(1)).min(1),
+  }),
   codexBrief: z.string().min(1),
+});
+
+export const EvidencePressureClusterSchema = z.object({
+  id: StudyIdentifierSchema,
+  title: z.string().min(1),
+  interpretation: z.string().min(1),
+  evidenceIds: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  affectedTargets: z.array(SemanticTargetSchema),
+  userConsequence: z.string().min(1),
+  competingExplanations: z.array(z.string().min(1)).min(1),
+  mutationOpportunity: z.string().min(1),
 });
 
 export const EvidenceAnalysisSchema = z.object({
@@ -538,9 +608,8 @@ export const EvidenceAnalysisSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   cacheKey: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.enum(['1.0.0', '1.1.0']),
-  mode: z.enum(['mock', 'live', 'fallback']),
-  fallbackReason: z.string().min(1).max(240).optional(),
+  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0']),
+  mode: z.literal('live'),
   model: z.string().min(1),
   promptCache: z
     .object({
@@ -551,8 +620,14 @@ export const EvidenceAnalysisSchema = z.object({
     })
     .optional(),
   createdAt: z.string().datetime(),
+  evidenceAssessment: z.object({
+    summary: z.string().min(1),
+    quality: EvidenceQualitySchema,
+    pressureClusters: z.array(EvidencePressureClusterSchema).min(1).max(8),
+    selectionRationale: z.string().min(1),
+  }),
   selectedMutation: EvidenceMutationCandidateSchema,
-  alternatives: z.array(EvidenceMutationCandidateSchema).max(2),
+  alternatives: z.array(EvidenceMutationCandidateSchema).min(2).max(5),
   unsupportedIdeasRejected: z.array(
     z.object({
       idea: z.string().min(1),
@@ -567,7 +642,7 @@ export const CodexImplementationManifestSchema = z.object({
   analysisId: StudyIdentifierSchema,
   mutationId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.enum(['1.0.0', '1.1.0']),
+  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0']),
   repositoryCommit: z.string().min(1),
   createdAt: z.string().datetime(),
   brief: z.string().min(1),
@@ -711,9 +786,9 @@ export const EvolutionAnalysisRequestSchema = z.object({
   simulationId: z.string().min(1),
 });
 
-export const AnalysisModeSchema = z.enum(['mock', 'live', 'fallback']);
+export const AnalysisModeSchema = z.literal('live');
 
-export const AnalysisFallbackReasonSchema = z.enum([
+export const AnalysisFailureReasonSchema = z.enum([
   'missing_api_key',
   'timeout',
   'api_error',
@@ -723,7 +798,6 @@ export const AnalysisFallbackReasonSchema = z.enum([
 export const EvolutionAnalysisResponseSchema = z.object({
   mode: AnalysisModeSchema,
   model: z.string().min(1),
-  fallbackReason: AnalysisFallbackReasonSchema.optional(),
   fitness: FitnessComparisonSchema,
   findings: z.array(FrictionFindingSchema).min(1),
   proposal: MutationProposalSchema,
@@ -803,7 +877,7 @@ export const HealthResponseSchema = z.object({
   service: z.literal('darwin-api'),
   version: z.string().min(1),
   analysis: z.object({
-    mode: z.enum(['mock', 'live']),
+    mode: z.literal('live'),
     model: z.string().min(1),
     liveModelAvailable: z.boolean(),
   }),
@@ -861,9 +935,7 @@ export type EvolutionAnalysisRequest = z.infer<
   typeof EvolutionAnalysisRequestSchema
 >;
 export type AnalysisMode = z.infer<typeof AnalysisModeSchema>;
-export type AnalysisFallbackReason = z.infer<
-  typeof AnalysisFallbackReasonSchema
->;
+export type AnalysisFailureReason = z.infer<typeof AnalysisFailureReasonSchema>;
 export type EvolutionAnalysisResponse = z.infer<
   typeof EvolutionAnalysisResponseSchema
 >;

@@ -200,12 +200,27 @@ describe('real telemetry evidence engine', () => {
       '2026-07-16T12:02:00.000Z',
     );
 
-    expect(pack.parserVersion).toBe('1.1.0');
+    expect(pack.parserVersion).toBe('1.2.0');
+    expect(pack.quality).toMatchObject({
+      strength: 'directional',
+      sessionCount: 1,
+      participantCount: 1,
+    });
+    expect(pack.journeys[0]?.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventRef: 'E-011',
+          eventType: 'hover_ended',
+          attributes: expect.objectContaining({ durationMs: 1450 }),
+        }),
+      ]),
+    );
     expect(pack.frictionSignals).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           ruleId: 'rage_click',
-          ruleVersion: '1.1.0',
+          ruleVersion: '1.2.0',
+          support: expect.objectContaining({ events: 2, sessions: 1 }),
           supportingEventIds: [id(12), id(13)],
         }),
         expect.objectContaining({

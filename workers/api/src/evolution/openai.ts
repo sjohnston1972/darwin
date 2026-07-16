@@ -1,4 +1,4 @@
-import type { AnalysisFallbackReason, MutationProposal } from '@darwin/shared';
+import type { AnalysisFailureReason, MutationProposal } from '@darwin/shared';
 
 import {
   EvolutionAnalysisError,
@@ -77,7 +77,7 @@ const defaultLogger: AnalysisLogger = {
 export class OpenAIAnalysisError extends EvolutionAnalysisError {
   constructor(
     message: string,
-    readonly code: AnalysisFallbackReason,
+    readonly code: AnalysisFailureReason,
   ) {
     super(message);
     this.name = 'OpenAIAnalysisError';

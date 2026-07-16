@@ -15,7 +15,7 @@ describe('shared contracts', () => {
         service: 'darwin-api',
         version: '0.1.0',
         analysis: {
-          mode: 'mock',
+          mode: 'live',
           model: 'gpt-5.6',
           liveModelAvailable: false,
         },

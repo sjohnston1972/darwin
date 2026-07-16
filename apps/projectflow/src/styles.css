@@ -695,14 +695,27 @@ button {
 
 .activity {
   display: grid;
-  grid-template-columns: 8px 1fr;
+  grid-template-columns: 8px minmax(0, 1fr) 14px;
+  width: 100%;
   align-items: start;
   gap: 9px;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
 
-.activity > span:last-child,
+.activity > span:nth-child(2),
 .upcoming span {
   display: grid;
+}
+
+.activity:hover strong,
+.activity:focus-visible strong,
+.upcoming:hover strong,
+.upcoming:focus-visible strong {
+  color: #24634f;
 }
 
 .activity strong,
@@ -740,19 +753,59 @@ button {
   border-bottom: 1px solid #e6eaec;
 }
 
-.capacity-chart span {
+.capacity-chart button {
+  position: relative;
   width: 100%;
   background: #74a8c2;
+  border: 0;
   border-radius: 3px 3px 0 0;
+  cursor: pointer;
+}
+
+.capacity-chart button:hover,
+.capacity-chart button:focus-visible {
+  background: #3f846d;
+  outline: 2px solid #fff;
+  outline-offset: -3px;
+}
+
+.capacity-chart button::after {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  z-index: 4;
+  display: none;
+  padding: 4px 6px;
+  color: #fff;
+  content: attr(data-capacity);
+  white-space: nowrap;
+  background: #25343b;
+  border-radius: 3px;
+  font-size: 8px;
+  transform: translateX(-50%);
+}
+
+.capacity-chart button:hover::after,
+.capacity-chart button:focus-visible::after {
+  display: block;
 }
 
 .upcoming {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 10px;
   padding: 9px 0;
   color: #6780a0;
+  text-align: left;
+  background: transparent;
+  border: 0;
   border-top: 1px solid #edf0f2;
+  cursor: pointer;
+}
+
+.upcoming > svg:last-child {
+  margin-left: auto;
 }
 
 .table-panel {

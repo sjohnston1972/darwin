@@ -38,6 +38,100 @@ const studyEvent = {
   eventType: 'page_view',
 } as const;
 
+const liveProposal = {
+  id: 'mutation-global-task-discovery-v1',
+  name: 'Promote global task discovery',
+  observation: 'Assigned tasks are difficult to locate.',
+  evidence: ['Measured navigation paths are longer than necessary.'],
+  hypothesis: 'A direct assigned-work route will reduce path length.',
+  implementationSummary: 'Promote My Work and global search.',
+  predictedFitnessGain: 20.8,
+  confidence: 0.86,
+  risk: 'low',
+  affectedFiles: ['apps/projectflow/src/App.tsx'],
+  status: 'proposed',
+} as const;
+
+const candidate = (id: string, total: number) => ({
+  id,
+  title: `Mutation ${id}`,
+  problem: 'Assigned work takes too many interactions to reach.',
+  evidenceIds: ['EV-001'],
+  pressureClusterIds: ['task-discovery-pressure'],
+  hypothesis: 'A direct route will improve discovery.',
+  change: `Implement ${id} as a direct task-discovery capability.`,
+  predictedImpact: {
+    metric: 'navigation efficiency',
+    direction: 'increase',
+    rationale: 'It removes intermediate routes.',
+  },
+  confidence: 0.8,
+  scorecard: {
+    evidenceStrength: 70,
+    userImpact: total,
+    feasibility: total,
+    validationClarity: total,
+    total,
+  },
+  scope: ['navigation'],
+  tradeoffs: ['Adds a persistent navigation choice.'],
+  acceptanceCriteria: ['Assigned work is directly reachable.'],
+  validationPlan: {
+    primaryMetric: 'Median interactions to assigned task',
+    baseline: 'Measured path contains seven interactions',
+    successThreshold: 'Four or fewer measured interactions',
+    guardrails: ['Task completion rate does not decrease.'],
+  },
+  codexBrief: `Implement ${id} while preserving existing routes.`,
+});
+
+const evidenceModelOutput = {
+  evidenceAssessment: {
+    summary: 'The ordered journey shows indirect assigned-work navigation.',
+    pressureClusters: [
+      {
+        id: 'task-discovery-pressure',
+        title: 'Assigned work is buried',
+        interpretation: 'The information architecture hides assigned tasks.',
+        evidenceIds: ['EV-001'],
+        affectedTargets: ['nav-projects'],
+        userConsequence: 'Users take a long route to assigned work.',
+        competingExplanations: ['The participant may be unfamiliar.'],
+        mutationOpportunity: 'Create a direct assigned-work destination.',
+      },
+    ],
+    selectionRationale: 'The direct route has the clearest causal path.',
+  },
+  selectedMutation: candidate('direct-my-work', 90),
+  alternatives: [
+    candidate('dashboard-work-queue', 75),
+    candidate('global-search', 70),
+  ],
+  unsupportedIdeasRejected: [
+    { idea: 'Rewrite telemetry', reason: 'Telemetry is protected.' },
+  ],
+};
+
+const liveEnv = {
+  DARWIN_AI_MODE: 'live',
+  OPENAI_API_KEY: 'sk-test-secret',
+  OPENAI_MODEL: 'gpt-5.6',
+} as const;
+
+const installOpenAIResponse = (output: unknown) =>
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'resp_test_live',
+          output_text: JSON.stringify(output),
+        }),
+        { status: 200 },
+      ),
+    ),
+  );
+
 describe('Darwin API', () => {
   beforeEach(async () => {
     resetSimulationStore();
@@ -57,7 +151,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.18.0');
+    expect(body.version).toBe('0.19.0');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -363,12 +457,15 @@ describe('Darwin API', () => {
 
     const analysisPath =
       'http://localhost/api/studies/projectflow-baseline-study/analyse-evidence';
+    installOpenAIResponse(evidenceModelOutput);
     const firstResponse = await handleRequest(
       new Request(analysisPath, { method: 'POST' }),
+      liveEnv,
     );
     const first = EvidenceAnalysisSchema.parse(await firstResponse.json());
     const secondResponse = await handleRequest(
       new Request(analysisPath, { method: 'POST' }),
+      liveEnv,
     );
     const second = EvidenceAnalysisSchema.parse(await secondResponse.json());
 
@@ -431,7 +528,7 @@ describe('Darwin API', () => {
     });
   });
 
-  it('analyses a simulation into fitness, ranked findings, and one proposal', async () => {
+  it('refuses to invent a simulation proposal when GPT is unavailable', async () => {
     await handleRequest(
       new Request('http://localhost/api/simulations', {
         method: 'POST',
@@ -446,20 +543,10 @@ describe('Darwin API', () => {
         body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
       }),
     );
-    const analysis = EvolutionAnalysisResponseSchema.parse(
-      await response.json(),
-    );
-
-    expect(response.status).toBe(200);
-    expect(analysis.fitness.baseline.score).toBeLessThan(
-      analysis.fitness.evolved.score,
-    );
-    expect(analysis).toMatchObject({
-      mode: 'mock',
-      model: 'deterministic-mock',
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'analysis_failed',
     });
-    expect(analysis.findings[0]?.id).toBe('finding-task-discovery');
-    expect(analysis.proposal.id).toBe('mutation-global-task-discovery-v1');
   });
 
   it('returns a schema-valid live analysis when GPT-5.6 mode succeeds', async () => {
@@ -471,28 +558,7 @@ describe('Darwin API', () => {
         body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
       }),
     );
-    const mockResponse = await handleRequest(
-      new Request('http://localhost/api/evolution/analyse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
-      }),
-    );
-    const mockAnalysis = EvolutionAnalysisResponseSchema.parse(
-      await mockResponse.json(),
-    );
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            id: 'resp_api_live',
-            output_text: JSON.stringify(mockAnalysis.proposal),
-          }),
-          { status: 200 },
-        ),
-      ),
-    );
+    installOpenAIResponse(liveProposal);
 
     const response = await handleRequest(
       new Request('http://localhost/api/evolution/analyse', {
@@ -500,11 +566,7 @@ describe('Darwin API', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
       }),
-      {
-        DARWIN_AI_MODE: 'live',
-        OPENAI_API_KEY: 'sk-test-secret',
-        OPENAI_MODEL: 'gpt-5.6',
-      },
+      liveEnv,
     );
     const analysis = EvolutionAnalysisResponseSchema.parse(
       await response.json(),
@@ -526,12 +588,14 @@ describe('Darwin API', () => {
         body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
       }),
     );
+    installOpenAIResponse(liveProposal);
     await handleRequest(
       new Request('http://localhost/api/evolution/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
       }),
+      liveEnv,
     );
 
     const approvalResponse = await handleRequest(
@@ -667,12 +731,14 @@ describe('Darwin API', () => {
         body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
       }),
     );
+    installOpenAIResponse(liveProposal);
     await handleRequest(
       new Request('http://localhost/api/evolution/analyse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
       }),
+      liveEnv,
     );
 
     const response = await handleRequest(

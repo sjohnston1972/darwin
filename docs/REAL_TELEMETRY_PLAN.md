@@ -117,11 +117,10 @@ The initial detectors are:
 - `zoom_readability`: browser zoom increases by at least 5% during the session,
   indicating possible text readability pressure.
 
-The reasoning policy maps the strongest target-specific signals to bounded
-remediation priors: hover hesitation exposes item stats, drag expectation enables
-accessible dragging, false affordances gain a useful destination, browser Back
-dependency adds an in-app Back control, and zoom readability increases the type
-scale. GPT-5.6 must still cite the evidence and remain inside mutable areas.
+The evolution catalogue contains concrete prior examples, including hover context,
+accessible dragging, useful destinations for false affordances, in-app Back controls,
+and readable type scales. They are candidate patterns, not prescriptive mappings.
+GPT-5.6 must reconcile them with ordered journeys and actual ProjectFlow source.
 
 The client emits the observable measurements and bounded derived signals. The
 versioned TypeScript evidence engine, not GPT-5.6, decides which measurements
@@ -134,14 +133,16 @@ session trace rich while keeping the single model call small and auditable.
 
 An evidence pack is canonical JSON containing study boundaries, parser version,
 source event count, application version, repository commit, task aggregates,
-friction signals, supporting record references, mutable areas and protected
-areas. Darwin stores its SHA-256 hash.
+friction signals, recurrence counts, up to 50 complete privacy-safe ordered
+journeys, an evidence coverage assessment, mutable areas and protected areas.
+Darwin stores its SHA-256 hash.
 
-GPT-5.6 receives one compact evidence pack per cycle, not raw sessions. It may
-return up to three candidates, must cite known evidence IDs for behavioural
-claims, must mark impact as predicted, and must select one bounded mutation.
-Darwin rejects unknown citations, protected scopes and malformed output. Results
-are cached by evidence hash, prompt version and model.
+GPT-5.6 receives one bounded evidence pack per cycle. It returns one selected
+mutation and two to five alternatives, clusters causal pressures, records competing
+explanations, cites known evidence IDs, and marks impact as predicted. Darwin
+rejects unknown citations, unobserved targets, protected scopes, and malformed
+output. Results are cached by evidence hash, prompt version, model, and static
+source-context version. Failure produces no substitute recommendation.
 
 Codex receives only the approved proposal, cited evidence, relevant repository
 files, allowed paths and acceptance commands. A local controlled runner records

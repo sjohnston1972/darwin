@@ -208,9 +208,9 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.18.0',
+      version: '0.19.0',
       analysis: {
-        mode: env?.DARWIN_AI_MODE === 'live' ? 'live' : 'mock',
+        mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
         liveModelAvailable:
           env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
@@ -471,7 +471,7 @@ export const handleRequest = async (
         apiKey: openAIKey(env),
         model,
         timeoutMs: Number.isFinite(configuredTimeout)
-          ? Math.min(30_000, Math.max(1_000, configuredTimeout))
+          ? Math.min(60_000, Math.max(1_000, configuredTimeout))
           : 12_000,
       });
       await telemetryRepository.saveEvidenceAnalysis(studyId, analysis);
@@ -706,7 +706,7 @@ export const handleRequest = async (
     try {
       const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
       const timeoutMs = Number.isFinite(configuredTimeout)
-        ? Math.min(30_000, Math.max(1_000, configuredTimeout))
+        ? Math.min(60_000, Math.max(1_000, configuredTimeout))
         : 12_000;
       const analysis = await executeEvolutionAnalysis(
         { summary: baseline.summary, findings, fitness },
@@ -720,7 +720,6 @@ export const handleRequest = async (
       const response = EvolutionAnalysisResponseSchema.parse({
         mode: analysis.mode,
         model: analysis.model,
-        fallbackReason: analysis.fallbackReason,
         fitness,
         findings,
         proposal: analysis.proposal,

@@ -1,6 +1,5 @@
 export {
   EvolutionAnalysisError,
-  MockEvolutionAnalyzer,
   validateMutationProposal,
   type EvolutionAnalysisInput,
   type EvolutionAnalyzer,

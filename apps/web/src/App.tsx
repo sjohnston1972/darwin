@@ -57,7 +57,7 @@ interface ApiHealthState {
   status: HealthState;
   version: string | null;
   analysis: {
-    mode: 'mock' | 'live';
+    mode: 'live';
     model: string;
     liveModelAvailable: boolean;
   } | null;
@@ -80,7 +80,7 @@ const navItems = [
     label: 'Observations',
     icon: Radar,
     active: false,
-    help: 'Review the deterministic telemetry sample and selection pressure.',
+    help: 'Review measured journeys, evidence quality, and recurring selection pressure.',
   },
   {
     label: 'Mutations',
@@ -145,6 +145,9 @@ function App() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const targetOnly =
     new URLSearchParams(window.location.search).get('view') === 'target';
+  const simulationLab =
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get('lab') === 'simulation';
   const [organismVariant, setOrganismVariant] = useState<ProjectFlowVariant>(
     () =>
       new URLSearchParams(window.location.search).get('variant') === 'evolved'
@@ -156,59 +159,51 @@ function App() {
   const resetDemo = async () => {
     if (await demo.reset()) liveTelemetry.resetState();
   };
-  const observed = demo.eventCount.toLocaleString('en-US');
-  const measuredFitness = demo.analysis
-    ? demo.organism.variant === 'evolved'
-      ? demo.analysis.fitness.evolved.score
-      : demo.analysis.fitness.baseline.score
-    : (demo.timeline.at(-1)?.fitness.score ?? null);
+  const recentSessions = new Set(
+    liveTelemetry.events.map((event) => event.sessionId),
+  ).size;
 
   const metrics = [
     {
-      label: 'Interactions observed',
-      help: 'Synthetic interactions processed in the controlled 10,000-event demonstration. Live human evidence is shown separately below.',
-      value: observed,
-      meta:
-        demo.stage === 'observing'
-          ? 'Seed 1859 in progress'
-          : demo.eventCount === 10_000
-            ? 'Deterministic sample complete'
-            : 'Awaiting observation',
-      tone: demo.eventCount === 10_000 ? 'signal' : 'neutral',
+      label: 'Measured events',
+      help: 'Semantic events emitted by real ProjectFlow browser sessions and persisted in D1.',
+      value: liveTelemetry.count.toLocaleString('en-US'),
+      meta: liveTelemetry.count
+        ? 'Measured ProjectFlow behavior'
+        : 'Awaiting a real session',
+      tone: liveTelemetry.count ? 'signal' : 'neutral',
     },
     {
-      label: 'Evolution cycles',
-      help: 'Mutations that completed approval, validation, release, and retention.',
-      value: String(demo.organism.evolutionCycles),
-      meta:
-        demo.organism.evolutionCycles > 0
-          ? 'Mutation survived selection'
-          : 'No mutations retained',
-      tone: demo.organism.evolutionCycles > 0 ? 'signal' : 'neutral',
+      label: 'Measured sessions',
+      help: 'Independent ordered browser journeys represented by the current evidence pack.',
+      value: String(liveTelemetry.evidence?.study.sessions ?? recentSessions),
+      meta: `${liveTelemetry.evidence?.study.participants ?? 0} anonymous participants`,
+      tone: recentSessions ? 'signal' : 'neutral',
     },
     {
-      label: 'Current fitness',
-      help: 'A 0-100 weighted score covering completion, navigation efficiency, errors, discovery, and task duration.',
-      value: measuredFitness === null ? '--' : measuredFitness.toFixed(1),
-      meta:
-        demo.organism.variant === 'evolved'
-          ? demo.analysis
-            ? `+${demo.analysis.fitness.delta.toFixed(1)} fitness`
-            : 'Released fitness measured'
-          : demo.analysis
-            ? 'Baseline measured'
-            : 'Baseline not measured',
-      tone: demo.organism.variant === 'evolved' ? 'signal' : 'amber',
+      label: 'Evidence strength',
+      help: 'Server-derived coverage score based on event volume, independent sessions, participants, and completed attempts.',
+      value: liveTelemetry.evidence
+        ? `${liveTelemetry.evidence.quality.score}`
+        : '--',
+      meta: liveTelemetry.evidence
+        ? `${liveTelemetry.evidence.quality.strength} evidence`
+        : 'Generate an evidence pack',
+      tone:
+        liveTelemetry.evidence?.quality.strength === 'substantial'
+          ? 'signal'
+          : 'amber',
     },
     {
-      label: 'Genome version',
-      help: 'The active ProjectFlow configuration. v1.0 is baseline; v1.1 contains the retained navigation mutation.',
-      value: demo.organism.genomeVersion,
-      meta:
-        demo.organism.variant === 'evolved'
-          ? 'Mutation released'
-          : 'Baseline retained',
-      tone: demo.organism.variant === 'evolved' ? 'signal' : 'neutral',
+      label: 'Live reasoning',
+      help: 'The current measured evidence portfolio produced by the configured OpenAI model. Darwin never substitutes an invented recommendation.',
+      value: liveTelemetry.analysis ? 'READY' : '--',
+      meta: liveTelemetry.analysis
+        ? `${liveTelemetry.analysis.alternatives.length + 1} mutations scored`
+        : health.analysis?.liveModelAvailable
+          ? `${health.analysis.model} available`
+          : 'Live model unavailable',
+      tone: liveTelemetry.analysis ? 'signal' : 'neutral',
     },
   ] as const;
 
@@ -440,57 +435,41 @@ function App() {
             </div>
             <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
               <div className="start-action-wrap">
-                {['idle', 'error'].includes(demo.stage) && !demo.analysis && (
+                {!liveTelemetry.count && (
                   <span className="start-here-cue" aria-hidden="true">
                     Start here <ArrowDownRight size={17} />
                   </span>
                 )}
-                <button
+                <a
                   className="primary-action"
-                  type="button"
-                  onClick={() => void demo.observe()}
-                  disabled={!['idle', 'error'].includes(demo.stage)}
-                  data-explain="Creates exactly 10,000 deterministic ProjectFlow interactions, calculates selection pressure, then invokes the configured GPT-5.6 analyzer once for the resulting evidence."
+                  href={`${projectFlowBaseUrl}/study`}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
                 >
-                  {demo.stage === 'observing' ? (
-                    <CircleDashed className="is-spinning" size={17} />
-                  ) : demo.stage === 'released' ? (
-                    <Check size={17} />
-                  ) : (
-                    <Radar size={17} />
-                  )}
-                  {demo.stage === 'observing'
-                    ? `Observing ${observed}`
-                    : demo.stage === 'released'
-                      ? 'Evolution cycle complete'
-                      : demo.analysis
-                        ? 'Observation complete'
-                        : 'Observe 10,000 interactions'}
-                </button>
+                  <Radar size={17} /> Open measured study
+                </a>
               </div>
-              <span className={`demo-status status-${demo.stage}`}>
-                {demo.stage === 'idle' && <CircleDashed size={15} />}
-                {demo.stage === 'observing' && <Activity size={15} />}
-                {demo.stage === 'proposal' && <FlaskConical size={15} />}
-                {demo.stage === 'deciding' && <CircleDashed size={15} />}
-                {demo.stage === 'approved' && <CheckCircle2 size={15} />}
-                {demo.stage === 'validating' && <CircleDashed size={15} />}
-                {demo.stage === 'validated' && <FileCheck2 size={15} />}
-                {demo.stage === 'releasing' && <CircleDashed size={15} />}
-                {demo.stage === 'released' && <Rocket size={15} />}
-                {demo.stage === 'rejected' && <ShieldCheck size={15} />}
-                {demo.stage === 'resetting' && <RotateCcw size={15} />}
-                {demo.stage === 'error' && <AlertTriangle size={15} />}
-                {stageLabel(demo.stage)}
+              <span className="demo-status status-idle">
+                <Activity size={15} />
+                {liveTelemetry.analysis
+                  ? 'Live mutation portfolio ready'
+                  : liveTelemetry.evidence
+                    ? `${liveTelemetry.evidence.frictionSignals.length} pressures ready for GPT`
+                    : liveTelemetry.count
+                      ? `${liveTelemetry.count} measured events`
+                      : 'Awaiting measured behavior'}
               </span>
             </div>
           </section>
 
-          <EvolutionGuide
-            stage={demo.stage}
-            analysis={health.analysis}
-            resultMode={demo.analysis?.mode ?? null}
-          />
+          {simulationLab && (
+            <EvolutionGuide
+              stage={demo.stage}
+              analysis={health.analysis}
+              resultMode={demo.analysis?.mode ?? null}
+            />
+          )}
 
           <section
             className="metric-grid"
@@ -521,7 +500,7 @@ function App() {
             analysisConfig={health.analysis}
           />
 
-          {(demo.stage !== 'idle' || demo.error) && (
+          {simulationLab && (demo.stage !== 'idle' || demo.error) && (
             <ObservationPanel
               eventCount={demo.eventCount}
               summary={demo.summary}
@@ -530,7 +509,7 @@ function App() {
             />
           )}
 
-          {demo.analysis && (
+          {simulationLab && demo.analysis && (
             <MutationWorkspace
               analysis={demo.analysis}
               stage={demo.stage}
@@ -538,7 +517,7 @@ function App() {
             />
           )}
 
-          {demo.analysis && demo.mutationDiff && (
+          {simulationLab && demo.analysis && demo.mutationDiff && (
             <ValidationWorkspace
               analysis={demo.analysis}
               diff={demo.mutationDiff}
@@ -821,7 +800,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.18.0</p>
+            <p className="font-mono">DARWIN CORE 0.19.0</p>
           </footer>
         </div>
       </main>
@@ -829,30 +808,8 @@ function App() {
   );
 }
 
-const stageLabel = (stage: DemoStage) => {
-  const labels: Record<DemoStage, string> = {
-    idle: 'Seed 1859 locked',
-    observing: 'Telemetry stream active',
-    proposal: 'Selection pressure detected',
-    deciding: 'Recording decision',
-    approved: 'Mutation approved · validation required',
-    validating: 'Repository checks in progress',
-    validated: 'Mutation passed validation',
-    releasing: 'Applying selected genome',
-    released: 'Mutation survived · evolved active',
-    rejected: 'Failed selection · baseline retained',
-    resetting: 'Restoring baseline',
-    error: 'Evolution cycle interrupted',
-  };
-  return labels[stage];
-};
-
 const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
-  if (analysis.mode === 'live') return `${analysis.model} live`;
-  if (analysis.mode === 'fallback') {
-    return `Mock fallback · ${analysis.fallbackReason?.replaceAll('_', ' ') ?? 'unavailable'}`;
-  }
-  return 'Deterministic mock';
+  return `${analysis.model} live`;
 };
 
 function InfoTip({ text }: { text: string }) {
@@ -888,14 +845,9 @@ function EvolutionGuide({
     error: 1,
   };
   const current = rank[stage];
-  const modelMode = resultMode ?? analysis?.mode ?? 'mock';
+  const modelMode = resultMode ?? analysis?.mode ?? 'live';
   const model = analysis?.model ?? 'gpt-5.6';
-  const modelLabel =
-    modelMode === 'live'
-      ? 'Live model call'
-      : modelMode === 'fallback'
-        ? 'Fallback result'
-        : 'Deterministic mock';
+  const modelLabel = modelMode === 'live' ? 'Live model call' : 'Unavailable';
   const steps = [
     {
       label: 'Observe',
@@ -905,7 +857,7 @@ function EvolutionGuide({
     {
       label: `${model} reasons`,
       detail: 'One structured call',
-      help: 'After aggregation, the analyzer receives fitness, ranked friction, and ProjectFlow context. Live mode calls the OpenAI Responses API once; mock mode returns the same validated contract deterministically.',
+      help: 'After aggregation, the analyzer receives fitness, ranked friction, and ProjectFlow context. GPT is required; an unavailable model produces no recommendation.',
     },
     {
       label: 'Human approval',
@@ -1026,7 +978,7 @@ function LiveTelemetryPanel({
             type="button"
             disabled={!telemetry.count || telemetry.generating}
             onClick={() => void telemetry.generateEvidence()}
-            data-explain="Run the deterministic evidence parser over the current D1 events to reconstruct attempts and emit citeable friction signals."
+            data-explain="Parse the current measured D1 events into ordered journeys, coverage quality, task attempts, and citeable friction signals."
           >
             {telemetry.generating ? (
               <CircleDashed className="is-spinning" size={15} />
@@ -1134,6 +1086,14 @@ function LiveTelemetryPanel({
                 <dd>{telemetry.evidence.parserVersion}</dd>
               </div>
               <div>
+                <dt>Quality</dt>
+                <dd>{telemetry.evidence.quality.score}/100</dd>
+              </div>
+              <div>
+                <dt>Journeys</dt>
+                <dd>{telemetry.evidence.journeys.length}</dd>
+              </div>
+              <div>
                 <dt>Attempts</dt>
                 <dd>{telemetry.evidence.study.attempts}</dd>
               </div>
@@ -1156,10 +1116,9 @@ function LiveTelemetryPanel({
                   <p>{signal.summary}</p>
                   <div className="signal-provenance">
                     <span>Rule {signal.ruleVersion}</span>
-                    <span>
-                      {signal.supportingEventIds.length} source events
-                    </span>
-                    <span>{signal.affectedAttemptIds.length} attempts</span>
+                    <span>{signal.support.events} events</span>
+                    <span>{signal.support.sessions} sessions</span>
+                    <span>{signal.support.participants} participants</span>
                   </div>
                   <div className="signal-trace">
                     {signal.trace.map((event) => (
@@ -1177,6 +1136,22 @@ function LiveTelemetryPanel({
               </p>
             )}
           </div>
+          <div className="evidence-quality-band">
+            <div>
+              <span>Evidence quality</span>
+              <strong>{telemetry.evidence.quality.strength}</strong>
+              <code>{telemetry.evidence.quality.score}/100</code>
+            </div>
+            {telemetry.evidence.quality.limitations.length ? (
+              <ul>
+                {telemetry.evidence.quality.limitations.map((limitation) => (
+                  <li key={limitation}>{limitation}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>No material coverage limitation detected.</p>
+            )}
+          </div>
           <div className="reasoning-workspace">
             <div className="reasoning-heading">
               <div>
@@ -1184,15 +1159,15 @@ function LiveTelemetryPanel({
                 <div className="reasoning-title">
                   <strong>{configuredModel} evidence reasoning</strong>
                   <span
-                    className={`model-runtime ${liveModelAvailable ? 'is-live' : 'is-mock'}`}
+                    className={`model-runtime ${liveModelAvailable ? 'is-live' : 'is-unavailable'}`}
                   >
-                    {liveModelAvailable ? 'LIVE API' : 'DETERMINISTIC MOCK'}
+                    {liveModelAvailable ? 'LIVE API' : 'UNAVAILABLE'}
                   </span>
                   <InfoTip text="This is the model invocation point. One request is made per evidence hash and cached; invalid citations or protected scope are rejected before a proposal can continue." />
                 </div>
                 <p>
-                  One structured call per evidence hash. Unknown citations and
-                  protected scope are rejected.
+                  Ordered journeys are reconstructed first. GPT must explain
+                  competing causes and return a scored mutation portfolio.
                 </p>
                 <div
                   className="model-context"
@@ -1204,9 +1179,9 @@ function LiveTelemetryPanel({
                   <code>active variant</code>
                   <code>capabilities</code>
                   <code>friction signals</code>
-                  <code>bounded traces</code>
-                  <code>remediation policy</code>
-                  <code>50 evolution examples</code>
+                  <code>complete ordered journeys</code>
+                  <code>coverage limitations</code>
+                  <code>50 mutation examples</code>
                   <code>ProjectFlow source</code>
                 </div>
               </div>
@@ -1215,7 +1190,8 @@ function LiveTelemetryPanel({
                 type="button"
                 disabled={
                   !telemetry.evidence.frictionSignals.length ||
-                  telemetry.analysing
+                  telemetry.analysing ||
+                  !liveModelAvailable
                 }
                 onClick={() => void telemetry.analyseEvidence()}
                 data-explain={`Invoke ${configuredModel} once for this evidence hash. The request contains aggregate evidence and the structured ProjectFlow application map, never raw participant records.`}
@@ -1231,7 +1207,7 @@ function LiveTelemetryPanel({
                     ? 'Open cached reasoning'
                     : liveModelAvailable
                       ? `Ask ${configuredModel}`
-                      : `Run ${configuredModel} mock`}
+                      : 'Live model unavailable'}
               </button>
             </div>
             {telemetry.analysis && (
@@ -1249,8 +1225,46 @@ function LiveTelemetryPanel({
                         : `${telemetry.analysis.promptCache.cachedTokens} tokens`}
                     </code>
                   )}
-                  {telemetry.analysis.fallbackReason && (
-                    <span>{telemetry.analysis.fallbackReason}</span>
+                </div>
+                <div className="reasoning-assessment">
+                  <div>
+                    <span>Evidence assessment</span>
+                    <strong>
+                      {telemetry.analysis.evidenceAssessment.quality.strength}
+                    </strong>
+                    <code>
+                      {telemetry.analysis.evidenceAssessment.quality.score}/100
+                    </code>
+                  </div>
+                  <p>{telemetry.analysis.evidenceAssessment.summary}</p>
+                </div>
+                <div className="pressure-clusters">
+                  <span>Selection pressure clusters</span>
+                  {telemetry.analysis.evidenceAssessment.pressureClusters.map(
+                    (cluster) => (
+                      <details key={cluster.id}>
+                        <summary>
+                          <strong>{cluster.title}</strong>
+                          <code>{cluster.evidenceIds.join(' + ')}</code>
+                          <ChevronRight size={15} />
+                        </summary>
+                        <p>{cluster.interpretation}</p>
+                        <dl>
+                          <div>
+                            <dt>User consequence</dt>
+                            <dd>{cluster.userConsequence}</dd>
+                          </div>
+                          <div>
+                            <dt>Competing explanations</dt>
+                            <dd>{cluster.competingExplanations.join(' · ')}</dd>
+                          </div>
+                          <div>
+                            <dt>Evolution opportunity</dt>
+                            <dd>{cluster.mutationOpportunity}</dd>
+                          </div>
+                        </dl>
+                      </details>
+                    ),
                   )}
                 </div>
                 <div className="selected-mutation">
@@ -1269,10 +1283,9 @@ function LiveTelemetryPanel({
                         ),
                       )}
                       <span>
-                        {Math.round(
-                          telemetry.analysis.selectedMutation.confidence * 100,
-                        )}
-                        % confidence
+                        score{' '}
+                        {telemetry.analysis.selectedMutation.scorecard.total}
+                        /100
                       </span>
                       <span>
                         {
@@ -1285,6 +1298,39 @@ function LiveTelemetryPanel({
                         }
                       </span>
                     </div>
+                    <p className="selection-rationale">
+                      {telemetry.analysis.evidenceAssessment.selectionRationale}
+                    </p>
+                    <div className="mutation-scorecard">
+                      {Object.entries(
+                        telemetry.analysis.selectedMutation.scorecard,
+                      ).map(([label, score]) => (
+                        <div key={label}>
+                          <span>{label.replace(/([A-Z])/g, ' $1')}</span>
+                          <strong>{score}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="validation-plan">
+                      <span>Measured validation plan</span>
+                      <strong>
+                        {
+                          telemetry.analysis.selectedMutation.validationPlan
+                            .primaryMetric
+                        }
+                      </strong>
+                      <p>
+                        {
+                          telemetry.analysis.selectedMutation.validationPlan
+                            .baseline
+                        }{' '}
+                        →{' '}
+                        {
+                          telemetry.analysis.selectedMutation.validationPlan
+                            .successThreshold
+                        }
+                      </p>
+                    </div>
                   </div>
                 </div>
                 {telemetry.analysis.alternatives.length > 0 && (
@@ -1292,9 +1338,12 @@ function LiveTelemetryPanel({
                     <span>Alternatives considered</span>
                     {telemetry.analysis.alternatives.map((candidate) => (
                       <div key={candidate.id}>
-                        <strong>{candidate.title}</strong>
-                        <code>{candidate.evidenceIds.join(', ')}</code>
-                        <span>{Math.round(candidate.confidence * 100)}%</span>
+                        <div>
+                          <strong>{candidate.title}</strong>
+                          <code>{candidate.evidenceIds.join(', ')}</code>
+                        </div>
+                        <p>{candidate.change}</p>
+                        <span>{candidate.scorecard.total}/100</span>
                       </div>
                     ))}
                   </div>
@@ -1337,53 +1386,6 @@ function LiveTelemetryPanel({
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
-      {telemetry.outcome && (
-        <div className="outcome-validation">
-          <div className="outcome-heading">
-            <div>
-              <span className="evidence-class">AUTOMATED</span>
-              <strong>Versioned outcome validation</strong>
-              <p>
-                Same task, same browser script, separate v1.0 and v1.1 cohorts.
-                This is not a measured human outcome.
-              </p>
-            </div>
-            <span className="outcome-provenance">
-              {telemetry.outcome.provenance.replaceAll('_', ' ')}
-            </span>
-          </div>
-          <div className="outcome-comparison">
-            <div>
-              <span>Baseline · v{telemetry.outcome.baseline.appVersion}</span>
-              <strong>{telemetry.outcome.baseline.medianInteractions}</strong>
-              <small>median interactions</small>
-              <code>
-                {telemetry.outcome.baseline.evidenceHash.slice(0, 12)}
-              </code>
-            </div>
-            <div className="outcome-delta">
-              <TrendingUp size={18} />
-              <strong>{telemetry.outcome.delta.interactions}</strong>
-              <span>interactions</span>
-            </div>
-            <div>
-              <span>Evolved · v{telemetry.outcome.evolved.appVersion}</span>
-              <strong>{telemetry.outcome.evolved.medianInteractions}</strong>
-              <small>median interactions</small>
-              <code>{telemetry.outcome.evolved.evidenceHash.slice(0, 12)}</code>
-            </div>
-          </div>
-          <div className="outcome-conclusion">
-            <CheckCircle2 size={16} />
-            <span>{telemetry.outcome.conclusion}</span>
-            <code>
-              {Math.round(telemetry.outcome.baseline.completionRate * 100)}% →{' '}
-              {Math.round(telemetry.outcome.evolved.completionRate * 100)}%
-              completion
-            </code>
           </div>
         </div>
       )}

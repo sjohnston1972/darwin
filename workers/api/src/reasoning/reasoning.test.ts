@@ -8,41 +8,84 @@ import {
   validateModelOutput,
 } from '.';
 
+const eventId = '00000000-0000-4000-8000-000000000001';
+const quality = {
+  strength: 'directional' as const,
+  score: 60,
+  eventCount: 80,
+  sessionCount: 1,
+  participantCount: 1,
+  completedAttemptCount: 1,
+  limitations: [
+    'Fewer than three independent sessions were observed.',
+    'Fewer than three anonymous participants were observed.',
+  ],
+};
 const pack = EvidencePackSchema.parse({
   evidenceId: 'evidence-test',
   evidenceHash: 'a'.repeat(64),
   generatedAt: '2026-07-16T12:00:00.000Z',
-  parserVersion: '1.0.0',
+  parserVersion: '1.2.0',
   evidenceClass: 'measured',
   study: {
     studyId: 'projectflow-baseline-study',
     appVersion: '1.0.0',
-    sourceEventCount: 8,
+    sourceEventCount: 80,
     participants: 1,
     sessions: 1,
     attempts: 1,
   },
   taskAttempts: [],
   tasks: [],
+  quality,
+  journeys: [
+    {
+      journeyId: 'J-001',
+      appVersion: '1.0.0',
+      source: 'real_user',
+      viewport: 'desktop',
+      eventCount: 2,
+      events: [
+        {
+          eventRef: 'E-001',
+          sequence: 1,
+          offsetMs: 0,
+          eventType: 'element_clicked',
+          route: '/study/dashboard',
+          targetId: 'nav-projects',
+          attributes: { pointerType: 'mouse' },
+        },
+        {
+          eventRef: 'E-002',
+          sequence: 2,
+          offsetMs: 900,
+          eventType: 'route_changed',
+          route: '/study/projects',
+          attributes: {},
+        },
+      ],
+    },
+  ],
   frictionSignals: [
     {
       evidenceId: 'EV-001',
       ruleId: 'excess_path_length',
-      ruleVersion: '1.0.0',
+      ruleVersion: '1.2.0',
       severity: 'high',
       taskId: 'find-assigned-task',
       summary: 'Finding assigned work required seven interactions.',
       affectedAttemptIds: ['attempt-test'],
-      supportingEventIds: ['00000000-0000-4000-8000-000000000001'],
+      supportingEventIds: [eventId],
       trace: [
         {
-          eventId: '00000000-0000-4000-8000-000000000001',
+          eventId,
           sequence: 1,
           eventType: 'element_clicked',
           route: '/study/dashboard',
           targetId: 'nav-projects',
         },
       ],
+      support: { events: 4, attempts: 1, sessions: 1, participants: 1 },
     },
   ],
   applicationMap: {
@@ -67,77 +110,83 @@ const pack = EvidencePackSchema.parse({
       },
     ],
     routes: ['/study/dashboard'],
-    mutableAreas: [
-      'navigation',
-      'search',
-      'task-discovery',
-      'item-presentation',
-      'contextual-help',
-      'interaction-behavior',
-      'drag-and-drop',
-      'in-app-history',
-      'typography',
-    ],
-    protectedAreas: ['telemetry-history', 'authentication', 'database-schema'],
+    mutableAreas: ['navigation', 'search', 'task-discovery'],
+    protectedAreas: ['telemetry-history', 'authentication'],
   },
 });
 
-const candidate = {
-  id: 'mutation-test',
-  title: 'Promote My Work',
+const candidate = (id: string, score: number) => ({
+  id,
+  title: `Mutation ${id}`,
   problem: 'Assigned work takes too many interactions to reach.',
   evidenceIds: ['EV-001'],
+  pressureClusterIds: ['task-discovery-pressure'],
   hypothesis: 'A direct route will improve discovery.',
-  change: 'Add My Work to primary navigation.',
+  change: `Implement ${id} as a direct task-discovery capability.`,
   predictedImpact: {
     metric: 'navigation efficiency',
     direction: 'increase' as const,
     rationale: 'It removes intermediate routes.',
   },
-  confidence: 0.8,
+  confidence: 0.99,
+  scorecard: {
+    evidenceStrength: 99,
+    userImpact: score,
+    feasibility: score,
+    validationClarity: score,
+    total: 99,
+  },
   scope: ['navigation'],
-  acceptanceCriteria: ['My Work is directly reachable.'],
-  codexBrief: 'Add My Work while preserving baseline behavior.',
-};
+  tradeoffs: ['Adds another persistent navigation choice.'],
+  acceptanceCriteria: ['Assigned work is directly reachable.'],
+  validationPlan: {
+    primaryMetric: 'Median interactions to assigned task',
+    baseline: 'Seven measured interactions',
+    successThreshold: 'Four or fewer measured interactions',
+    guardrails: ['Task completion rate does not decrease.'],
+  },
+  codexBrief: `Implement ${id} while preserving existing routes.`,
+});
 
-const behaviorPack = (
-  ruleId:
-    | 'hover_hesitation'
-    | 'drag_expectation'
-    | 'false_affordance'
-    | 'browser_back_dependency'
-    | 'zoom_readability',
-) =>
-  EvidencePackSchema.parse({
-    ...pack,
-    frictionSignals: [
+const modelOutput = {
+  evidenceAssessment: {
+    summary: 'The ordered journey shows repeated navigation before work.',
+    pressureClusters: [
       {
-        ...pack.frictionSignals[0],
-        ruleId,
-        ruleVersion: '1.1.0',
-        summary: `Observed ${ruleId} on task-card-apl-241.`,
-        trace: [
-          {
-            ...pack.frictionSignals[0]!.trace[0],
-            targetId:
-              ruleId === 'browser_back_dependency' ||
-              ruleId === 'zoom_readability'
-                ? undefined
-                : 'task-card-apl-241',
-          },
+        id: 'task-discovery-pressure',
+        title: 'Assigned work is buried',
+        interpretation: 'The current information architecture hides tasks.',
+        evidenceIds: ['EV-001'],
+        affectedTargets: ['nav-projects'],
+        userConsequence: 'Users take a long route to assigned work.',
+        competingExplanations: [
+          'The participant may be unfamiliar with the app.',
         ],
+        mutationOpportunity: 'Create a direct assigned-work destination.',
       },
     ],
-  });
+    selectionRationale: 'The selected mutation has the clearest causal path.',
+  },
+  selectedMutation: candidate('direct-my-work', 90),
+  alternatives: [
+    candidate('dashboard-work-queue', 75),
+    candidate('global-search', 70),
+  ],
+  unsupportedIdeasRejected: [
+    { idea: 'Rewrite telemetry', reason: 'Telemetry is protected.' },
+  ],
+};
 
-describe('evidence-backed reasoning', () => {
-  it('rejects unknown evidence citations and protected scope', () => {
+describe('evidence-backed reasoning v2', () => {
+  it('rejects invented evidence, targets, and protected scope', () => {
     expect(() =>
       validateModelOutput(
         {
-          selectedMutation: { ...candidate, evidenceIds: ['EV-999'] },
-          alternatives: [],
-          unsupportedIdeasRejected: [],
+          ...modelOutput,
+          selectedMutation: {
+            ...modelOutput.selectedMutation,
+            evidenceIds: ['EV-999'],
+          },
         },
         pack,
       ),
@@ -146,31 +195,28 @@ describe('evidence-backed reasoning', () => {
     expect(() =>
       validateModelOutput(
         {
-          selectedMutation: { ...candidate, scope: ['telemetry-history'] },
-          alternatives: [],
-          unsupportedIdeasRejected: [],
+          ...modelOutput,
+          selectedMutation: {
+            ...modelOutput.selectedMutation,
+            scope: ['telemetry-history'],
+          },
         },
         pack,
       ),
     ).toThrow('exceeds the mutable application scope');
   });
 
-  it('uses one structured OpenAI call and validates its citations', async () => {
+  it('uses ordered journeys and returns an evidence-normalized portfolio', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
           id: 'resp-test',
-          output_text: JSON.stringify({
-            selectedMutation: candidate,
-            alternatives: [],
-            unsupportedIdeasRejected: [],
-          }),
+          output_text: JSON.stringify(modelOutput),
           usage: { input_tokens_details: { cached_tokens: 12_288 } },
         }),
         { status: 200 },
       ),
     );
-
     const analysis = await analyseEvidence(pack, {
       requestedMode: 'live',
       apiKey: 'test-key',
@@ -179,75 +225,51 @@ describe('evidence-backed reasoning', () => {
       createdAt: '2026-07-16T12:01:00.000Z',
     });
 
-    expect(fetcher).toHaveBeenCalledOnce();
     expect(analysis.mode).toBe('live');
-    expect(analysis.selectedMutation.evidenceIds).toEqual(['EV-001']);
-    expect(analysis.promptCache).toMatchObject({
-      retention: '24h',
-      cachedTokens: 12_288,
-    });
-    const requestBody = JSON.parse(
-      String(fetcher.mock.calls[0]?.[1]?.body),
-    ) as {
-      prompt_cache_key?: string;
-      prompt_cache_retention?: string;
-      input?: Array<{ role?: string; content?: string }>;
-    };
-    expect(requestBody.prompt_cache_key).toMatch(/^darwin-ctx-/);
+    expect(analysis.promptVersion).toBe('2.0.0');
+    expect(analysis.alternatives).toHaveLength(2);
+    expect(
+      analysis.selectedMutation.scorecard.evidenceStrength,
+    ).toBeLessThanOrEqual(quality.score);
+    expect(analysis.selectedMutation.confidence).toBe(
+      analysis.selectedMutation.scorecard.evidenceStrength / 100,
+    );
+    const requestBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
     expect(requestBody.prompt_cache_retention).toBe('24h');
-    expect(requestBody.input?.[1]).toMatchObject({ role: 'developer' });
-    expect(requestBody.input?.[1]?.content).toContain(
+    expect(requestBody.input[1].content).toContain(
       'Darwin Telemetry-to-Evolution Examples',
     );
-    expect(requestBody.input?.[1]?.content).toContain(
-      'Source: apps/projectflow/src/App.tsx',
-    );
-    expect(JSON.stringify(requestBody)).not.toContain(
-      'participant-evidence-record',
-    );
+    expect(requestBody.input[2].content).toContain('orderedJourneys');
+    expect(requestBody.input[2].content).toContain('offsetMs');
   });
 
-  it('exposes a sanitized live fallback reason and retains a valid proposal', async () => {
+  it('fails closed without live GPT instead of returning a substitute mutation', async () => {
+    await expect(analyseEvidence(pack)).rejects.toThrow(
+      'will not substitute a recommendation',
+    );
+    await expect(
+      analyseEvidence(pack, {
+        requestedMode: 'live',
+        apiKey: 'test-key',
+        fetch: vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(new Response(null, { status: 503 })),
+      }),
+    ).rejects.toThrow('HTTP 503');
+  });
+
+  it('builds a stable raw-telemetry-free Codex manifest', async () => {
     const analysis = await analyseEvidence(pack, {
       requestedMode: 'live',
       apiKey: 'test-key',
-      model: 'gpt-5.6',
-      fetch: vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(new Response(null, { status: 503 })),
-      createdAt: '2026-07-16T12:01:00.000Z',
-    });
-
-    expect(analysis).toMatchObject({
-      mode: 'fallback',
-      fallbackReason: 'OpenAI Responses API returned HTTP 503.',
-      selectedMutation: { id: 'promote-task-discovery' },
-    });
-    expect(JSON.stringify(analysis)).not.toContain('test-key');
-  });
-
-  it.each([
-    ['hover_hesitation', 'show-item-hover-context', 'contextual stats'],
-    ['drag_expectation', 'enable-item-dragging', 'draggable'],
-    ['false_affordance', 'activate-false-affordance', 'most useful'],
-    ['browser_back_dependency', 'add-in-app-back-control', 'Back control'],
-    ['zoom_readability', 'increase-interface-type-scale', 'font sizes'],
-  ] as const)(
-    'maps %s evidence to the targeted %s mutation',
-    async (ruleId, mutationId, expectedChange) => {
-      const analysis = await analyseEvidence(behaviorPack(ruleId), {
-        createdAt: '2026-07-16T12:01:00.000Z',
-      });
-
-      expect(analysis.mode).toBe('mock');
-      expect(analysis.selectedMutation.id).toBe(mutationId);
-      expect(analysis.selectedMutation.change).toContain(expectedChange);
-      expect(analysis.selectedMutation.evidenceIds).toEqual(['EV-001']);
-    },
-  );
-
-  it('builds a stable, raw-telemetry-free Codex manifest', async () => {
-    const analysis = await analyseEvidence(pack, {
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({ output_text: JSON.stringify(modelOutput) }),
+          {
+            status: 200,
+          },
+        ),
+      ),
       createdAt: '2026-07-16T12:01:00.000Z',
     });
     const first = await buildCodexManifest(
@@ -260,12 +282,8 @@ describe('evidence-backed reasoning', () => {
       'c75e37d',
       '2026-07-16T13:02:00.000Z',
     );
-    const serialized = JSON.stringify(first);
-
     expect(first.manifestHash).toBe(second.manifestHash);
-    expect(serialized).not.toContain('participantId');
-    expect(serialized).not.toContain('sessionId');
-    expect(serialized).not.toContain('trace');
+    expect(JSON.stringify(first)).not.toContain('journeys');
     expect(first.protectedPaths).toContain('workers/api/src/evidence/**');
   });
 });

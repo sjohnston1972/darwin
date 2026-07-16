@@ -21,6 +21,35 @@ const pack = (
       sessions: 1,
       attempts: 1,
     },
+    quality: {
+      score: 32,
+      strength: 'directional',
+      eventCount: 10,
+      sessionCount: 1,
+      participantCount: 1,
+      completedAttemptCount: 1,
+      limitations: ['Single-session cohort.'],
+    },
+    journeys: [
+      {
+        journeyId: 'J-001',
+        appVersion: variant === 'baseline' ? '1.0.0' : '1.1.0',
+        source: evidenceClass === 'automated' ? 'automated' : 'real_user',
+        viewport: 'desktop',
+        eventCount: 1,
+        routes: ['/study/dashboard'],
+        events: [
+          {
+            eventRef: 'E-001',
+            eventType: 'page_view',
+            sequence: 0,
+            offsetMs: 0,
+            route: '/study/dashboard',
+            attributes: {},
+          },
+        ],
+      },
+    ],
     taskAttempts: [],
     tasks: [
       {

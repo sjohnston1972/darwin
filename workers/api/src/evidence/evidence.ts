@@ -9,9 +9,9 @@ import {
   type TaskAttempt,
 } from '@darwin/shared';
 
-const parserVersion = '1.1.0' as const;
-const ruleVersion = '1.1.0' as const;
-const optimalInteractions: Record<string, number> = {
+const parserVersion = '1.2.0' as const;
+const ruleVersion = '1.2.0' as const;
+const declaredInteractionBudget: Record<string, number> = {
   'create-project': 3,
   'create-assigned-task': 5,
   'find-assigned-task': 3,
@@ -53,6 +53,8 @@ export async function buildEvidencePack(
   );
   const tasks = summarizeTasks(taskAttempts);
   const evidenceClass = evidenceClassFor(events);
+  const quality = assessEvidence(events, taskAttempts);
+  const journeys = buildJourneys(events);
   const appVersion = events.at(-1)?.appVersion ?? 'unknown';
   const evolved = appVersion.startsWith('1.1');
   const payload = {
@@ -68,6 +70,8 @@ export async function buildEvidencePack(
     },
     taskAttempts,
     tasks,
+    quality,
+    journeys,
     frictionSignals,
     applicationMap: {
       product: {
@@ -263,7 +267,7 @@ function detectFriction(
     const attemptEvents = events.filter((event) =>
       attempt.eventIds.includes(event.eventId),
     );
-    const optimum = optimalInteractions[attempt.taskId] ?? 4;
+    const optimum = declaredInteractionBudget[attempt.taskId] ?? 4;
     if (attempt.interactionCount >= Math.ceil(optimum * 1.5)) {
       candidates.push({
         ruleId: 'excess_path_length',
@@ -555,6 +559,13 @@ function signalFromCandidate(
     affectedAttemptIds: candidate.attempts,
     supportingEventIds: uniqueEvents.map((event) => event.eventId),
     trace: uniqueEvents.slice(0, 12).map(traceEvent),
+    support: {
+      events: uniqueEvents.length,
+      attempts: new Set(candidate.attempts).size,
+      sessions: new Set(uniqueEvents.map((event) => event.sessionId)).size,
+      participants: new Set(uniqueEvents.map((event) => event.participantId))
+        .size,
+    },
   };
 }
 
@@ -568,6 +579,109 @@ function traceEvent(event: StoredTelemetryEvent): EvidenceTraceEvent {
       ? { targetId: event.targetId }
       : {}),
   };
+}
+
+function assessEvidence(
+  events: StoredTelemetryEvent[],
+  attempts: TaskAttempt[],
+) {
+  const sessionCount = new Set(events.map((event) => event.sessionId)).size;
+  const participantCount = new Set(events.map((event) => event.participantId))
+    .size;
+  const completedAttemptCount = attempts.filter(
+    (attempt) => attempt.outcome === 'success',
+  ).length;
+  const score = Math.min(
+    100,
+    Math.min(25, Math.floor(events.length / 4)) +
+      Math.min(30, sessionCount * 15) +
+      Math.min(30, participantCount * 15) +
+      Math.min(15, completedAttemptCount * 5),
+  );
+  const limitations: string[] = [];
+  if (events.length < 50)
+    limitations.push('Fewer than 50 semantic events were observed.');
+  if (sessionCount < 3)
+    limitations.push('Fewer than three independent sessions were observed.');
+  if (participantCount < 3)
+    limitations.push('Fewer than three anonymous participants were observed.');
+  if (completedAttemptCount < 3)
+    limitations.push('Fewer than three completed task attempts were observed.');
+  if (events.every((event) => event.source === 'automated')) {
+    limitations.push(
+      'The evidence was produced by automated browser sessions, not people.',
+    );
+  }
+  return {
+    strength:
+      score >= 75
+        ? ('substantial' as const)
+        : score >= 35
+          ? ('directional' as const)
+          : ('insufficient' as const),
+    score,
+    eventCount: events.length,
+    sessionCount,
+    participantCount,
+    completedAttemptCount,
+    limitations,
+  };
+}
+
+function buildJourneys(events: StoredTelemetryEvent[]) {
+  const sessions = new Map<string, StoredTelemetryEvent[]>();
+  for (const event of events) {
+    const session = sessions.get(event.sessionId) ?? [];
+    session.push(event);
+    sessions.set(event.sessionId, session);
+  }
+  return [...sessions.values()].slice(0, 50).map((session, sessionIndex) => {
+    const ordered = [...session]
+      .sort((left, right) => left.sequence - right.sequence)
+      .slice(0, 500);
+    const startedAt = Date.parse(ordered[0]!.occurredAt);
+    return {
+      journeyId: `J-${String(sessionIndex + 1).padStart(3, '0')}`,
+      appVersion: ordered.at(-1)!.appVersion,
+      source: ordered[0]!.source === 'real_user' ? 'real_user' : 'automated',
+      viewport: ordered[0]!.viewport,
+      eventCount: session.length,
+      events: ordered.map((event, eventIndex) => ({
+        eventRef: `E-${String(eventIndex + 1).padStart(3, '0')}`,
+        sequence: event.sequence,
+        offsetMs: Math.max(0, Date.parse(event.occurredAt) - startedAt),
+        eventType: event.eventType,
+        route: event.route,
+        ...('targetId' in event && event.targetId
+          ? { targetId: event.targetId }
+          : {}),
+        attributes: compactEventAttributes(event),
+      })),
+    };
+  });
+}
+
+function compactEventAttributes(event: StoredTelemetryEvent) {
+  const attributes: Record<string, string | number | boolean | null> = {};
+  if ('taskId' in event && event.taskId) attributes.taskId = event.taskId;
+  if ('durationMs' in event && typeof event.durationMs === 'number') {
+    attributes.durationMs = event.durationMs;
+  }
+  if ('outcome' in event && event.outcome) attributes.outcome = event.outcome;
+  if (!('properties' in event) || !event.properties) return attributes;
+  for (const [key, value] of Object.entries(event.properties)) {
+    if (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      attributes[key] = value;
+    } else if (Array.isArray(value)) {
+      attributes[key] = value.join(' > ');
+    }
+  }
+  return attributes;
 }
 
 function summarizeTasks(attempts: TaskAttempt[]) {
@@ -600,7 +714,7 @@ function summarizeTasks(attempts: TaskAttempt[]) {
         medianInteractions: median(
           successful.map((attempt) => attempt.interactionCount),
         ),
-        optimalInteractions: optimalInteractions[taskId] ?? 4,
+        optimalInteractions: declaredInteractionBudget[taskId] ?? 4,
         topPaths: [...paths.values()]
           .sort((left, right) => right.count - left.count)
           .slice(0, 3),

@@ -2,11 +2,10 @@
 
 > **Helping your software evolve.**
 
-Darwin is an autonomous product engineer that observes how an application is used, identifies evolutionary pressure, proposes a controlled mutation, validates the change, and records the result in the application's fossil record.
-
-**Demo thesis:**
-
-> Darwin observed 10,000 user interactions and evolved the application.
+Darwin observes real application telemetry, reconstructs ordered user journeys,
+identifies selection pressure, asks GPT-5.6 for a scored mutation portfolio, and
+creates a constrained Codex implementation brief. Recommendations are always
+grounded in measured evidence and remain human-approved.
 
 ## Local setup
 
@@ -17,8 +16,81 @@ npm install
 npm run dev
 ```
 
-The analyzer falls back to a deterministic mock when live GPT is unavailable. Local services start at ports 5173,
-5174 and 8787. Run the complete verification set with:
+Local services:
+
+- Darwin control room: `http://localhost:5173`
+- ProjectFlow: `http://localhost:5174`
+- ProjectFlow measured study: `http://localhost:5174/study`
+- Worker API: `http://localhost:8787`
+
+Configure live reasoning in `.env`:
+
+```dotenv
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=gpt-5.6
+OPENAI_TIMEOUT_MS=60000
+DARWIN_AI_MODE=live
+DARWIN_REPOSITORY_COMMIT=local-development
+```
+
+Darwin fails closed when GPT is unavailable. It does not invent or substitute a
+recommendation.
+
+## Real telemetry
+
+`packages/telemetry-client` captures privacy-safe semantic behavior from the
+standalone ProjectFlow application:
+
+- routes, stable `data-darwin-id` targets, searches, validation and task outcomes;
+- hover start/end, duration, hover-to-click latency and hover without click;
+- normalized click position, pointer type, rapid clicks and false affordances;
+- target transitions, direction-change aggregates, drag intent and touch cancellation;
+- browser Back/Forward use and relative browser zoom changes.
+
+It does not store raw cursor trails, absolute page coordinates, typed values,
+search text, arbitrary page text, or feedback content. Events are persisted in
+Cloudflare D1 with an in-memory development repository.
+
+The v1.2 evidence parser preserves up to 50 complete ordered journeys, derives
+versioned friction signals, records recurrence across events/sessions/participants,
+calculates an evidence coverage score, and produces a canonical SHA-256 evidence
+hash. GPT does not participate in parsing.
+
+## Live reasoning
+
+GPT-5.6 receives:
+
+- the evidence coverage assessment and its limitations;
+- complete privacy-safe ordered journeys;
+- traceable friction signals and recurrence counts;
+- ProjectFlow goals, routes, capabilities, mutable areas, and protected areas;
+- the actual ProjectFlow source and the 50-example evolution catalogue.
+
+The model must reconstruct journeys, cluster related pressures, consider competing
+explanations, and return one selected mutation plus two to five scored alternatives.
+Darwin validates evidence IDs, observed targets, mutable scope, and normalizes
+confidence against the server-derived evidence score. Each recommendation includes
+tradeoffs and a measured validation plan.
+
+The source/examples prefix is generated with `npm run context:generate`. A
+context-hash-derived `prompt_cache_key` and 24-hour retention allow OpenAI prompt
+caching. `npm run typecheck` rejects stale generated context.
+
+## Dashboard telemetry
+
+ProjectFlow's Activity, Capacity, and Upcoming dashboard tiles are functional
+controls, not decoration. They use stable semantic target IDs and navigate to the
+related project, report, task directory, or work view. Hover, focus, click, pointer,
+rapid-click, false-affordance, and drag-intent behavior on those controls enters the
+same ordered evidence stream as every other instrumented control.
+
+## Scale simulator
+
+`npm run simulate` creates exactly 10,000 seed-locked synthetic events for load and
+determinism testing. Synthetic data is never used by the judge-facing reasoning
+workflow and is never presented as measured product evidence.
+
+## Verification
 
 ```bash
 npm run lint
@@ -29,168 +101,43 @@ npm run build
 npm run test:e2e:projectflow
 ```
 
-## Intended commands
+`npm run validate:record` runs repository checks and regenerates the checked-in
+source diff/validation artifact. Any recorded artifact is labelled as a repository
+run, never live shell output from the Worker.
 
-Codex should implement these workspace commands:
+## Judge flow
 
-```bash
-npm install
-npm run dev
-npm run simulate
-npm run test
-npm run build
-npm run validate:record
-npm run deploy
-```
+1. Open ProjectFlow `/study` and interact with the imperfect baseline, including Activity, Capacity, or Upcoming controls.
+2. Open Darwin and inspect the measured event stream.
+3. Generate the hashed evidence pack and review ordered journeys, recurrence, and coverage limitations.
+4. Select `Ask GPT-5.6` and inspect pressure clusters, competing explanations, the selected mutation, alternatives, and scorecards.
+5. Prepare the constrained Codex manifest and review its evidence citations, path policy, acceptance criteria, and validation commands.
+6. Implement only after human approval, run validation, and record the retained or rejected mutation in the fossil record.
 
-`npm run validate:record` runs the repository typecheck, tests, and production build, replays deterministic fitness, and regenerates the checked-in validation and ProjectFlow genome-diff artifact used by the hosted demo. The UI labels this evidence as a recorded repository run; the Worker never claims to execute shell commands in production.
+## Deployment
 
-`npm run dev` starts three local services:
-
-- Darwin control room: `http://localhost:5173`
-- standalone ProjectFlow: `http://localhost:5174`
-- ProjectFlow study mode: `http://localhost:5174/study`
-- evolved ProjectFlow study: `http://localhost:5174/study?variant=evolved`
-- Worker API: `http://localhost:8787`
-
-## Real telemetry foundation
-
-Real ProjectFlow study activity is Darwin's primary evidence source. The
-standalone application has functional project and task state, an automatically
-observed workflow, anonymous participant IDs and stable `data-darwin-id` control identities.
-
-`packages/telemetry-client` records routes, semantic control IDs, validation
-codes, search counts, explicit study outcomes and privacy-safe pointer evidence.
-Pointer evidence includes hover duration and outcome, hover-to-click latency,
-normalized click position, pointer type, semantic target transitions, rapid
-clicks, false affordances, direction-change aggregates, drag intent, browser
-Back/Forward use, relative browser zoom changes and touch cancellation. It never stores raw cursor trails, absolute page coordinates, form
-values, search text, arbitrary page text or feedback content. Events carry
-participant, session, task-attempt, application-version and source provenance.
-The browser delivers bounded batches to the Worker, which deduplicates and stores
-them through a D1-compatible repository with an in-memory local fallback.
-
-The existing 10,000-event generator is a separately labelled synthetic scale
-replay. See `docs/REAL_TELEMETRY_PLAN.md` for the evidence and reasoning boundary.
-
-Darwin can now generate a deterministic evidence pack from stored real events.
-The pack reconstructs task attempts, applies versioned friction rules, links each
-signal to supporting event IDs, and stores a canonical SHA-256 hash. No language
-model participates in this parsing stage.
-
-Evidence-backed reasoning is a separate, cached stage. Darwin sends the compact
-evidence pack to GPT-5.6 at most once for each evidence-hash, model and prompt
-version tuple, then validates every citation and requested mutation scope. The
-deterministic fallback analyzer follows the identical contract and maps hover,
-drag, false-affordance, browser Back and zoom-readability evidence to targeted
-remediation proposals. A selected
-mutation can be exported as a hashed Codex implementation manifest containing
-only the brief, evidence IDs, path policy and validation commands; raw telemetry
-is never part of the Codex handoff.
-
-Both GPT paths receive a generated static context prefix containing the complete
-`evolution examples/darwin-telemetry-evolution-examples.md` catalogue and the
-actual ProjectFlow `App.tsx`, `data.ts` and `styles.css` sources. Run
-`npm run context:generate` after those files change; `npm run typecheck` rejects
-a stale snapshot. The Responses API request uses a context-hash-derived
-`prompt_cache_key` and 24-hour retention, and the UI reports cached input tokens
-when the API returns them. Dynamic evidence is appended after the stable prefix.
-
-The critical Playwright flow also runs the same assigned-task task against
-versioned baseline and evolved cohorts using `source=automated`. It creates two
-separate evidence packs and compares completion, duration and interaction count
-through the Worker. The control room labels fresh results as a live automated run
-and falls back to a checked-in, clearly labelled recorded automated run for a
-reliable hosted demo. Neither is presented as a human outcome.
-
-## Evolution analyzer
-
-Live GPT-5.6 analysis is enabled when a key is available and falls back safely
-to the deterministic analyzer otherwise. The Worker development command loads
-the repository `.env`; `OPENAI_API_KEY` is preferred and the existing
-`OPENAI_API` name is accepted as a compatibility alias:
-
-```dotenv
-OPENAI_API_KEY=your_api_key
-OPENAI_MODEL=gpt-5.6
-OPENAI_TIMEOUT_MS=45000
-DARWIN_REPOSITORY_COMMIT=local-development
-DARWIN_DEMO_SEED=1859
-DARWIN_EVENT_COUNT=10000
-```
-
-Restart `npm run dev` after changing analyzer configuration. The control room labels every result as live, deterministic mock, or mock fallback. Live failures fall back automatically so the demo remains operable.
-
-## Live deployment
-
-- Darwin control room: https://darwin-control-room.pages.dev
+- Control room: https://darwin-control-room.pages.dev
 - ProjectFlow study: https://darwin-projectflow.pages.dev/study
 - Worker API: https://darwin-api.stevie-johnston.workers.dev
-- Database: Cloudflare D1 `darwin-telemetry` in WEUR
-- repo: https://github.com/sjohnston1972/darwin
-
-### Deploy from this workspace
-
-The committed Worker configuration binds D1, the native ingestion rate limiter,
-the two allowed Pages origins and the repository revision used by Codex manifests.
+- D1 database: `darwin-telemetry` (WEUR)
 
 ```bash
 npm ci
+npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml
 npm run deploy
 npm run smoke:production
 ```
 
-`npm run deploy` builds all workspaces, applies pending remote D1 migrations,
-deploys the Worker, and direct-uploads both Vite builds to their Pages projects.
-Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for non-interactive CI.
-Use `npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml`
-to install the key in Cloudflare. The committed Worker mode is live, with a
-deterministic fallback if the secret or a valid model response is unavailable.
+The Worker configuration binds D1, the ingestion rate limiter, allowed Pages
+origins, GPT-5.6 live mode, and the repository revision used by Codex manifests.
 
-For custom domains, attach `darwin.clydeford.net` to the control-room Pages
-project, `projectflow.clydeford.net` to ProjectFlow, and a Worker custom domain
-such as `darwin-api.clydeford.net`. Update `ALLOWED_ORIGINS` in
-`workers/api/wrangler.toml` and both production Vite environment files before
-redeploying.
+## Repository map
 
-### Exact judge flow
-
-1. Open ProjectFlow `/study`; Darwin starts the observed workflow automatically. Find the assigned task through Projects and open its launch checklist.
-2. Open Darwin, inspect the ordered events, and generate the hashed evidence pack.
-3. Generate the evidence-citing mutation and prepare the constrained Codex manifest.
-4. Run the seed-locked 10,000-event synthetic scale replay.
-5. Approve, validate and release the mutation through the control room.
-6. Open ProjectFlow `/study?variant=evolved` and repeat the same workflow through My Work.
-7. Show the automated 8-to-4 interaction result and the survived fossil record.
-
-If any step is interrupted, use the reset button in the control-room header. The
-recorded validation and automated-outcome artifacts keep the demo operable
-without shell access or an OpenAI key.
-
-## Repository contents
-
-- `AGENTS.md` — authoritative Codex instructions
-- `docs/PRODUCT_SPEC.md` — product requirements
-- `docs/ARCHITECTURE.md` — technical design
-- `docs/REAL_TELEMETRY_PLAN.md` — evidence, parsing and reasoning boundary
-- `docs/SAMPLE_DATA.md` — provenance-labelled example and recorded outcome
-- `docs/BUILD_PLAN.md` — phased checklist
-- `docs/DEMO_SCRIPT.md` — three-minute demo choreography
-- `prompts/evolution-analysis.md` — GPT-5.6 system prompt
-- `prompts/evidence-analysis-v1.md` — evidence-citing GPT-5.6 prompt v1.0.0
-- `prompts/mutation-implementation.md` — Codex mutation brief template
-- `.env.example` — local configuration
-- `wrangler.toml.example` — Cloudflare configuration starter
-- `LICENSE` — MIT licence
-- `scripts/bootstrap.sh` and `scripts/bootstrap.ps1` — local setup helpers
-
-## Evidence language
-
-Darwin distinguishes measured human evidence, automated validation, predicted
-impact and synthetic scale replay. These categories must not be combined into a
-single interaction count or presented as equivalent outcomes.
-
-## Submission reminder
-
-After the Build Week submission is uploaded, post the public links and repository
-in the event's `/feedback` channel and request one complete judge-flow replay.
+- `apps/projectflow`: real target application and study telemetry view
+- `apps/web`: Darwin control room
+- `workers/api`: ingestion, evidence parsing, live reasoning, and persistence
+- `packages/shared`: Zod contracts
+- `packages/telemetry-client`: privacy-safe browser instrumentation
+- `evolution examples`: concrete telemetry-to-mutation catalogue
+- `prompts/evidence-analysis-v2.md`: live portfolio reasoning contract
+- `docs/REAL_TELEMETRY_PLAN.md`: evidence boundary and provenance

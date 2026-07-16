@@ -91,4 +91,45 @@ describe('standalone ProjectFlow', () => {
       eventCount,
     );
   });
+
+  it('makes dashboard activity, capacity, and upcoming tiles actionable', () => {
+    window.history.replaceState({}, '', '/study');
+    const { container } = render(<App />);
+
+    expect(
+      container.querySelector('[data-darwin-id="activity-release-notes"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-darwin-id="dashboard-activity-panel"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-darwin-id="panel-heading-capacity"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-darwin-id="capacity-member-1"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-darwin-id="upcoming-apollo-code-freeze"]'),
+    ).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Release notes approved/ }),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Apollo Release' }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: /Dashboard/ }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Team member 1, 44% allocated' }),
+    );
+    expect(screen.getByRole('heading', { name: 'Reports' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: /Dashboard/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Apollo code freeze/ }));
+    expect(
+      screen.getByRole('heading', { name: 'Apollo Release' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Search project tasks')).toBeVisible();
+  });
 });

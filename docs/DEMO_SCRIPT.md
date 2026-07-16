@@ -27,15 +27,14 @@ friction signal. Expand the signal to its detector rule and supporting event IDs
 SQL reconstruct attempts and detect friction. No model processes events one by
 one.”
 
-Briefly show the separately labelled 10,000-event synthetic scale replay.
-
 ## 1:20-1:50 - GPT-5.6 reasoning
 
-Open the compact evidence pack and its hash, then generate a mutation.
+Open the evidence pack, ordered journeys, recurrence counts and coverage score,
+then ask GPT-5.6 for a mutation portfolio.
 
-“GPT-5.6 receives one compact evidence pack. Every behavioural claim must cite a
-known evidence ID, unsupported ideas are rejected, and predicted impact remains
-a hypothesis.”
+“GPT-5.6 receives the measured journeys plus the real ProjectFlow source and our
+evolution catalogue. It clusters causal pressures, considers competing explanations,
+and scores several mutations. Every claim must cite a known evidence ID.”
 
 ## 1:50-2:20 - Controlled implementation
 
@@ -59,6 +58,5 @@ automated; it is not presented as a measured user outcome.”
 Show the fossil record with source event count, evidence hash, proposal, commit,
 diff and validation result.
 
-“Every mutation is traceable, testable and reversible. Darwin can observe real
-usage today and replay 10,000 synthetic interactions to test the same evolutionary
-loop at scale. Helping your software evolve.”
+“Every mutation is traceable, testable and reversible. The recommendation came
+from this measured application session, not a fixture. Helping your software evolve.”

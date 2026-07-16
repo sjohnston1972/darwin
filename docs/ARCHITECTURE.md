@@ -6,7 +6,7 @@ flowchart LR
   TC --> API[Cloudflare Worker API]
   API --> D1[(Cloudflare D1)]
   D1 --> EE[Deterministic evidence engine]
-  EE --> EA[Mock or GPT-5.6 analyzer]
+  EE --> EA[Live GPT-5.6 portfolio analyzer]
   EA --> CM[Controlled Codex manifest]
   CM --> VR[Repository validation]
   VR --> UI[Darwin control room and fossil record]
@@ -29,9 +29,7 @@ Cloudflare Worker API
 ├── Deterministic evidence generation
 ├── Explicitly labelled simulation service
 ├── Fitness calculator
-├── Evolution analyzer interface
-│   ├── deterministic mock
-│   └── OpenAI GPT-5.6 adapter
+├── Live OpenAI GPT-5.6 analyzer
 ├── Mutation workflow
 └── Timeline persistence
         │
@@ -118,14 +116,16 @@ The evolved route graph should produce more direct paths and lower duration/erro
 
 Real events are grouped by explicit `taskAttemptId`, ordered by session sequence
 and terminated only by success, failure, session end or the documented timeout.
-Parser `1.1.0` runs versioned workflow rules for navigation loops, repeated
+Parser `1.2.0` runs versioned workflow rules for navigation loops, repeated
 targets, abandonment, excess path length, validation friction and search
 dependency. It also converts bounded pointer observations into rage-click,
 false-affordance, hover-hesitation, cursor-indecision, drag-expectation and
 touch-conflict evidence.
 
-Every signal stores its rule version, affected attempt IDs, supporting event IDs
-and a bounded trace. Canonical JSON excludes generation time from its digest, so
+Every signal stores its rule version, affected attempt IDs, supporting event IDs,
+recurrence counts, and a bounded trace. Up to 50 complete privacy-safe ordered
+journeys and a server-derived coverage assessment are preserved for reasoning.
+Canonical JSON excludes generation time from its digest, so
 identical source records and parser code produce the same SHA-256 evidence hash.
 Evidence packs are stored in `analysis_runs` and remain independent of GPT-5.6.
 
@@ -169,7 +169,7 @@ All component scores are clamped to 0–100 and rounded to one decimal place bef
 ## AI boundary
 The browser never calls OpenAI directly.
 
-`EvolutionAnalyzer`:
+The live analyzer boundary:
 
 ```ts
 interface EvolutionAnalyzer {
@@ -177,16 +177,13 @@ interface EvolutionAnalyzer {
 }
 ```
 
-The API chooses mock or OpenAI implementation based on environment variables.
-
 - `DARWIN_AI_MODE=live` is the deployed configuration. With `OPENAI_API_KEY` it calls the OpenAI Responses API using `OPENAI_MODEL` and strict JSON-schema output.
-- Missing credentials, timeouts, API failures or invalid structured output use the deterministic analyzer, which follows the same evidence-to-remediation policy.
+- Missing credentials, timeouts, API failures, or invalid structured output fail closed and produce no recommendation.
 - The scale-replay input contains aggregate telemetry, ranked findings, fitness, the mutation allow-list and a structured ProjectFlow product map covering purpose, users, entities, goals, navigation and capabilities; raw events and secrets are never included.
-- The real-session evidence path sends its compact, hashed evidence pack with the same structured ProjectFlow context so the model can interpret routes and controls rather than reason from isolated counters.
-- Both model paths prepend a generated, hash-versioned static corpus containing the approved telemetry-to-evolution examples and the real ProjectFlow application, data and style sources. Dynamic evidence is placed last.
+- The real-session evidence path sends its hashed evidence pack, ordered journeys, coverage limitations, and structured ProjectFlow context so the model can interpret routes and controls rather than reason from isolated counters.
+- The live path prepends a generated, hash-versioned static corpus containing the approved telemetry-to-evolution examples and the real ProjectFlow application, data and style sources. Dynamic evidence is placed last.
 - Requests use the context version as `prompt_cache_key` with 24-hour retention. Returned cached-token usage is recorded on evidence analysis when available, while `npm run context:check` prevents stale source snapshots.
 - Live output is validated by the shared Zod schema and checked against the file allow-list before entering the approval workflow.
-- Missing credentials, timeouts, API errors and invalid responses fall back to the deterministic mock analyzer and expose the fallback reason to the UI.
 - Logs contain model, response/request IDs, duration and outcome only. Prompt content, response content and credentials are not logged.
 
 ## Mutation implementation
@@ -210,7 +207,7 @@ Optional stretch: invoke Codex CLI in a local-only orchestration script, never f
 - The generated `phase7-artifacts.json` fixture is checked in for hosted mode. The Worker serves it as a clearly labelled recorded repository run and never exposes arbitrary command execution.
 - Mutation state advances through `proposed → approved → validated → released`. Approval does not change the active target application; only a passing validation can be released.
 - React renders diff text as escaped content and never injects artifact HTML.
-- The in-memory timeline persists across browser reloads for the local/hosted fallback and is cleared by the deterministic demo reset. D1-backed persistence is introduced in Phase 9.
+- The in-memory development timeline persists across browser reloads and is cleared by the deterministic demo reset. Production uses D1 persistence.
 
 ## Persistence
 Use repository interfaces so D1 and in-memory implementations share behaviour.

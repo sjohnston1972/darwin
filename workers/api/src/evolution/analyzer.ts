@@ -35,33 +35,3 @@ export const validateMutationProposal = (value: unknown): MutationProposal => {
 
   return parsed.data;
 };
-
-export class MockEvolutionAnalyzer implements EvolutionAnalyzer {
-  async analyse(input: EvolutionAnalysisInput): Promise<MutationProposal> {
-    const leadingFinding = input.findings[0];
-    if (!leadingFinding) {
-      throw new EvolutionAnalysisError(
-        'At least one friction finding is required for evolution analysis.',
-      );
-    }
-
-    return validateMutationProposal({
-      id: 'mutation-global-task-discovery-v1',
-      name: 'Promote global task discovery',
-      observation: leadingFinding.description,
-      evidence: leadingFinding.evidence,
-      hypothesis:
-        'Promoting assigned work and search into persistent navigation will reduce path length, abandonment, and time-to-task without removing existing project workflows.',
-      implementationSummary:
-        'Make My Work a primary destination, move task search into the global header, keep quick task creation globally available, and consolidate Reports into Insights.',
-      predictedFitnessGain: input.fitness.delta,
-      confidence: leadingFinding.confidence,
-      risk: 'low',
-      affectedFiles: [
-        'apps/projectflow/src/App.tsx',
-        'apps/projectflow/src/styles.css',
-      ],
-      status: 'proposed',
-    });
-  }
-}

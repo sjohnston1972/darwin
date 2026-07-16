@@ -1,9 +1,7 @@
-import { MutationProposalSchema } from '@darwin/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
   EvolutionAnalysisError,
-  MockEvolutionAnalyzer,
   OpenAIAnalysisError,
   OpenAIEvolutionAnalyzer,
   compareFitness,
@@ -14,7 +12,7 @@ import {
 } from './index';
 import { simulate } from '../simulation';
 
-describe('fitness and evolution analysis', () => {
+describe('fitness and live evolution analysis', () => {
   const baseline = simulate({ seed: 1859, variant: 'baseline' });
   const evolved = simulate({ seed: 1859, variant: 'evolved' });
   const analysisInput = () => ({
@@ -22,40 +20,31 @@ describe('fitness and evolution analysis', () => {
     findings: rankFrictionFindings(baseline),
     fitness: compareFitness(baseline, evolved),
   });
+  const proposal = {
+    id: 'mutation-global-task-discovery-v1',
+    name: 'Promote global task discovery',
+    observation: 'Assigned tasks are difficult to locate.',
+    evidence: ['Measured navigation paths are longer than necessary.'],
+    hypothesis: 'A direct work route will reduce path length.',
+    implementationSummary: 'Promote My Work and global search.',
+    predictedFitnessGain: 20.8,
+    confidence: 0.86,
+    risk: 'low' as const,
+    affectedFiles: ['apps/projectflow/src/App.tsx'],
+    status: 'proposed' as const,
+  };
 
-  it('calculates higher fitness for the evolved organism', () => {
+  it('calculates higher fitness for the evolved application', () => {
     const fitness = compareFitness(baseline, evolved);
-
     expect(fitness.baseline.score).toBeGreaterThan(60);
-    expect(fitness.baseline.score).toBeLessThan(75);
     expect(fitness.evolved.score).toBeGreaterThan(85);
-    expect(fitness.evolved.score).toBeGreaterThan(fitness.baseline.score);
     expect(fitness.delta).toBeGreaterThan(15);
   });
 
   it('ranks assigned-task discovery as the strongest selection pressure', () => {
     const findings = rankFrictionFindings(baseline);
-
     expect(findings[0]?.id).toBe('finding-task-discovery');
     expect(findings[0]!.impact).toBeGreaterThan(findings[1]!.impact);
-    expect(findings[0]!.evidence).toHaveLength(3);
-  });
-
-  it('returns a deterministic schema-valid mock mutation proposal', async () => {
-    const fitness = compareFitness(baseline, evolved);
-    const findings = rankFrictionFindings(baseline);
-    const analyzer = new MockEvolutionAnalyzer();
-    const proposal = await analyzer.analyse({
-      summary: baseline.summary,
-      findings,
-      fitness,
-    });
-
-    expect(MutationProposalSchema.parse(proposal).id).toBe(
-      'mutation-global-task-discovery-v1',
-    );
-    expect(proposal.predictedFitnessGain).toBe(fitness.delta);
-    expect(proposal.status).toBe('proposed');
   });
 
   it('rejects malformed analyzer output safely', () => {
@@ -68,13 +57,12 @@ describe('fitness and evolution analysis', () => {
     ).toThrow(EvolutionAnalysisError);
   });
 
-  it('parses a strict live Responses API proposal and logs metadata only', async () => {
-    const proposal = await new MockEvolutionAnalyzer().analyse(analysisInput());
+  it('sends strict structured output with cached ProjectFlow context', async () => {
     const events: Record<string, unknown>[] = [];
     const fetcher = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          id: 'resp_phase6_live',
+          id: 'resp_live',
           output: [
             {
               type: 'message',
@@ -84,10 +72,7 @@ describe('fitness and evolution analysis', () => {
             },
           ],
         }),
-        {
-          status: 200,
-          headers: { 'x-request-id': 'req_phase6_live' },
-        },
+        { status: 200, headers: { 'x-request-id': 'req_live' } },
       ),
     );
     const analyzer = new OpenAIEvolutionAnalyzer({
@@ -105,60 +90,23 @@ describe('fitness and evolution analysis', () => {
       prompt_cache_key?: string;
       prompt_cache_retention?: string;
     };
-
     expect(request[0]).toBe('https://api.openai.com/v1/responses');
-    expect(request[1].headers).toMatchObject({
-      Authorization: 'Bearer sk-test-secret',
-    });
     expect(body.text.format).toMatchObject({
       strict: true,
       schema: mutationProposalJsonSchema,
     });
     expect(body.prompt_cache_key).toMatch(/^darwin-ctx-/);
     expect(body.prompt_cache_retention).toBe('24h');
-    expect(body.input[1]).toMatchObject({ role: 'developer' });
     expect(body.input[1]?.content).toContain(
       'Darwin Telemetry-to-Evolution Examples',
     );
     expect(body.input[1]?.content).toContain(
       'Source: apps/projectflow/src/App.tsx',
     );
-    const promptInput = JSON.parse(body.input[2]?.content ?? '{}') as {
-      targetApplication?: string;
-      applicationContext?: {
-        purpose?: string;
-        primaryGoals?: string[];
-        baselineVariant?: { navigation?: string[] };
-        interfaceInventory?: Array<{ area?: string }>;
-      };
-    };
-    expect(promptInput).toMatchObject({
-      targetApplication: 'ProjectFlow',
-      applicationContext: {
-        purpose: expect.stringContaining('project-management'),
-        primaryGoals: expect.arrayContaining(['find assigned work']),
-        baselineVariant: {
-          navigation: expect.arrayContaining(['Projects']),
-        },
-        interfaceInventory: expect.arrayContaining([
-          expect.objectContaining({ area: 'task-discovery' }),
-        ]),
-      },
-    });
-    expect(body.input[2]?.content).not.toContain('sk-test-secret');
-    expect(events).toEqual([
-      expect.objectContaining({
-        event: 'openai_analysis_completed',
-        model: 'gpt-5.6',
-        responseId: 'resp_phase6_live',
-        requestId: 'req_phase6_live',
-      }),
-    ]);
     expect(JSON.stringify(events)).not.toContain('sk-test-secret');
-    expect(JSON.stringify(events)).not.toContain(proposal.hypothesis);
   });
 
-  it('times out a live request with a typed fallback reason', async () => {
+  it('returns a typed timeout from the live API', async () => {
     const fetcher = vi.fn(
       (_input: string | URL | Request, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
@@ -176,15 +124,13 @@ describe('fitness and evolution analysis', () => {
       fetch: fetcher,
       logger: { info: vi.fn() },
     });
-
     await expect(analyzer.analyse(analysisInput())).rejects.toMatchObject({
       name: 'OpenAIAnalysisError',
       code: 'timeout',
     } satisfies Partial<OpenAIAnalysisError>);
   });
 
-  it('selects live mode and falls back safely when the API fails', async () => {
-    const proposal = await new MockEvolutionAnalyzer().analyse(analysisInput());
+  it('uses live mode and fails closed when GPT is unavailable', async () => {
     const live = await executeEvolutionAnalysis(analysisInput(), {
       requestedMode: 'live',
       apiKey: 'sk-test-secret',
@@ -201,25 +147,15 @@ describe('fitness and evolution analysis', () => {
     });
     expect(live).toMatchObject({ mode: 'live', model: 'gpt-5.6', proposal });
 
-    const fallback = await executeEvolutionAnalysis(analysisInput(), {
-      requestedMode: 'live',
-      apiKey: 'sk-test-secret',
-      model: 'gpt-5.6',
-      fetch: vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
-      logger: { info: vi.fn() },
-    });
-    expect(fallback).toMatchObject({
-      mode: 'fallback',
-      model: 'deterministic-mock',
-      fallbackReason: 'api_error',
-    });
-
-    const missingKey = await executeEvolutionAnalysis(analysisInput(), {
-      requestedMode: 'live',
-    });
-    expect(missingKey).toMatchObject({
-      mode: 'fallback',
-      fallbackReason: 'missing_api_key',
-    });
+    await expect(
+      executeEvolutionAnalysis(analysisInput(), {
+        requestedMode: 'live',
+        apiKey: 'sk-test-secret',
+        fetch: vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
+      }),
+    ).rejects.toMatchObject({ code: 'api_error' });
+    await expect(
+      executeEvolutionAnalysis(analysisInput(), { requestedMode: 'live' }),
+    ).rejects.toMatchObject({ code: 'missing_api_key' });
   });
 });

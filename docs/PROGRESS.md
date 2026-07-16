@@ -783,6 +783,57 @@ Next phase:
 
 ## Entry template
 
+### Phase 20 - Measured reasoning portfolio
+Date: 2026-07-16
+
+Completed:
+- Removed the deterministic recommendation analyzer and every runtime fallback;
+  unavailable GPT now fails closed without creating a proposal.
+- Added evidence parser `1.2.0` with up to 50 complete privacy-safe ordered
+  journeys, server-derived coverage quality, and signal recurrence across events,
+  attempts, sessions, and participants.
+- Replaced the prescriptive signal mapping with GPT-5.6 portfolio reasoning:
+  causal pressure clusters, competing explanations, one selected mutation, two
+  to five alternatives, normalized scorecards, tradeoffs, and validation plans.
+- Added ProjectFlow source-context versioning to the analysis cache key and kept
+  the static source/examples prefix eligible for 24-hour prompt caching.
+- Rebuilt the production control-room path around measured study evidence. The
+  synthetic scale workflow is no longer rendered in production.
+- Made Activity, Capacity, and Upcoming dashboard panels functional. Panels,
+  headings, rows, capacity bars, and upcoming events now have distinct stable
+  telemetry targets and navigate to useful ProjectFlow destinations.
+- Replaced the v1 evidence prompt and documentation with the v2 live reasoning
+  contract, explicit evidence limitations, and a measured-first judge flow.
+
+Verification commands:
+```bash
+npm run lint
+npm run format:check
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- All 52 unit tests passed across shared contracts, telemetry, API, ProjectFlow,
+  and the control room.
+- All four ProjectFlow Playwright scenarios passed.
+- The Worker dry-run built in live GPT-5.6 mode and both Vite applications built
+  successfully.
+- The generated ProjectFlow reasoning context is current at
+  `ctx-5fc08479fb8c262f`.
+
+Known issues:
+- Evidence from one participant remains directional; Darwin exposes that
+  limitation and caps candidate confidence rather than overstating certainty.
+- The 10,000-event generator remains as a repository-required developer load
+  test, but it is not a production reasoning source.
+
+Next phase:
+- Deploy API `0.19.0` and both Pages applications, create a measured production
+  dashboard session, and verify a real GPT-5.6 v2 portfolio end to end.
+
 ### Phase N — Name
 Date:
 

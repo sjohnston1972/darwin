@@ -2,12 +2,10 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
-  OutcomeValidationSchema,
   StudyEventsResponseSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
-  type OutcomeValidation,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
 import { useEffect, useRef, useState } from 'react';
@@ -27,7 +25,6 @@ export interface LiveTelemetryState {
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
-  outcome: OutcomeValidation | null;
   prepareCodexManifest: () => Promise<void>;
   preparingManifest: boolean;
   resetState: () => void;
@@ -45,7 +42,6 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [manifest, setManifest] = useState<CodexImplementationManifest | null>(
     null,
   );
-  const [outcome, setOutcome] = useState<OutcomeValidation | null>(null);
   const [preparingManifest, setPreparingManifest] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
@@ -79,13 +75,6 @@ export function useLiveTelemetry(): LiveTelemetryState {
         if (response.status === 204 || !response.ok) return;
         if (active && initialGeneration === resetGeneration.current)
           setEvidence(EvidencePackSchema.parse(await response.json()));
-      })
-      .catch(() => undefined);
-    void fetch(`${apiBaseUrl}/api/outcomes/automated-comparison`)
-      .then(async (response) => {
-        if (!response.ok) return;
-        if (active && initialGeneration === resetGeneration.current)
-          setOutcome(OutcomeValidationSchema.parse(await response.json()));
       })
       .catch(() => undefined);
     void fetch(
@@ -142,11 +131,18 @@ export function useLiveTelemetry(): LiveTelemetryState {
         `${apiBaseUrl}/api/studies/${studyId}/analyse-evidence`,
         { method: 'POST' },
       );
-      if (!response.ok) throw new Error('Evidence analysis failed.');
-      setAnalysis(EvidenceAnalysisSchema.parse(await response.json()));
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'Live evidence analysis failed.');
+      }
+      setAnalysis(EvidenceAnalysisSchema.parse(payload));
       setManifest(null);
-    } catch {
-      setError('Mutation analysis failed. The evidence pack is unchanged.');
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Live reasoning failed. No recommendation was generated.',
+      );
     } finally {
       setAnalysing(false);
     }
@@ -179,7 +175,6 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setEvidence(null);
     setAnalysis(null);
     setManifest(null);
-    setOutcome(null);
     setError(null);
     setGenerating(false);
     setAnalysing(false);
@@ -199,7 +194,6 @@ export function useLiveTelemetry(): LiveTelemetryState {
     generateEvidence,
     generating,
     manifest,
-    outcome,
     prepareCodexManifest,
     preparingManifest,
     resetState,

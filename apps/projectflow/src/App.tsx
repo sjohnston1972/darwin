@@ -578,6 +578,11 @@ export function App() {
               projects={projects}
               tasks={tasks}
               onOpenProject={openProject}
+              onOpenProjectTasks={(projectId) =>
+                navigate('project-tasks', projectId)
+              }
+              onOpenReports={() => navigate('reports')}
+              onOpenWork={() => navigate('my-work')}
             />
           )}
           {route === 'projects' && (
@@ -622,7 +627,9 @@ export function App() {
               onSearch={submitTaskSearch}
             />
           )}
-          {route === 'reports' && <Reports projects={projects} />}
+          {route === 'reports' && (
+            <Reports projects={projects} onOpenProject={openProject} />
+          )}
           {route === 'settings' && <SettingsView />}
         </main>
       </div>
@@ -745,10 +752,16 @@ function Dashboard({
   projects,
   tasks,
   onOpenProject,
+  onOpenProjectTasks,
+  onOpenReports,
+  onOpenWork,
 }: {
   projects: Project[];
   tasks: Task[];
   onOpenProject: (id: string) => void;
+  onOpenProjectTasks: (id: string) => void;
+  onOpenReports: () => void;
+  onOpenWork: () => void;
 }) {
   const assigned = tasks.filter((task) => task.assignee === participantName);
   return (
@@ -807,57 +820,83 @@ function Dashboard({
             ))}
           </div>
         </section>
-        <section className="panel">
+        <section className="panel" data-darwin-id="dashboard-activity-panel">
           <PanelHeading title="Activity" meta="Last 7 days" />
           <div className="activity-list">
             <Activity
               color="green"
               title="Release notes approved"
               meta="Priya - 18 min ago"
+              targetId="activity-release-notes"
+              onOpen={() => onOpenProject('apollo')}
             />
             <Activity
               color="blue"
               title="Atlas milestone moved"
               meta="Marcus - 2 hours ago"
+              targetId="activity-atlas-milestone"
+              onOpen={() => onOpenProject('atlas')}
             />
             <Activity
               color="amber"
               title="3 tasks became overdue"
               meta="Retention - Yesterday"
+              targetId="activity-overdue-tasks"
+              onOpen={onOpenReports}
             />
             <Activity
               color="violet"
               title="Research summary shared"
               meta="Elena - Yesterday"
+              targetId="activity-research-summary"
+              onOpen={() => onOpenProject('retention')}
             />
           </div>
         </section>
-        <section className="panel">
+        <section className="panel" data-darwin-id="dashboard-capacity-panel">
           <PanelHeading title="Capacity" meta="This sprint" />
           <div className="capacity-chart">
-            <span style={{ height: '44%' }} />
-            <span style={{ height: '68%' }} />
-            <span style={{ height: '53%' }} />
-            <span style={{ height: '82%' }} />
-            <span style={{ height: '64%' }} />
+            {[44, 68, 53, 82, 64].map((capacity, index) => (
+              <button
+                key={capacity}
+                type="button"
+                style={{ height: `${capacity}%` }}
+                aria-label={`Team member ${index + 1}, ${capacity}% allocated`}
+                data-darwin-id={`capacity-member-${index + 1}`}
+                data-capacity={`${capacity}% allocated`}
+                onClick={onOpenReports}
+              />
+            ))}
           </div>
         </section>
-        <section className="panel">
+        <section className="panel" data-darwin-id="dashboard-upcoming-panel">
           <PanelHeading title="Upcoming" meta="Next 7 days" />
-          <div className="upcoming">
+          <button
+            className="upcoming"
+            type="button"
+            data-darwin-id="upcoming-apollo-code-freeze"
+            onClick={() => onOpenProjectTasks('apollo')}
+          >
             <Clock3 size={17} />
             <span>
               <strong>Apollo code freeze</strong>
               <small>Friday - 16:00</small>
             </span>
-          </div>
-          <div className="upcoming">
+            <ChevronRight size={15} />
+          </button>
+          <button
+            className="upcoming"
+            type="button"
+            data-darwin-id="upcoming-sprint-review"
+            onClick={onOpenWork}
+          >
             <Users size={17} />
             <span>
               <strong>Sprint review</strong>
               <small>Monday - 10:00</small>
             </span>
-          </div>
+            <ChevronRight size={15} />
+          </button>
         </section>
       </div>
     </>
@@ -1138,7 +1177,13 @@ function ProjectTasks({
   );
 }
 
-function Reports({ projects }: { projects: Project[] }) {
+function Reports({
+  projects,
+  onOpenProject,
+}: {
+  projects: Project[];
+  onOpenProject: (id: string) => void;
+}) {
   const overdue = projects.filter((project) => project.status === 'Overdue');
   return (
     <>
@@ -1155,7 +1200,11 @@ function Reports({ projects }: { projects: Project[] }) {
           <span>Delivery exception</span>
           <strong>{overdue.length} overdue project</strong>
           <p>{overdue.map((project) => project.name).join(', ')}</p>
-          <button type="button" data-darwin-id="report-overdue-open">
+          <button
+            type="button"
+            data-darwin-id="report-overdue-open"
+            onClick={() => overdue[0] && onOpenProject(overdue[0].id)}
+          >
             Open overdue report <ChevronRight size={15} />
           </button>
         </section>
@@ -1465,7 +1514,10 @@ function Metric({
 
 function PanelHeading({ meta, title }: { meta?: string; title: string }) {
   return (
-    <header className="panel-heading">
+    <header
+      className="panel-heading"
+      data-darwin-id={`panel-heading-${title.toLowerCase().replaceAll(' ', '-')}`}
+    >
       <h2>{title}</h2>
       {meta && <span>{meta}</span>}
     </header>
@@ -1483,20 +1535,30 @@ function Status({ value }: { value: Project['status'] }) {
 function Activity({
   color,
   meta,
+  onOpen,
+  targetId,
   title,
 }: {
   color: string;
   meta: string;
+  onOpen: () => void;
+  targetId: string;
   title: string;
 }) {
   return (
-    <div className="activity">
+    <button
+      className="activity"
+      type="button"
+      data-darwin-id={targetId}
+      onClick={onOpen}
+    >
       <span className={`activity-dot ${color}`} />
       <span>
         <strong>{title}</strong>
         <small>{meta}</small>
       </span>
-    </div>
+      <ChevronRight size={14} />
+    </button>
   );
 }
 
