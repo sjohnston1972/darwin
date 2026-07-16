@@ -1,5 +1,17 @@
 # Darwin Technical Architecture
 
+```mermaid
+flowchart LR
+  PF[ProjectFlow v1.0 / v1.1] --> TC[Telemetry client]
+  TC --> API[Cloudflare Worker API]
+  API --> D1[(Cloudflare D1)]
+  D1 --> EE[Deterministic evidence engine]
+  EE --> EA[Mock or GPT-5.6 analyzer]
+  EA --> CM[Controlled Codex manifest]
+  CM --> VR[Repository validation]
+  VR --> UI[Darwin control room and fossil record]
+```
+
 ## System overview
 
 ```text

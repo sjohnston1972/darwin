@@ -38,7 +38,10 @@ import {
   executeEvolutionAnalysis,
   rankFrictionFindings,
 } from './evolution';
-import { getTelemetryRepository } from './persistence/telemetry-repository';
+import {
+  getTelemetryRepository,
+  type PersistedDemoState,
+} from './persistence/telemetry-repository';
 import { buildEvidencePack } from './evidence';
 import {
   EvidenceReasoningError,
@@ -50,6 +53,8 @@ import { OutcomeValidationError, compareAutomatedOutcomes } from './outcomes';
 
 export interface Env {
   DB?: D1Database;
+  INGESTION_RATE_LIMITER?: RateLimit;
+  ALLOWED_ORIGINS: string;
   DARWIN_AI_MODE: string;
   DARWIN_DEMO_SEED: string;
   DARWIN_EVENT_COUNT: string;
@@ -59,13 +64,19 @@ export interface Env {
   DARWIN_REPOSITORY_COMMIT: string;
 }
 
-const corsHeaders = {
+const defaultCorsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-  'Access-Control-Allow-Origin': '*',
 };
 
-const json = (body: unknown, init: ResponseInit = {}) => {
+const jsonResponse = (
+  body: unknown,
+  init: ResponseInit = {},
+  corsHeaders: Record<string, string> = {
+    ...defaultCorsHeaders,
+    'Access-Control-Allow-Origin': '*',
+  },
+) => {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json; charset=utf-8');
   Object.entries(corsHeaders).forEach(([name, value]) =>
@@ -96,6 +107,38 @@ const initialOrganismState = (): OrganismState => ({
 
 let organismState = initialOrganismState();
 
+const demoState = (): PersistedDemoState => ({
+  organism: organismState,
+  timeline: timelineStore,
+  mutations: [...mutationStore.entries()],
+  validations: [...validationStore.entries()],
+  fitness: [...fitnessStore.entries()],
+});
+
+const restoreDemoState = (state: PersistedDemoState) => {
+  organismState = OrganismStateSchema.parse(state.organism);
+  timelineStore = EvolutionTimelineResponseSchema.parse({
+    records: state.timeline,
+  }).records;
+  mutationStore.clear();
+  state.mutations.forEach(([id, proposal]) => mutationStore.set(id, proposal));
+  validationStore.clear();
+  state.validations.forEach(([id, validation]) =>
+    validationStore.set(id, validation),
+  );
+  fitnessStore.clear();
+  state.fitness.forEach(([id, fitness]) => fitnessStore.set(id, fitness));
+};
+
+const simulationFromId = (id: string) => {
+  const match = id.match(/^sim-(baseline|evolved)-(-?\d+)$/);
+  if (!match) return null;
+  return simulate({
+    variant: match[1] as 'baseline' | 'evolved',
+    seed: Number(match[2]),
+  });
+};
+
 export const resetSimulationStore = () => {
   simulationStore.clear();
   mutationStore.clear();
@@ -112,16 +155,52 @@ export const handleRequest = async (
   const url = new URL(request.url);
   const { pathname } = url;
   const telemetryRepository = getTelemetryRepository(env?.DB);
+  if (env?.DB) {
+    const persisted = await telemetryRepository.getDemoState();
+    if (persisted) restoreDemoState(persisted);
+  }
+  const configuredOrigins = (env?.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const requestOrigin = request.headers.get('Origin');
+  const originAllowed =
+    configuredOrigins.length === 0 ||
+    requestOrigin === null ||
+    configuredOrigins.includes(requestOrigin);
+  const corsHeaders = {
+    ...defaultCorsHeaders,
+    ...(configuredOrigins.length === 0
+      ? { 'Access-Control-Allow-Origin': '*' }
+      : originAllowed && requestOrigin
+        ? {
+            'Access-Control-Allow-Origin': requestOrigin,
+            Vary: 'Origin',
+          }
+        : {}),
+  };
+  const json = (body: unknown, init: ResponseInit = {}) =>
+    jsonResponse(body, init, corsHeaders);
 
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return new Response(null, {
+      status: originAllowed ? 204 : 403,
+      headers: corsHeaders,
+    });
+  }
+
+  if (!originAllowed) {
+    return json(
+      { error: 'origin_forbidden', message: 'Request origin is not allowed.' },
+      { status: 403 },
+    );
   }
 
   if (request.method === 'GET' && pathname === '/api/health') {
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.12.0',
+      version: '0.13.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -131,6 +210,7 @@ export const handleRequest = async (
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
     resetSimulationStore();
     await telemetryRepository.reset();
+    await telemetryRepository.saveDemoState(demoState());
     return json(
       DemoResetResponseSchema.parse({
         status: 'reset',
@@ -208,6 +288,23 @@ export const handleRequest = async (
       if (!parsed.success || parsed.data.source === 'synthetic') return [];
       return [parsed.data];
     });
+    if (env?.INGESTION_RATE_LIMITER) {
+      const actors = new Set(
+        events.map((event) => `${event.studyId}:${event.participantId}`),
+      );
+      for (const key of actors) {
+        const outcome = await env.INGESTION_RATE_LIMITER.limit({ key });
+        if (!outcome.success) {
+          return json(
+            {
+              error: 'rate_limited',
+              message: 'Telemetry ingestion rate exceeded. Retry shortly.',
+            },
+            { status: 429, headers: { 'Retry-After': '60' } },
+          );
+        }
+      }
+    }
     const stored = await telemetryRepository.insertEvents(
       events,
       new Date().toISOString(),
@@ -313,6 +410,9 @@ export const handleRequest = async (
     const studyId = decodeURIComponent(latestEvidenceMatch[1]!);
     const pack = await telemetryRepository.getLatestEvidence(studyId);
     if (!pack) {
+      if (url.searchParams.get('optional') === 'true') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
       return json(
         {
           error: 'not_found',
@@ -376,6 +476,9 @@ export const handleRequest = async (
     const analysis =
       await telemetryRepository.getLatestEvidenceAnalysis(studyId);
     if (!analysis) {
+      if (url.searchParams.get('optional') === 'true') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
       return json(
         { error: 'not_found', message: 'No evidence analysis exists.' },
         { status: 404 },
@@ -557,7 +660,9 @@ export const handleRequest = async (
       );
     }
 
-    const source = simulationStore.get(parsed.data.simulationId);
+    const source =
+      simulationStore.get(parsed.data.simulationId) ??
+      simulationFromId(parsed.data.simulationId);
     if (!source) {
       return json(
         { error: 'not_found', message: 'Simulation run was not found.' },
@@ -612,6 +717,7 @@ export const handleRequest = async (
           recordedAt: baseline.run.completedAt ?? baseline.run.startedAt,
         });
       }
+      await telemetryRepository.saveDemoState(demoState());
       return json(response);
     } catch (error) {
       if (error instanceof EvolutionAnalysisError) {
@@ -669,6 +775,8 @@ export const handleRequest = async (
       }
     }
 
+    await telemetryRepository.saveDemoState(demoState());
+
     return json(
       MutationDecisionResponseSchema.parse({
         proposal: decidedProposal,
@@ -717,6 +825,7 @@ export const handleRequest = async (
       status: recordedValidation.status === 'passed' ? 'validated' : 'approved',
     };
     mutationStore.set(id, validatedProposal);
+    await telemetryRepository.saveDemoState(demoState());
     return json(
       MutationValidationResponseSchema.parse({
         proposal: validatedProposal,
@@ -774,6 +883,7 @@ export const handleRequest = async (
       recordedAt: new Date().toISOString(),
     };
     timelineStore.push(record);
+    await telemetryRepository.saveDemoState(demoState());
 
     return json(
       MutationReleaseResponseSchema.parse({
@@ -787,7 +897,7 @@ export const handleRequest = async (
   const summaryMatch = pathname.match(/^\/api\/simulations\/([^/]+)\/summary$/);
   if (request.method === 'GET' && summaryMatch) {
     const id = decodeURIComponent(summaryMatch[1]!);
-    const result = simulationStore.get(id);
+    const result = simulationStore.get(id) ?? simulationFromId(id);
     if (!result) {
       return json(
         { error: 'not_found', message: 'Simulation run was not found.' },
@@ -801,7 +911,7 @@ export const handleRequest = async (
   const simulationMatch = pathname.match(/^\/api\/simulations\/([^/]+)$/);
   if (request.method === 'GET' && simulationMatch) {
     const id = decodeURIComponent(simulationMatch[1]!);
-    const result = simulationStore.get(id);
+    const result = simulationStore.get(id) ?? simulationFromId(id);
     if (!result) {
       return json(
         { error: 'not_found', message: 'Simulation run was not found.' },

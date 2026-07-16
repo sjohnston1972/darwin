@@ -493,6 +493,49 @@ Known issues:
 Next phase:
 - Phase 13 — Cloudflare deployment and submission polish.
 
+### Phase 13 — Cloudflare deployment and submission polish
+Date: 2026-07-16
+
+Completed:
+- Created and deployed the `darwin-api` Cloudflare Worker with D1 and the native Rate Limiting API bound.
+- Created the WEUR `darwin-telemetry` D1 database and applied all five migrations for events, evidence, reasoning, outcomes and demo state.
+- Added production origin enforcement for the two Pages applications while retaining explicit localhost development origins.
+- Added per-study-participant telemetry batch rate limiting at 120 requests per minute.
+- Persisted mutation proposals, validation state, fitness, organism state and fossil records as a compact D1 snapshot.
+- Added deterministic simulation rehydration by run ID so scale summaries and analysis remain available without storing 10,000 synthetic event rows.
+- Created and deployed `darwin-control-room` and `darwin-projectflow` as Cloudflare Pages projects connected to the production Worker.
+- Added production Vite configuration, one-command migration/API/Pages deployment, a manual GitHub Actions deploy workflow and a public smoke script.
+- Added a Mermaid architecture diagram, sample evidence documentation, exact judge steps, custom-domain guidance, error recovery, seed-lock language, MIT licence reference and the `/feedback` reminder.
+- Updated API and control-room version labels to `0.13.0`.
+
+Verification commands:
+```bash
+npm run format
+npm run lint
+npm run format:check
+npm run typecheck
+npm run test
+npm run build
+npm run deploy:migrate
+npm run deploy:api
+npm run deploy:web
+npm run deploy:projectflow
+npm run smoke:production
+```
+
+Results:
+- All 45 unit and component tests passed and both production Vite builds completed.
+- The production smoke test loaded both Pages applications, returned API health `0.13.0`, inserted and queried a D1 event, and generated exactly 10,000 synthetic events.
+- A proposal approved before an actual Worker redeploy was restored from D1 afterward, then validated, released and recorded as `survived` with two fossil records.
+- The public demo was reset to the baseline organism after the persistence test.
+
+Known issues:
+- Live GPT-5.6 mode remains intentionally disabled until `OPENAI_API_KEY` is installed as a Worker secret; deterministic mock mode is the deployed default.
+- The documented `clydeford.net` custom domains are not attached; the stable `pages.dev` and `workers.dev` URLs are public and verified.
+
+Next phase:
+- Build Week submission and judge rehearsal; implementation phases are complete.
+
 ## Entry template
 
 ### Phase N — Name

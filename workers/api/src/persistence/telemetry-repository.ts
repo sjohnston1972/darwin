@@ -2,11 +2,23 @@ import type {
   CodexImplementationManifest,
   EvidenceAnalysis,
   EvidencePack,
+  EvolutionRecord,
+  FitnessComparison,
+  MutationProposal,
+  OrganismState,
   OutcomeValidation,
   ProjectFlowWorkspace,
   StoredTelemetryEvent,
   StudyTelemetryEvent,
 } from '@darwin/shared';
+
+export interface PersistedDemoState {
+  organism: OrganismState;
+  timeline: EvolutionRecord[];
+  mutations: Array<[string, MutationProposal]>;
+  validations: Array<[string, unknown]>;
+  fitness: Array<[string, FitnessComparison]>;
+}
 
 export interface TelemetryInsertResult {
   accepted: number;
@@ -50,6 +62,8 @@ export interface TelemetryRepository {
   ): Promise<CodexImplementationManifest | null>;
   saveOutcomeValidation(validation: OutcomeValidation): Promise<void>;
   getLatestOutcomeValidation(): Promise<OutcomeValidation | null>;
+  saveDemoState(state: PersistedDemoState): Promise<void>;
+  getDemoState(): Promise<PersistedDemoState | null>;
   reset(): Promise<void>;
 }
 
@@ -62,6 +76,7 @@ const evidenceAnalysisStore = new Map<
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
 let outcomeValidationStore: OutcomeValidation | null = null;
+let demoStateStore: PersistedDemoState | null = null;
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -168,6 +183,14 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return outcomeValidationStore;
   }
 
+  async saveDemoState(state: PersistedDemoState) {
+    demoStateStore = state;
+  }
+
+  async getDemoState() {
+    return demoStateStore;
+  }
+
   async reset() {
     eventStore.clear();
     workspaceStore.clear();
@@ -175,6 +198,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     evidenceAnalysisStore.clear();
     manifestStore.clear();
     outcomeValidationStore = null;
+    demoStateStore = null;
   }
 }
 
@@ -468,6 +492,26 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return row ? (JSON.parse(row.validation_json) as OutcomeValidation) : null;
   }
 
+  async saveDemoState(state: PersistedDemoState) {
+    await this.database
+      .prepare(
+        `INSERT INTO demo_state (state_key, state_json, updated_at)
+         VALUES ('primary', ?, ?)
+         ON CONFLICT(state_key) DO UPDATE SET
+           state_json = excluded.state_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(JSON.stringify(state), state.organism.updatedAt)
+      .run();
+  }
+
+  async getDemoState() {
+    const row = await this.database
+      .prepare(`SELECT state_json FROM demo_state WHERE state_key = 'primary'`)
+      .first<{ state_json: string }>();
+    return row ? (JSON.parse(row.state_json) as PersistedDemoState) : null;
+  }
+
   async reset() {
     await this.database.batch([
       this.database.prepare('DELETE FROM telemetry_events'),
@@ -476,6 +520,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM evidence_analyses'),
       this.database.prepare('DELETE FROM codex_manifests'),
       this.database.prepare('DELETE FROM outcome_validations'),
+      this.database.prepare('DELETE FROM demo_state'),
     ]);
   }
 }

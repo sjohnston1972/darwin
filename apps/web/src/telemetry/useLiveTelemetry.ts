@@ -67,9 +67,11 @@ export function useLiveTelemetry(): LiveTelemetryState {
       }
     };
     void load();
-    void fetch(`${apiBaseUrl}/api/studies/${studyId}/evidence/latest`)
+    void fetch(
+      `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
+    )
       .then(async (response) => {
-        if (!response.ok) return;
+        if (response.status === 204 || !response.ok) return;
         if (active)
           setEvidence(EvidencePackSchema.parse(await response.json()));
       })
@@ -81,9 +83,11 @@ export function useLiveTelemetry(): LiveTelemetryState {
           setOutcome(OutcomeValidationSchema.parse(await response.json()));
       })
       .catch(() => undefined);
-    void fetch(`${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest`)
+    void fetch(
+      `${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest?optional=true`,
+    )
       .then(async (response) => {
-        if (!response.ok) return;
+        if (response.status === 204 || !response.ok) return;
         const result = EvidenceAnalysisSchema.parse(await response.json());
         if (!active) return;
         setAnalysis(result);

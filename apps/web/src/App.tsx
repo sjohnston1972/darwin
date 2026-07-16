@@ -59,6 +59,8 @@ const navItems = [
 ] as const;
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
+const projectFlowBaseUrl =
+  import.meta.env.VITE_PROJECTFLOW_BASE_URL ?? 'http://localhost:5174';
 
 function App() {
   const [health, setHealth] = useState<HealthState>('checking');
@@ -630,7 +632,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.12.0</p>
+            <p className="font-mono">DARWIN CORE 0.13.0</p>
           </footer>
         </div>
       </main>
@@ -692,7 +694,7 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
           </span>
           <a
             className="secondary-action"
-            href="http://localhost:5174/study"
+            href={`${projectFlowBaseUrl}/study`}
             target="_blank"
             rel="noreferrer"
           >

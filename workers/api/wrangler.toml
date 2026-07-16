@@ -8,3 +8,19 @@ OPENAI_MODEL = "gpt-5.6"
 OPENAI_TIMEOUT_MS = "12000"
 DARWIN_DEMO_SEED = "1859"
 DARWIN_EVENT_COUNT = "10000"
+DARWIN_REPOSITORY_COMMIT = "b80f800"
+ALLOWED_ORIGINS = "https://darwin-control-room.pages.dev,https://darwin-projectflow.pages.dev,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "darwin-telemetry"
+database_id = "496d0bb1-07ae-4563-bceb-b5c640c0a1ba"
+migrations_dir = "migrations"
+
+[[ratelimits]]
+name = "INGESTION_RATE_LIMITER"
+namespace_id = "1859001"
+
+[ratelimits.simple]
+limit = 120
+period = 60

@@ -70,6 +70,35 @@ describe('Darwin API', () => {
     });
   });
 
+  it('enforces production origins and telemetry rate limits', async () => {
+    const forbidden = await handleRequest(
+      new Request('http://localhost/api/health', {
+        headers: { Origin: 'https://untrusted.example' },
+      }),
+      { ALLOWED_ORIGINS: 'https://darwin-control-room.pages.dev' },
+    );
+    expect(forbidden.status).toBe(403);
+
+    const limiter = {
+      limit: vi.fn().mockResolvedValue({ success: false }),
+    } as unknown as RateLimit;
+    const limited = await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        headers: { Origin: 'https://darwin-projectflow.pages.dev' },
+        body: JSON.stringify({ events: [studyEvent] }),
+      }),
+      {
+        ALLOWED_ORIGINS: 'https://darwin-projectflow.pages.dev',
+        INGESTION_RATE_LIMITER: limiter,
+      },
+    );
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Access-Control-Allow-Origin')).toBe(
+      'https://darwin-projectflow.pages.dev',
+    );
+  });
+
   it('serves clearly labelled recorded automation before a live outcome run', async () => {
     const response = await handleRequest(
       new Request('http://localhost/api/outcomes/automated-comparison'),
