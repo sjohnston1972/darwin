@@ -7,7 +7,9 @@ import {
   Database,
   FlaskConical,
   GitBranch,
+  GitCompareArrows,
   LayoutDashboard,
+  Maximize2,
   Menu,
   Network,
   Radar,
@@ -17,34 +19,10 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-type HealthState = 'checking' | 'online' | 'offline';
+import { ProjectFlow } from './projectflow/ProjectFlow';
+import type { ProjectFlowVariant } from './projectflow/data';
 
-const metrics = [
-  {
-    label: 'Interactions observed',
-    value: '0',
-    meta: 'Awaiting observation',
-    tone: 'neutral',
-  },
-  {
-    label: 'Evolution cycles',
-    value: '0',
-    meta: 'No mutations recorded',
-    tone: 'neutral',
-  },
-  {
-    label: 'Current fitness',
-    value: '--',
-    meta: 'Baseline not measured',
-    tone: 'amber',
-  },
-  {
-    label: 'Genome version',
-    value: 'v0.1',
-    meta: 'Foundation',
-    tone: 'signal',
-  },
-] as const;
+type HealthState = 'checking' | 'online' | 'offline';
 
 const navItems = [
   { label: 'Control room', icon: LayoutDashboard, active: true },
@@ -59,6 +37,41 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 function App() {
   const [health, setHealth] = useState<HealthState>('checking');
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [organismVariant, setOrganismVariant] = useState<ProjectFlowVariant>(
+    () =>
+      new URLSearchParams(window.location.search).get('variant') === 'evolved'
+        ? 'evolved'
+        : 'baseline',
+  );
+  const organismOnly =
+    new URLSearchParams(window.location.search).get('view') === 'organism';
+
+  const metrics = [
+    {
+      label: 'Interactions observed',
+      value: '0',
+      meta: 'Awaiting observation',
+      tone: 'neutral',
+    },
+    {
+      label: 'Evolution cycles',
+      value: '0',
+      meta: 'No mutations recorded',
+      tone: 'neutral',
+    },
+    {
+      label: 'Current fitness',
+      value: '--',
+      meta: 'Baseline not measured',
+      tone: 'amber',
+    },
+    {
+      label: 'Genome version',
+      value: organismVariant === 'baseline' ? 'v1.0' : 'v1.1',
+      meta: organismVariant === 'baseline' ? 'Baseline' : 'Candidate preview',
+      tone: 'signal',
+    },
+  ] as const;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -76,6 +89,51 @@ function App() {
       });
 
     return () => controller.abort();
+  }, []);
+
+  if (organismOnly) {
+    return (
+      <div className="organism-preview-page">
+        <header>
+          <a href="/" className="flex items-center gap-3">
+            <span className="brand-mark" aria-hidden="true">
+              <span />
+            </span>
+            <strong>DARWIN</strong>
+          </a>
+          <span>ProjectFlow organism</span>
+          <div
+            className="variant-control"
+            role="group"
+            aria-label="ProjectFlow variant"
+          >
+            <button
+              className={organismVariant === 'baseline' ? 'is-active' : ''}
+              type="button"
+              onClick={() => setOrganismVariant('baseline')}
+            >
+              Baseline <span>v1.0</span>
+            </button>
+            <button
+              className={organismVariant === 'evolved' ? 'is-active' : ''}
+              type="button"
+              onClick={() => setOrganismVariant('evolved')}
+            >
+              Evolved <span>v1.1</span>
+            </button>
+          </div>
+        </header>
+        <ProjectFlow variant={organismVariant} />
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    if (window.location.hash !== '#organism') return;
+
+    requestAnimationFrame(() => {
+      document.getElementById('organism')?.scrollIntoView();
+    });
   }, []);
 
   return (
@@ -238,49 +296,53 @@ function App() {
             ))}
           </section>
 
-          <section className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.7fr)]">
-            <div className="surface-panel" id="organism">
-              <div className="panel-heading">
-                <div>
-                  <p className="section-label">Connected organism</p>
-                  <h2 className="mt-2 text-xl font-semibold">
-                    ProjectFlow genome
-                  </h2>
-                </div>
-                <div className="flex items-center gap-2 font-mono text-xs text-signal">
-                  <span className="h-1.5 w-1.5 bg-signal" /> STABLE
-                </div>
+          <section className="mt-8 surface-panel" id="organism">
+            <div className="panel-heading organism-heading">
+              <div>
+                <p className="section-label">Connected organism</p>
+                <h2 className="mt-2 text-xl font-semibold">
+                  ProjectFlow genome
+                </h2>
               </div>
-              <div
-                className="genome-surface"
-                aria-label="ProjectFlow genome foundation map"
-              >
-                <div className="genome-grid" aria-hidden="true">
-                  {Array.from({ length: 84 }, (_, index) => {
-                    const active = [
-                      8, 9, 19, 20, 21, 32, 33, 45, 46, 47, 58, 59, 70, 71,
-                    ].includes(index);
-                    const anchor = [9, 33, 47, 71].includes(index);
-                    return (
-                      <span
-                        key={index}
-                        className={anchor ? 'anchor' : active ? 'active' : ''}
-                      />
-                    );
-                  })}
+              <div className="flex items-center gap-2">
+                <div
+                  className="variant-control"
+                  role="group"
+                  aria-label="ProjectFlow variant"
+                >
+                  <button
+                    className={
+                      organismVariant === 'baseline' ? 'is-active' : ''
+                    }
+                    type="button"
+                    onClick={() => setOrganismVariant('baseline')}
+                    aria-pressed={organismVariant === 'baseline'}
+                  >
+                    Baseline <span>v1.0</span>
+                  </button>
+                  <button
+                    className={organismVariant === 'evolved' ? 'is-active' : ''}
+                    type="button"
+                    onClick={() => setOrganismVariant('evolved')}
+                    aria-pressed={organismVariant === 'evolved'}
+                  >
+                    Evolved <span>v1.1</span>
+                  </button>
                 </div>
-                <div className="genome-legend">
-                  <p className="font-mono text-xs text-signal">
-                    FOUNDATION / v0.1
-                  </p>
-                  <p className="mt-2 max-w-sm text-sm leading-6 text-mist">
-                    Shared contracts, API boundary, and control-room interface
-                    are operational.
-                  </p>
-                </div>
+                <a
+                  className="icon-button"
+                  href={`/?view=organism&variant=${organismVariant}`}
+                  aria-label="Open organism preview"
+                  title="Open organism preview"
+                >
+                  <Maximize2 size={17} />
+                </a>
               </div>
             </div>
+            <ProjectFlow variant={organismVariant} />
+          </section>
 
+          <section className="mt-8 grid gap-8 lg:grid-cols-2">
             <aside
               className="surface-panel"
               aria-labelledby="system-status-title"
@@ -292,7 +354,7 @@ function App() {
                     id="system-status-title"
                     className="mt-2 text-xl font-semibold"
                   >
-                    Foundation
+                    Organism ready
                   </h2>
                 </div>
                 <Network size={19} className="text-mist" />
@@ -312,11 +374,64 @@ function App() {
                 />
                 <StatusRow
                   icon={LayoutDashboard}
-                  label="Control room"
-                  value="Ready"
+                  label="ProjectFlow variants"
+                  value="2 ready"
                   ready
                 />
                 <StatusRow icon={Radar} label="Telemetry" value="Phase 3" />
+              </div>
+            </aside>
+
+            <aside
+              className="surface-panel"
+              aria-labelledby="variant-summary-title"
+            >
+              <div className="panel-heading">
+                <div>
+                  <p className="section-label">Genome comparison</p>
+                  <h2
+                    id="variant-summary-title"
+                    className="mt-2 text-xl font-semibold"
+                  >
+                    {organismVariant === 'baseline'
+                      ? 'Visible friction'
+                      : 'Candidate mutation'}
+                  </h2>
+                </div>
+                <GitCompareArrows size={19} className="text-mist" />
+              </div>
+              <div className="variant-summary">
+                {organismVariant === 'baseline' ? (
+                  <>
+                    <p>
+                      <span>01</span> Tasks sit behind Projects and a separate
+                      Tasks route.
+                    </p>
+                    <p>
+                      <span>02</span> Search appears only inside the task
+                      directory.
+                    </p>
+                    <p>
+                      <span>03</span> The dashboard competes for attention with
+                      seven widgets.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      <span>01</span> My Work opens directly on assigned
+                      priorities.
+                    </p>
+                    <p>
+                      <span>02</span> Search and quick task creation remain
+                      globally available.
+                    </p>
+                    <p>
+                      <span>03</span> Reports become concise, actionable
+                      Insights.
+                    </p>
+                  </>
+                )}
               </div>
             </aside>
           </section>
@@ -355,6 +470,17 @@ function App() {
                     <td className="px-6 py-5 text-mist">Baseline</td>
                     <td className="px-6 py-5 font-mono text-mist">--</td>
                     <td className="px-6 py-5 text-right">
+                      <span className="status-badge">RETAINED</span>
+                    </td>
+                  </tr>
+                  <tr className="border-t border-line">
+                    <td className="px-6 py-5 font-mono">v1.0</td>
+                    <td className="px-6 py-5 text-mist">
+                      ProjectFlow organism connected
+                    </td>
+                    <td className="px-6 py-5 text-mist">Baseline</td>
+                    <td className="px-6 py-5 font-mono text-mist">--</td>
+                    <td className="px-6 py-5 text-right">
                       <span className="status-badge">CURRENT</span>
                     </td>
                   </tr>
@@ -365,7 +491,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.1.0</p>
+            <p className="font-mono">DARWIN CORE 0.2.0</p>
           </footer>
         </div>
       </main>

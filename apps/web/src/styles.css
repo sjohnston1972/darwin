@@ -332,6 +332,101 @@ a:focus-visible {
   letter-spacing: 0.08em;
 }
 
+.variant-control {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid #343a36;
+  padding: 3px;
+  background: #121513;
+}
+
+.variant-control button {
+  min-height: 34px;
+  padding: 0 13px;
+  color: #89928c;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.variant-control button span {
+  margin-left: 4px;
+  color: #667069;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9px;
+}
+
+.variant-control button.is-active {
+  background: #2a302c;
+  color: #fff;
+}
+
+.variant-control button.is-active span {
+  color: #b9f36b;
+}
+
+.variant-summary {
+  padding: 8px 24px 12px;
+}
+
+.variant-summary p {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  border-bottom: 1px solid #2b302d;
+  padding: 13px 0;
+  color: #a9b2ac;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.variant-summary p:last-child {
+  border-bottom: 0;
+}
+
+.variant-summary span {
+  color: #b9f36b;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px;
+}
+
+.organism-preview-page {
+  min-height: 100vh;
+  padding: 16px;
+  background: #101211;
+}
+
+.organism-preview-page > header {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 20px;
+  border: 1px solid #2b302d;
+  border-bottom: 0;
+  padding: 0 18px;
+  background: #181b19;
+  color: #fff;
+}
+
+.organism-preview-page > header strong {
+  font-size: 13px;
+  letter-spacing: 0.16em;
+}
+
+.organism-preview-page > header > span {
+  color: #a9b2ac;
+  font-size: 11px;
+}
+
+.organism-preview-page > header .variant-control {
+  justify-self: end;
+}
+
+.organism-preview-page > .projectflow {
+  border: 1px solid #2b302d;
+}
+
 @keyframes pulse {
   50% {
     opacity: 0.35;
@@ -376,6 +471,32 @@ a:focus-visible {
 }
 
 @media (max-width: 639px) {
+  .organism-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .variant-control {
+    width: 100%;
+  }
+
+  .organism-preview-page {
+    padding: 0;
+  }
+
+  .organism-preview-page > header {
+    grid-template-columns: 1fr auto;
+    border: 0;
+  }
+
+  .organism-preview-page > header > span {
+    display: none;
+  }
+
+  .organism-preview-page > header .variant-control {
+    width: auto;
+  }
+
   .hero-actions {
     width: 100%;
     flex-direction: column;

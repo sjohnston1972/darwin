@@ -4,7 +4,8 @@ Codex: append one entry per completed phase.
 
 ## Current state
 - Phase 1 foundation complete.
-- Phase 2 not started.
+- Phase 2 ProjectFlow organism complete.
+- Phase 3 not started.
 
 ### Phase 1 — Foundation
 Date: 2026-07-16
@@ -42,6 +43,45 @@ Known issues:
 
 Next phase:
 - Phase 2 — ProjectFlow organism.
+
+### Phase 2 — ProjectFlow organism
+Date: 2026-07-16
+
+Completed:
+- Added one shared, realistic ProjectFlow dataset with four projects, seven seeded tasks, team members, deadlines, status, priority, and activity records.
+- Built a route-capable baseline organism with Dashboard, Projects, Tasks, Reports, and Settings.
+- Made baseline friction visible through a seven-widget dashboard, task search buried in the Tasks route, a top-level Reports route, and task creation behind project drill-down.
+- Built the evolved organism with My Work, Projects, Insights, persistent global search, and globally available quick task creation.
+- Added working project drill-down, task search, task composition, route changes, and settings views.
+- Added a Darwin organism-state toggle for baseline `v1.0` and evolved candidate `v1.1`.
+- Added reproducible full-screen organism views using `?view=organism&variant=baseline` and `?view=organism&variant=evolved`.
+- Updated the control-room genome metadata, comparison summary, and fossil record.
+- Corrected the web typecheck command so it traverses both referenced TypeScript projects.
+
+Verification commands:
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+```
+
+Results:
+- `npm run typecheck`: passed across shared, API, and both web TypeScript projects.
+- `npm run test`: passed; 4 test files and 7 tests.
+- `npm run lint`: passed with 0 warnings.
+- `npm run format:check`: passed for maintained source and configuration files.
+- `npm run build`: passed; shared output, Wrangler dry-run bundle, and Vite production bundle generated.
+- Route verification: baseline Tasks, Projects, project drill-down, and evolved My Work workflows passed interaction tests.
+- Workflow verification: evolved global quick-create produced a new assigned task in My Work.
+- Visual verification: baseline and evolved captures at 1440x900 differ clearly; the evolved organism also passed a compact 500x900 capture without overlap.
+
+Known issues:
+- Fitness values and telemetry remain intentionally unavailable until Phases 3 and 4.
+
+Next phase:
+- Phase 3 — Telemetry and simulation.
 
 ## Entry template
 
