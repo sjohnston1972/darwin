@@ -178,7 +178,7 @@ const modelOutput = {
 };
 
 describe('evidence-backed reasoning v2', () => {
-  it('rejects invented evidence, targets, and protected scope', () => {
+  it('rejects invented evidence and scope while grounding target labels', () => {
     expect(() =>
       validateModelOutput(
         {
@@ -205,23 +205,24 @@ describe('evidence-backed reasoning v2', () => {
       ),
     ).toThrow('exceeds the mutable application scope');
 
-    expect(() =>
-      validateModelOutput(
-        {
-          ...modelOutput,
-          evidenceAssessment: {
-            ...modelOutput.evidenceAssessment,
-            pressureClusters: [
-              {
-                ...modelOutput.evidenceAssessment.pressureClusters[0],
-                affectedTargets: ['invented-control'],
-              },
-            ],
-          },
+    const normalized = validateModelOutput(
+      {
+        ...modelOutput,
+        evidenceAssessment: {
+          ...modelOutput.evidenceAssessment,
+          pressureClusters: [
+            {
+              ...modelOutput.evidenceAssessment.pressureClusters[0],
+              affectedTargets: ['invented-control'],
+            },
+          ],
         },
-        pack,
-      ),
-    ).toThrow('unobserved semantic target');
+      },
+      pack,
+    );
+    expect(
+      normalized.evidenceAssessment.pressureClusters[0]?.affectedTargets,
+    ).toEqual(['nav-projects']);
   });
 
   it('uses ordered journeys and returns an evidence-normalized portfolio', async () => {

@@ -305,12 +305,32 @@ export function validateModelOutput(
         `Pressure cluster ${cluster.id} cites an unknown evidence ID.`,
       );
     }
-    if (cluster.affectedTargets.some((target) => !knownTargets.has(target))) {
-      throw new EvidenceReasoningError(
-        `Pressure cluster ${cluster.id} cites an unobserved semantic target.`,
-      );
-    }
   }
+
+  const pressureClusters = output.evidenceAssessment.pressureClusters.map(
+    (cluster) => {
+      const observedModelTargets = cluster.affectedTargets.filter((target) =>
+        knownTargets.has(target),
+      );
+      const citedTraceTargets = pack.frictionSignals
+        .filter((signal) => cluster.evidenceIds.includes(signal.evidenceId))
+        .flatMap((signal) =>
+          signal.trace.flatMap((event) =>
+            event.targetId ? [event.targetId] : [],
+          ),
+        );
+      return EvidencePressureClusterSchema.parse({
+        ...cluster,
+        affectedTargets: [
+          ...new Set(
+            observedModelTargets.length
+              ? observedModelTargets
+              : citedTraceTargets,
+          ),
+        ],
+      });
+    },
+  );
 
   for (const candidate of candidates) {
     if (candidate.evidenceIds.some((id) => !knownEvidence.has(id))) {
@@ -343,6 +363,7 @@ export function validateModelOutput(
     ...output,
     evidenceAssessment: {
       ...output.evidenceAssessment,
+      pressureClusters,
       selectionRationale: modelSelectionChanged
         ? `${selectedMutation.title} ranked highest after Darwin normalized evidence recurrence and portfolio scores. ${output.evidenceAssessment.selectionRationale}`
         : output.evidenceAssessment.selectionRationale,
