@@ -46,6 +46,26 @@ const pack = EvidencePackSchema.parse({
     },
   ],
   applicationMap: {
+    product: {
+      name: 'ProjectFlow',
+      purpose: 'Project management workspace.',
+      primaryUser: 'Knowledge worker.',
+      domainEntities: ['project', 'task', 'user'],
+      primaryGoals: ['find assigned work'],
+    },
+    activeVariant: {
+      name: 'baseline',
+      version: '1.0.0',
+      navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
+      capabilities: ['project-scoped task search'],
+    },
+    interfaceInventory: [
+      {
+        area: 'task-discovery',
+        purpose: 'Find assigned work.',
+        primaryActions: ['open task'],
+      },
+    ],
     routes: ['/study/dashboard'],
     mutableAreas: ['navigation', 'search', 'task-discovery'],
     protectedAreas: ['telemetry-history', 'authentication', 'database-schema'],

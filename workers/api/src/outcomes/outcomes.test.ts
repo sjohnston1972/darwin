@@ -36,6 +36,32 @@ const pack = (
     ],
     frictionSignals: [],
     applicationMap: {
+      product: {
+        name: 'ProjectFlow',
+        purpose: 'Project management workspace.',
+        primaryUser: 'Knowledge worker.',
+        domainEntities: ['project', 'task', 'user'],
+        primaryGoals: ['find assigned work'],
+      },
+      activeVariant: {
+        name: variant,
+        version: variant === 'baseline' ? '1.0.0' : '1.1.0',
+        navigation:
+          variant === 'baseline'
+            ? ['Dashboard', 'Projects', 'Reports', 'Settings']
+            : ['Dashboard', 'My Work', 'Projects', 'Insights', 'Settings'],
+        capabilities:
+          variant === 'baseline'
+            ? ['project-scoped task search']
+            : ['global task search', 'direct My Work route'],
+      },
+      interfaceInventory: [
+        {
+          area: 'task-discovery',
+          purpose: 'Find assigned work.',
+          primaryActions: ['open task'],
+        },
+      ],
       routes: ['/study/dashboard'],
       mutableAreas: ['navigation'],
       protectedAreas: ['telemetry-history'],

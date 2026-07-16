@@ -56,7 +56,7 @@ Completed:
 - Built the evolved organism with My Work, Projects, Insights, persistent global search, and globally available quick task creation.
 - Added working project drill-down, task search, task composition, route changes, and settings views.
 - Added a Darwin organism-state toggle for baseline `v1.0` and evolved candidate `v1.1`.
-- Added reproducible full-screen organism views using `?view=organism&variant=baseline` and `?view=organism&variant=evolved`.
+- Added reproducible full-screen target application views, now available through `?view=target&variant=baseline` and `?view=target&variant=evolved`.
 - Updated the control-room genome metadata, comparison summary, and fossil record.
 - Corrected the web typecheck command so it traverses both referenced TypeScript projects.
 
@@ -666,6 +666,56 @@ Known issues:
 Next phase:
 - Deploy `0.16.0`, verify reset persistence after refresh and rehearse the
   complete judge flow.
+
+### Phase 17 — Judge guidance and standalone target application
+Date: 2026-07-16
+
+Completed:
+- Replaced the large embedded ProjectFlow panel with a compact target
+  application launcher and a dedicated full-screen view of the real standalone
+  ProjectFlow deployment.
+- Added an animated start cue, a stage-aware evolution guide and contextual
+  hover/focus explanations across the control room's major sections, metrics,
+  status rows and actions.
+- Made the configured GPT-5.6 analysis step explicit, including live/mock mode,
+  model identity, invocation timing, cached-analysis behavior and the context
+  supplied to the model.
+- Expanded both analysis paths with a structured ProjectFlow product map that
+  covers purpose, primary users, domain entities, goals, routes, capabilities
+  and interface areas.
+- Simplified ProjectFlow study mode to automatic workflow capture while
+  retaining the rich event stream and removing scripted task cards, completion
+  buttons and optional feedback.
+- Replaced the hero watermark with a generated subtle DNA wireframe asset and
+  changed the headline to “Helping your software evolve.”
+- Updated API, smoke-test and control-room version labels to `0.17.0`.
+
+Verification commands:
+```bash
+npm run format
+npm run lint
+npm run format:check
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- All 48 unit tests and both ProjectFlow Playwright scenarios passed.
+- Desktop and 390x844 browser probes confirmed the dedicated target view loads
+  the real evolved ProjectFlow app, the simplified study retains live telemetry,
+  contextual help remains inside the viewport and no console errors occur.
+- The control room has no horizontal page overflow with the mobile navigation
+  closed or open.
+
+Known issues:
+- Production uses the deterministic GPT-5.6-compatible mock until
+  `DARWIN_AI_MODE=live` and `OPENAI_API_KEY` are configured on the Worker.
+
+Next phase:
+- Deploy `0.17.0`, smoke production, reset shared evidence and rehearse the
+  complete three-minute flow.
 
 ## Entry template
 

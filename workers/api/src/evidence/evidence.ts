@@ -54,6 +54,7 @@ export async function buildEvidencePack(
   const tasks = summarizeTasks(taskAttempts);
   const evidenceClass = evidenceClassFor(events);
   const appVersion = events.at(-1)?.appVersion ?? 'unknown';
+  const evolved = appVersion.startsWith('1.1');
   const payload = {
     parserVersion,
     evidenceClass,
@@ -69,6 +70,81 @@ export async function buildEvidencePack(
     tasks,
     frictionSignals,
     applicationMap: {
+      product: {
+        name: 'ProjectFlow' as const,
+        purpose:
+          'A project-management workspace for finding assigned work, coordinating projects, creating tasks, and reviewing delivery health.',
+        primaryUser:
+          'A knowledge worker managing personal tasks and shared project delivery.',
+        domainEntities: ['workspace', 'project', 'task', 'user', 'report'],
+        primaryGoals: [
+          'find assigned work',
+          'create and assign tasks',
+          'monitor project delivery',
+          'review team workload',
+        ],
+      },
+      activeVariant: {
+        name: evolved ? ('evolved' as const) : ('baseline' as const),
+        version: appVersion,
+        navigation: evolved
+          ? ['Dashboard', 'My Work', 'Projects', 'Insights', 'Settings']
+          : ['Dashboard', 'Projects', 'Reports', 'Settings'],
+        capabilities: evolved
+          ? [
+              'global task search',
+              'direct My Work route',
+              'global quick-create task',
+              'project task directory',
+              'delivery insights',
+            ]
+          : [
+              'dashboard task summary',
+              'project directory',
+              'project-scoped task search',
+              'project-scoped task creation',
+              'standalone reports',
+            ],
+      },
+      interfaceInventory: [
+        {
+          area: 'dashboard',
+          purpose: 'Summarise work, project health, capacity, and activity.',
+          primaryActions: ['open a project', 'inspect assigned tasks'],
+        },
+        {
+          area: 'projects',
+          purpose: 'Browse projects before opening project-scoped work.',
+          primaryActions: ['search projects', 'create project', 'open project'],
+        },
+        {
+          area: 'task-discovery',
+          purpose: 'Find and open work assigned to the current user.',
+          primaryActions: evolved
+            ? ['open My Work', 'use global task search', 'open task']
+            : [
+                'open Projects',
+                'open project',
+                'open task directory',
+                'search tasks',
+                'open task',
+              ],
+        },
+        {
+          area: 'reporting',
+          purpose: 'Review delivery metrics and project status.',
+          primaryActions: evolved
+            ? ['open Insights']
+            : ['open standalone Reports'],
+        },
+        {
+          area: 'global-header',
+          purpose: 'Provide workspace-wide actions and navigation context.',
+          primaryActions: evolved
+            ? ['search all tasks', 'create task']
+            : ['view notifications'],
+        },
+      ],
       routes: [...new Set(events.map((event) => event.route))].sort(),
       mutableAreas: ['navigation', 'search', 'task-discovery'],
       protectedAreas: [

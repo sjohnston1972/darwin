@@ -204,7 +204,13 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.16.0',
+      version: '0.17.0',
+      analysis: {
+        mode: env?.DARWIN_AI_MODE === 'live' ? 'live' : 'mock',
+        model: env?.OPENAI_MODEL || 'gpt-5.6',
+        liveModelAvailable:
+          env?.DARWIN_AI_MODE === 'live' && Boolean(env.OPENAI_API_KEY),
+      },
       timestamp: new Date().toISOString(),
     };
 

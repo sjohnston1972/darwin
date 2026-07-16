@@ -26,7 +26,7 @@ human telemetry.
 ### 6.1 Landing / control room
 Must show:
 - Darwin wordmark
-- “Software that evolves.”
+- “Helping your software evolve.”
 - connected organism: ProjectFlow
 - current genome version
 - interactions observed

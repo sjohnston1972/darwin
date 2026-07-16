@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { App } from './App';
@@ -39,20 +39,11 @@ describe('standalone ProjectFlow', () => {
       screen.queryByRole('button', { name: /^Tasks/ }),
     ).not.toBeInTheDocument();
 
-    const taskCard = screen
-      .getAllByText('Find your assigned task')
-      .map((element) => element.closest('article'))
-      .find(Boolean);
-    expect(taskCard).not.toBeNull();
-    const primaryStarts = screen.getAllByRole('button', {
-      name: 'Start task: Find your assigned task',
-    });
-    expect(primaryStarts).toHaveLength(2);
-    fireEvent.click(primaryStarts[0]!);
-    expect(screen.getAllByRole('button', { name: 'Done' })).toHaveLength(2);
     expect(
-      within(taskCard!).getByRole('button', { name: 'Done' }),
-    ).toBeDisabled();
+      screen.getByRole('heading', { name: 'Session evidence' }),
+    ).toBeVisible();
+    expect(screen.queryByText('Complete three tasks')).not.toBeInTheDocument();
+    expect(screen.queryByText('Optional feedback')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Projects/ }));
     fireEvent.click(screen.getByRole('button', { name: /Apollo Release/ }));
@@ -61,11 +52,7 @@ describe('standalone ProjectFlow', () => {
       screen.getByRole('button', { name: /Confirm launch checklist/ }),
     );
 
-    const done = within(taskCard!).getByRole('button', { name: 'Done' });
-    expect(done).toBeEnabled();
-    fireEvent.click(done);
-
-    expect(taskCard).toHaveClass('is-complete');
+    expect(screen.getByText('task completed')).toBeInTheDocument();
     expect(screen.getByText(/events/)).toBeInTheDocument();
   });
 
@@ -75,20 +62,11 @@ describe('standalone ProjectFlow', () => {
 
     expect(screen.getByText('ProjectFlow evolved - v1.1.0')).toBeVisible();
     expect(screen.getByLabelText('Search all tasks')).toBeVisible();
-    const taskCard = screen
-      .getAllByText('Find your assigned task')
-      .map((element) => element.closest('article'))
-      .find(Boolean);
-    fireEvent.click(
-      within(taskCard!).getByRole('button', { name: /Start task/ }),
-    );
     fireEvent.click(screen.getByRole('button', { name: /My Work/ }));
     fireEvent.click(
       screen.getByRole('button', { name: /Confirm launch checklist/ }),
     );
 
-    expect(
-      within(taskCard!).getByRole('button', { name: 'Done' }),
-    ).toBeEnabled();
+    expect(screen.getByText('task completed')).toBeInTheDocument();
   });
 });

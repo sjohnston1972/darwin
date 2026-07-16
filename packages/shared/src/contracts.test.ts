@@ -14,6 +14,11 @@ describe('shared contracts', () => {
         status: 'ok',
         service: 'darwin-api',
         version: '0.1.0',
+        analysis: {
+          mode: 'mock',
+          model: 'gpt-5.6',
+          liveModelAvailable: false,
+        },
         timestamp: '2026-07-16T12:00:00.000Z',
       }),
     ).toMatchObject({ status: 'ok', service: 'darwin-api' });

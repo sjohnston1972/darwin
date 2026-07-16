@@ -21,6 +21,8 @@ Your task is to analyse aggregated application telemetry and propose exactly one
 5. Define how the mutation will be validated.
 
 ## Supplied input
+- structured ProjectFlow product purpose, user goals, entities, baseline
+  capabilities and interface inventory
 - aggregated telemetry summary, never raw user interactions
 - ranked selection-pressure findings and evidence
 - deterministic baseline/evolved fitness comparison

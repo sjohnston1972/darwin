@@ -112,6 +112,28 @@ describe('fitness and evolution analysis', () => {
       strict: true,
       schema: mutationProposalJsonSchema,
     });
+    const promptInput = JSON.parse(body.input[1]?.content ?? '{}') as {
+      targetApplication?: string;
+      applicationContext?: {
+        purpose?: string;
+        primaryGoals?: string[];
+        baselineVariant?: { navigation?: string[] };
+        interfaceInventory?: Array<{ area?: string }>;
+      };
+    };
+    expect(promptInput).toMatchObject({
+      targetApplication: 'ProjectFlow',
+      applicationContext: {
+        purpose: expect.stringContaining('project-management'),
+        primaryGoals: expect.arrayContaining(['find assigned work']),
+        baselineVariant: {
+          navigation: expect.arrayContaining(['Projects']),
+        },
+        interfaceInventory: expect.arrayContaining([
+          expect.objectContaining({ area: 'task-discovery' }),
+        ]),
+      },
+    });
     expect(body.input[1]?.content).not.toContain('sk-test-secret');
     expect(events).toEqual([
       expect.objectContaining({

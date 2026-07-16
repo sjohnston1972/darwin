@@ -456,6 +456,28 @@ export const EvidencePackSchema = z.object({
   tasks: z.array(EvidenceTaskSummarySchema),
   frictionSignals: z.array(EvidenceSignalSchema),
   applicationMap: z.object({
+    product: z.object({
+      name: z.literal('ProjectFlow'),
+      purpose: z.string().min(1),
+      primaryUser: z.string().min(1),
+      domainEntities: z.array(z.string().min(1)).min(1),
+      primaryGoals: z.array(z.string().min(1)).min(1),
+    }),
+    activeVariant: z.object({
+      name: OrganismVariantSchema,
+      version: z.string().min(1),
+      navigation: z.array(z.string().min(1)).min(1),
+      capabilities: z.array(z.string().min(1)).min(1),
+    }),
+    interfaceInventory: z
+      .array(
+        z.object({
+          area: z.string().min(1),
+          purpose: z.string().min(1),
+          primaryActions: z.array(z.string().min(1)).min(1),
+        }),
+      )
+      .min(1),
     routes: z.array(StudyRouteSchema),
     mutableAreas: z.array(z.string().min(1)),
     protectedAreas: z.array(z.string().min(1)),
@@ -740,6 +762,11 @@ export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
   service: z.literal('darwin-api'),
   version: z.string().min(1),
+  analysis: z.object({
+    mode: z.enum(['mock', 'live']),
+    model: z.string().min(1),
+    liveModelAvailable: z.boolean(),
+  }),
   timestamp: z.string().datetime(),
 });
 

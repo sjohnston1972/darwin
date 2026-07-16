@@ -10,17 +10,11 @@ test('compares baseline and evolved automated cohorts honestly', async ({
     page.getByRole('heading', { name: 'Good morning, Alex' }),
   ).toBeVisible();
 
-  const task = page
-    .locator('article')
-    .filter({ hasText: 'Find your assigned task' });
-  await task.getByRole('button', { name: /Start task/ }).click();
   await page.getByRole('button', { name: /Projects/ }).click();
   await page.getByRole('button', { name: /Apollo Release/ }).click();
   await page.getByRole('button', { name: /Tasks/ }).click();
   await page.getByRole('button', { name: /Confirm launch checklist/ }).click();
-  await task.getByRole('button', { name: 'Done' }).click();
-
-  await expect(task).toHaveClass(/is-complete/);
+  await expect(page.getByText('task completed')).toBeVisible();
   await expect(page.getByText(/events/)).toBeVisible();
   const completedAttemptCount = async (studyId: string) => {
     const response = await request.get(
@@ -43,14 +37,9 @@ test('compares baseline and evolved automated cohorts honestly', async ({
   expect(baselineEvidence.ok()).toBeTruthy();
 
   await page.goto('/study?variant=evolved&source=automated');
-  const evolvedTask = page
-    .locator('article')
-    .filter({ hasText: 'Find your assigned task' });
-  await evolvedTask.getByRole('button', { name: /Start task/ }).click();
   await page.getByRole('button', { name: /My Work/ }).click();
   await page.getByRole('button', { name: /Confirm launch checklist/ }).click();
-  await evolvedTask.getByRole('button', { name: 'Done' }).click();
-  await expect(evolvedTask).toHaveClass(/is-complete/);
+  await expect(page.getByText('task completed')).toBeVisible();
   await expect
     .poll(() => completedAttemptCount('projectflow-evolved-automated-study'), {
       timeout: 10_000,

@@ -2,15 +2,15 @@
 
 ## 0:00-0:20 - Premise
 
-Show Darwin and the connected ProjectFlow organism.
+Show Darwin and open the standalone ProjectFlow target application.
 
 “Darwin is an autonomous product engineer. It observes how software is actually
 used, converts behaviour into inspectable evidence, and proposes one controlled
 mutation.”
 
-## 0:20-0:50 - Real organism and action
+## 0:20-0:50 - Real target application and action
 
-Open standalone ProjectFlow in study mode. Start **Find your assigned task** and
+Open standalone ProjectFlow in study mode. The observed workflow starts automatically; find the assigned task and
 follow the awkward baseline path through Projects. Complete the task.
 
 Baseline URL: `/study`. Evolved replay URL: `/study?variant=evolved`.
@@ -61,4 +61,4 @@ diff and validation result.
 
 “Every mutation is traceable, testable and reversible. Darwin can observe real
 usage today and replay 10,000 synthetic interactions to test the same evolutionary
-loop at scale. Software that evolves.”
+loop at scale. Helping your software evolve.”

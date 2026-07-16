@@ -11,11 +11,13 @@ import {
 import {
   Activity,
   AlertTriangle,
+  ArrowDownRight,
   Box,
   BrainCircuit,
   Check,
   CheckCircle2,
   ChevronRight,
+  CircleHelp,
   CircleDashed,
   ClipboardCheck,
   Code2,
@@ -42,7 +44,6 @@ import {
 import { useEffect, useState } from 'react';
 
 import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
-import { ProjectFlow } from './projectflow/ProjectFlow';
 import type { ProjectFlowVariant } from './projectflow/data';
 import { projectFlowGenomes } from './projectflow/genomes';
 import {
@@ -55,14 +56,44 @@ type HealthState = 'checking' | 'online' | 'offline';
 interface ApiHealthState {
   status: HealthState;
   version: string | null;
+  analysis: {
+    mode: 'mock' | 'live';
+    model: string;
+    liveModelAvailable: boolean;
+  } | null;
 }
 
 const navItems = [
-  { label: 'Control room', icon: LayoutDashboard, active: true },
-  { label: 'Organism', icon: Box, active: false },
-  { label: 'Observations', icon: Radar, active: false },
-  { label: 'Mutations', icon: FlaskConical, active: false },
-  { label: 'Fossil record', icon: GitBranch, active: false },
+  {
+    label: 'Control room',
+    icon: LayoutDashboard,
+    active: true,
+    help: 'Run and monitor one complete controlled evolution cycle.',
+  },
+  {
+    label: 'Target application',
+    icon: Box,
+    active: false,
+    help: 'Open the real standalone ProjectFlow application in a dedicated full-screen view.',
+  },
+  {
+    label: 'Observations',
+    icon: Radar,
+    active: false,
+    help: 'Review the deterministic telemetry sample and selection pressure.',
+  },
+  {
+    label: 'Mutations',
+    icon: FlaskConical,
+    active: false,
+    help: 'Review GPT-5.6 reasoning and approve or reject its proposal.',
+  },
+  {
+    label: 'Fossil record',
+    icon: GitBranch,
+    active: false,
+    help: 'See the retained genome history and measured fitness record.',
+  },
 ] as const;
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
@@ -109,10 +140,11 @@ function App() {
   const [health, setHealth] = useState<ApiHealthState>({
     status: 'checking',
     version: null,
+    analysis: null,
   });
   const [navigationOpen, setNavigationOpen] = useState(false);
-  const organismOnly =
-    new URLSearchParams(window.location.search).get('view') === 'organism';
+  const targetOnly =
+    new URLSearchParams(window.location.search).get('view') === 'target';
   const [organismVariant, setOrganismVariant] = useState<ProjectFlowVariant>(
     () =>
       new URLSearchParams(window.location.search).get('variant') === 'evolved'
@@ -134,6 +166,7 @@ function App() {
   const metrics = [
     {
       label: 'Interactions observed',
+      help: 'Synthetic interactions processed in the controlled 10,000-event demonstration. Live human evidence is shown separately below.',
       value: observed,
       meta:
         demo.stage === 'observing'
@@ -145,6 +178,7 @@ function App() {
     },
     {
       label: 'Evolution cycles',
+      help: 'Mutations that completed approval, validation, release, and retention.',
       value: String(demo.organism.evolutionCycles),
       meta:
         demo.organism.evolutionCycles > 0
@@ -154,6 +188,7 @@ function App() {
     },
     {
       label: 'Current fitness',
+      help: 'A 0-100 weighted score covering completion, navigation efficiency, errors, discovery, and task duration.',
       value: measuredFitness === null ? '--' : measuredFitness.toFixed(1),
       meta:
         demo.organism.variant === 'evolved'
@@ -167,6 +202,7 @@ function App() {
     },
     {
       label: 'Genome version',
+      help: 'The active ProjectFlow configuration. v1.0 is baseline; v1.1 contains the retained navigation mutation.',
       value: demo.organism.genomeVersion,
       meta:
         demo.organism.variant === 'evolved'
@@ -185,25 +221,29 @@ function App() {
         const parsed = HealthResponseSchema.safeParse(await response.json());
         setHealth(
           parsed.success
-            ? { status: 'online', version: parsed.data.version }
-            : { status: 'offline', version: null },
+            ? {
+                status: 'online',
+                version: parsed.data.version,
+                analysis: parsed.data.analysis,
+              }
+            : { status: 'offline', version: null, analysis: null },
         );
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError')
           return;
-        setHealth({ status: 'offline', version: null });
+        setHealth({ status: 'offline', version: null, analysis: null });
       });
 
     return () => controller.abort();
   }, []);
 
   useEffect(() => {
-    if (organismOnly) return;
+    if (targetOnly) return;
     setOrganismVariant(demo.organism.variant);
-  }, [demo.organism.variant, organismOnly]);
+  }, [demo.organism.variant, targetOnly]);
 
-  if (organismOnly) {
+  if (targetOnly) {
     return (
       <div className="organism-preview-page">
         <header>
@@ -213,7 +253,7 @@ function App() {
             </span>
             <strong>DARWIN</strong>
           </a>
-          <span>ProjectFlow organism</span>
+          <span>ProjectFlow target application</span>
           <div
             className="variant-control"
             role="group"
@@ -235,16 +275,20 @@ function App() {
             </button>
           </div>
         </header>
-        <ProjectFlow variant={organismVariant} />
+        <iframe
+          className="organism-standalone-frame"
+          src={`${projectFlowBaseUrl}/?variant=${organismVariant}`}
+          title={`ProjectFlow ${organismVariant} application`}
+        />
       </div>
     );
   }
 
   useEffect(() => {
-    if (window.location.hash !== '#organism') return;
+    if (window.location.hash !== '#target-application') return;
 
     requestAnimationFrame(() => {
-      document.getElementById('organism')?.scrollIntoView();
+      document.getElementById('target-application')?.scrollIntoView();
     });
   }, []);
 
@@ -277,7 +321,7 @@ function App() {
         <nav className="flex-1 px-3 py-6" aria-label="Primary navigation">
           <p className="section-label px-3">Workspace</p>
           <ul className="mt-3 space-y-1">
-            {navItems.map(({ label, icon: Icon, active }) => (
+            {navItems.map(({ label, icon: Icon, active, help }) => (
               <li key={label}>
                 <a
                   className={active ? 'nav-item nav-item-active' : 'nav-item'}
@@ -287,6 +331,7 @@ function App() {
                       : `#${label.toLowerCase().replace(' ', '-')}`
                   }
                   onClick={() => setNavigationOpen(false)}
+                  data-explain={help}
                 >
                   <Icon size={17} strokeWidth={1.8} />
                   <span>{label}</span>
@@ -341,11 +386,14 @@ function App() {
             <Menu size={19} />
           </button>
           <div className="flex items-center gap-2 text-xs text-mist">
-            <span className="hidden sm:inline">Organism</span>
+            <span className="hidden sm:inline">Target application</span>
             <ChevronRight className="hidden sm:block" size={14} />
             <span className="font-mono text-white">ProjectFlow</span>
           </div>
-          <div className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist">
+          <div
+            className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist"
+            data-explain="Controlled mode requires human approval and uses a bounded target, diff, validation workflow, and explicit release step."
+          >
             <ShieldCheck size={15} className="text-signal" />
             <span>Controlled mode</span>
             <button
@@ -354,7 +402,7 @@ function App() {
               onClick={() => void resetDemo()}
               disabled={demo.stage === 'resetting'}
               aria-label="Reset evolution demo"
-              title="Reset evolution demo"
+              data-explain="Delete telemetry, evidence, reasoning, validation, timeline state, and restore ProjectFlow v1.0."
             >
               <RotateCcw size={15} />
             </button>
@@ -363,9 +411,16 @@ function App() {
 
         <div className="mx-auto max-w-[1640px] px-5 pb-12 pt-8 sm:px-8 lg:px-10 lg:pt-11">
           <section className="hero-band" aria-labelledby="page-title">
+            <img
+              className="hero-dna-visual"
+              src="/assets/darwin-dna-wireframe.webp"
+              alt=""
+              aria-hidden="true"
+            />
             <div className="relative z-10 max-w-3xl">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
                 <Activity size={15} /> Control room
+                <InfoTip text="Darwin's operator view: observe behavior, ask the configured analyzer for one mutation, approve it, validate it, and retain or reject it." />
               </div>
               <h1
                 id="page-title"
@@ -374,7 +429,7 @@ function App() {
                 Darwin
               </h1>
               <p className="mt-3 text-xl text-white sm:text-2xl">
-                Software that evolves.
+                Helping your software evolve.
               </p>
               <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base">
                 ProjectFlow is connected. Its genome is ready for observation,
@@ -382,27 +437,35 @@ function App() {
               </p>
             </div>
             <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
-              <button
-                className="primary-action"
-                type="button"
-                onClick={() => void demo.observe()}
-                disabled={!['idle', 'error'].includes(demo.stage)}
-              >
-                {demo.stage === 'observing' ? (
-                  <CircleDashed className="is-spinning" size={17} />
-                ) : demo.stage === 'released' ? (
-                  <Check size={17} />
-                ) : (
-                  <Radar size={17} />
+              <div className="start-action-wrap">
+                {['idle', 'error'].includes(demo.stage) && !demo.analysis && (
+                  <span className="start-here-cue" aria-hidden="true">
+                    Start here <ArrowDownRight size={17} />
+                  </span>
                 )}
-                {demo.stage === 'observing'
-                  ? `Observing ${observed}`
-                  : demo.stage === 'released'
-                    ? 'Evolution cycle complete'
-                    : demo.analysis
-                      ? 'Observation complete'
-                      : 'Observe 10,000 interactions'}
-              </button>
+                <button
+                  className="primary-action"
+                  type="button"
+                  onClick={() => void demo.observe()}
+                  disabled={!['idle', 'error'].includes(demo.stage)}
+                  data-explain="Creates exactly 10,000 deterministic ProjectFlow interactions, calculates selection pressure, then invokes the configured GPT-5.6 analyzer once for the resulting evidence."
+                >
+                  {demo.stage === 'observing' ? (
+                    <CircleDashed className="is-spinning" size={17} />
+                  ) : demo.stage === 'released' ? (
+                    <Check size={17} />
+                  ) : (
+                    <Radar size={17} />
+                  )}
+                  {demo.stage === 'observing'
+                    ? `Observing ${observed}`
+                    : demo.stage === 'released'
+                      ? 'Evolution cycle complete'
+                      : demo.analysis
+                        ? 'Observation complete'
+                        : 'Observe 10,000 interactions'}
+                </button>
+              </div>
               <span className={`demo-status status-${demo.stage}`}>
                 {demo.stage === 'idle' && <CircleDashed size={15} />}
                 {demo.stage === 'observing' && <Activity size={15} />}
@@ -419,21 +482,25 @@ function App() {
                 {stageLabel(demo.stage)}
               </span>
             </div>
-            <div className="genome-watermark" aria-hidden="true">
-              {Array.from({ length: 36 }, (_, index) => (
-                <span
-                  key={index}
-                  className={index % 7 === 0 ? 'cell-active' : ''}
-                />
-              ))}
-            </div>
           </section>
 
-          <section className="metric-grid" aria-label="Organism metrics">
+          <EvolutionGuide
+            stage={demo.stage}
+            analysis={health.analysis}
+            resultMode={demo.analysis?.mode ?? null}
+          />
+
+          <section
+            className="metric-grid"
+            aria-label="Target application metrics"
+          >
             {metrics.map((metric) => (
               <article className="metric-card" key={metric.label}>
                 <div className="flex items-start justify-between gap-4">
-                  <p className="text-sm text-mist">{metric.label}</p>
+                  <div className="metric-label">
+                    <p className="text-sm text-mist">{metric.label}</p>
+                    <InfoTip text={metric.help} />
+                  </div>
                   <span
                     className={`metric-indicator indicator-${metric.tone}`}
                     aria-hidden="true"
@@ -447,7 +514,10 @@ function App() {
             ))}
           </section>
 
-          <LiveTelemetryPanel telemetry={liveTelemetry} />
+          <LiveTelemetryPanel
+            telemetry={liveTelemetry}
+            analysisConfig={health.analysis}
+          />
 
           {(demo.stage !== 'idle' || demo.error) && (
             <ObservationPanel
@@ -477,13 +547,16 @@ function App() {
             />
           )}
 
-          <section className="mt-8 surface-panel" id="organism">
+          <section className="mt-8 surface-panel" id="target-application">
             <div className="panel-heading organism-heading">
               <div>
-                <p className="section-label">Connected organism</p>
-                <h2 className="mt-2 text-xl font-semibold">
-                  ProjectFlow genome
-                </h2>
+                <p className="section-label">Target application</p>
+                <div className="heading-with-help">
+                  <h2 className="mt-2 text-xl font-semibold">
+                    Standalone ProjectFlow
+                  </h2>
+                  <InfoTip text="This opens the real standalone ProjectFlow application from apps/projectflow in a dedicated view. It is the same application that emits live telemetry." />
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <div
@@ -498,6 +571,7 @@ function App() {
                     type="button"
                     onClick={() => setOrganismVariant('baseline')}
                     aria-pressed={organismVariant === 'baseline'}
+                    data-explain="Open ProjectFlow v1.0 with the original dashboard-first navigation and project-scoped task discovery."
                   >
                     Baseline <span>v1.0</span>
                   </button>
@@ -506,21 +580,36 @@ function App() {
                     type="button"
                     onClick={() => setOrganismVariant('evolved')}
                     aria-pressed={organismVariant === 'evolved'}
+                    data-explain="Open ProjectFlow v1.1 with My Work, global search, quick-create, and consolidated Insights."
                   >
                     Evolved <span>v1.1</span>
                   </button>
                 </div>
                 <a
-                  className="icon-button"
-                  href={`/?view=organism&variant=${organismVariant}`}
-                  aria-label="Open organism preview"
-                  title="Open organism preview"
+                  className="primary-action target-open-action"
+                  href={`/?view=target&variant=${organismVariant}`}
+                  aria-label={`Open ProjectFlow ${organismVariant} target application`}
+                  data-explain="Open the selected real ProjectFlow variant in a full-width dedicated view."
                 >
-                  <Maximize2 size={17} />
+                  <Maximize2 size={17} /> Open application
                 </a>
               </div>
             </div>
-            <ProjectFlow variant={organismVariant} />
+            <div className="target-app-summary">
+              <div>
+                <span>Selected genome</span>
+                <strong>
+                  {organismVariant === 'baseline'
+                    ? 'Baseline v1.0'
+                    : 'Evolved v1.1'}
+                </strong>
+              </div>
+              <p>
+                Open the target separately to inspect the full product without
+                compressing the control-room workflow.
+              </p>
+              <code>{projectFlowBaseUrl}</code>
+            </div>
           </section>
 
           <section className="mt-8 grid gap-8 lg:grid-cols-2">
@@ -531,16 +620,19 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <p className="section-label">System status</p>
-                  <h2
-                    id="system-status-title"
-                    className="mt-2 text-xl font-semibold"
-                  >
-                    {health.status === 'online'
-                      ? 'Runtime connected'
-                      : health.status === 'offline'
-                        ? 'Runtime unavailable'
-                        : 'Checking runtime'}
-                  </h2>
+                  <div className="heading-with-help">
+                    <h2
+                      id="system-status-title"
+                      className="mt-2 text-xl font-semibold"
+                    >
+                      {health.status === 'online'
+                        ? 'Runtime connected'
+                        : health.status === 'offline'
+                          ? 'Runtime unavailable'
+                          : 'Checking runtime'}
+                    </h2>
+                    <InfoTip text="Live status returned by the Cloudflare Worker and D1-backed telemetry pipeline, plus the active target application state." />
+                  </div>
                 </div>
                 <Network size={19} className="text-mist" />
               </div>
@@ -552,6 +644,7 @@ function App() {
                     health.version ? `v${health.version} online` : health.status
                   }
                   ready={health.status === 'online'}
+                  help="The deployed Darwin Cloudflare Worker. Its version comes from the live /api/health response."
                 />
                 <StatusRow
                   icon={Database}
@@ -562,6 +655,7 @@ function App() {
                       : liveTelemetry.status
                   }
                   ready={liveTelemetry.status === 'live'}
+                  help="Semantic events currently persisted and returned by the telemetry repository. Production uses Cloudflare D1."
                 />
                 <StatusRow
                   icon={FileCheck2}
@@ -572,12 +666,14 @@ function App() {
                       : 'awaiting evidence'
                   }
                   ready={liveTelemetry.evidence !== null}
+                  help="The deterministic TypeScript parser that reconstructs attempts and converts raw events into bounded, citeable friction signals."
                 />
                 <StatusRow
                   icon={GitBranch}
                   label="Active genome"
                   value={`${demo.organism.genomeVersion} · ${demo.organism.variant}`}
                   ready={demo.organism.variant === 'evolved'}
+                  help="The variant and genome version currently retained by the Darwin evolution state machine."
                 />
               </div>
             </aside>
@@ -589,12 +685,15 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <p className="section-label">Genome comparison</p>
-                  <h2
-                    id="variant-summary-title"
-                    className="mt-2 text-xl font-semibold"
-                  >
-                    Five configured loci
-                  </h2>
+                  <div className="heading-with-help">
+                    <h2
+                      id="variant-summary-title"
+                      className="mt-2 text-xl font-semibold"
+                    >
+                      Five configured loci
+                    </h2>
+                    <InfoTip text="A direct comparison of the checked-in baseline and evolved ProjectFlow configuration that drives the two target variants." />
+                  </div>
                 </div>
                 <GitCompareArrows size={19} className="text-mist" />
               </div>
@@ -660,9 +759,12 @@ function App() {
             <div className="panel-heading">
               <div>
                 <p className="section-label">Evolution history</p>
-                <h2 id="fossil-title" className="mt-2 text-xl font-semibold">
-                  Fossil record
-                </h2>
+                <div className="heading-with-help">
+                  <h2 id="fossil-title" className="mt-2 text-xl font-semibold">
+                    Fossil record
+                  </h2>
+                  <InfoTip text="The version history of retained and rejected evolution events, including the selected genome and fitness at each point." />
+                </div>
               </div>
               <GitBranch size={19} className="text-mist" />
             </div>
@@ -693,7 +795,7 @@ function App() {
                     <tr className="border-t border-line">
                       <td className="px-6 py-5 font-mono">v1.0</td>
                       <td className="px-6 py-5 text-mist">
-                        ProjectFlow organism connected
+                        ProjectFlow target application connected
                       </td>
                       <td className="px-6 py-5 text-mist">Baseline</td>
                       <td className="px-6 py-5 font-mono text-mist">--</td>
@@ -717,7 +819,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.16.0</p>
+            <p className="font-mono">DARWIN CORE 0.17.0</p>
           </footer>
         </div>
       </main>
@@ -751,7 +853,123 @@ const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
   return 'Deterministic mock';
 };
 
-function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="info-tip" tabIndex={0} aria-label={text}>
+      <CircleHelp size={14} aria-hidden="true" />
+      <span role="tooltip">{text}</span>
+    </span>
+  );
+}
+
+function EvolutionGuide({
+  stage,
+  analysis,
+  resultMode,
+}: {
+  stage: DemoStage;
+  analysis: ApiHealthState['analysis'];
+  resultMode: EvolutionAnalysisResponse['mode'] | null;
+}) {
+  const rank: Record<DemoStage, number> = {
+    idle: 1,
+    observing: 2,
+    proposal: 3,
+    deciding: 3,
+    approved: 4,
+    validating: 4,
+    validated: 5,
+    releasing: 5,
+    released: 6,
+    rejected: 3,
+    resetting: 1,
+    error: 1,
+  };
+  const current = rank[stage];
+  const modelMode = resultMode ?? analysis?.mode ?? 'mock';
+  const model = analysis?.model ?? 'gpt-5.6';
+  const modelLabel =
+    modelMode === 'live'
+      ? 'Live model call'
+      : modelMode === 'fallback'
+        ? 'Fallback result'
+        : 'Deterministic mock';
+  const steps = [
+    {
+      label: 'Observe',
+      detail: '10,000 seeded interactions',
+      help: 'The Worker generates an exact, deterministic sample across four ProjectFlow personas.',
+    },
+    {
+      label: `${model} reasons`,
+      detail: 'One structured call',
+      help: 'After aggregation, the analyzer receives fitness, ranked friction, and ProjectFlow context. Live mode calls the OpenAI Responses API once; mock mode returns the same validated contract deterministically.',
+    },
+    {
+      label: 'Human approval',
+      detail: 'Accept or reject mutation',
+      help: 'Darwin never releases the proposal automatically. A judge or operator must approve the bounded mutation.',
+    },
+    {
+      label: 'Validate',
+      detail: 'Diff and repository checks',
+      help: 'The approved implementation artifact is checked with recorded TypeScript, unit, UX, and build validation.',
+    },
+    {
+      label: 'Retain',
+      detail: 'Release evolved genome',
+      help: 'A passing mutation becomes ProjectFlow v1.1 and is written into the fossil record with its fitness.',
+    },
+  ];
+
+  return (
+    <section className="evolution-guide" aria-label="Guided evolution cycle">
+      <div className="guide-heading">
+        <div>
+          <span className="section-label">Judge path</span>
+          <strong>One controlled evolution cycle</strong>
+        </div>
+        <span
+          className={`guide-model mode-${modelMode}`}
+          data-explain={`${model} is invoked after telemetry has been aggregated. Current configuration: ${modelLabel}.`}
+        >
+          <BrainCircuit size={15} /> {model} · {modelLabel}
+        </span>
+      </div>
+      <ol>
+        {steps.map((step, index) => {
+          const stepNumber = index + 1;
+          const state =
+            current > stepNumber
+              ? 'complete'
+              : current === stepNumber
+                ? 'active'
+                : 'pending';
+          return (
+            <li className={`guide-step is-${state}`} key={step.label}>
+              <span className="guide-index">
+                {state === 'complete' ? <Check size={13} /> : `0${stepNumber}`}
+              </span>
+              <div>
+                <strong>{step.label}</strong>
+                <small>{step.detail}</small>
+              </div>
+              <InfoTip text={step.help} />
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function LiveTelemetryPanel({
+  telemetry,
+  analysisConfig,
+}: {
+  telemetry: LiveTelemetryState;
+  analysisConfig: ApiHealthState['analysis'];
+}) {
   const sessions = [
     ...new Set(telemetry.events.map((event) => event.sessionId)),
   ];
@@ -770,13 +988,18 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
       'touch_cancelled',
     ].includes(event.eventType),
   ).length;
+  const configuredModel = analysisConfig?.model ?? 'gpt-5.6';
+  const liveModelAvailable = analysisConfig?.liveModelAvailable ?? false;
 
   return (
     <section className="mt-8 surface-panel live-evidence" id="real-evidence">
       <div className="panel-heading live-evidence-heading">
         <div>
           <p className="section-label">Measured source · real users</p>
-          <h2 className="mt-2 text-xl font-semibold">Live study evidence</h2>
+          <div className="heading-with-help">
+            <h2 className="mt-2 text-xl font-semibold">Live study evidence</h2>
+            <InfoTip text="Real semantic events ingested from the standalone ProjectFlow application. The view shows ordered behavior, sessions, participants, and detector-ready signals without recording typed values." />
+          </div>
           <p className="mt-2 text-sm text-mist">
             Ordered semantic events from standalone ProjectFlow.
           </p>
@@ -790,6 +1013,7 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
             href={`${projectFlowBaseUrl}/study`}
             target="_blank"
             rel="noreferrer"
+            data-explain="Open the standalone ProjectFlow telemetry view in a new tab and interact normally to create real semantic evidence."
           >
             Open study <ChevronRight size={15} />
           </a>
@@ -798,6 +1022,7 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
             type="button"
             disabled={!telemetry.count || telemetry.generating}
             onClick={() => void telemetry.generateEvidence()}
+            data-explain="Run the deterministic evidence parser over the current D1 events to reconstruct attempts and emit citeable friction signals."
           >
             {telemetry.generating ? (
               <CircleDashed className="is-spinning" size={15} />
@@ -824,22 +1049,22 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
       )}
 
       <div className="evidence-stats" aria-label="Real study counts">
-        <div>
+        <div data-explain="Every persisted semantic event currently returned for this study.">
           <Database size={16} />
           <span>Raw events</span>
           <strong>{telemetry.count}</strong>
         </div>
-        <div>
+        <div data-explain="Distinct ordered browser sessions in the current event sample.">
           <Network size={16} />
           <span>Sessions</span>
           <strong>{sessions.length}</strong>
         </div>
-        <div>
+        <div data-explain="Anonymous participant identifiers represented in the current sample.">
           <Users size={16} />
           <span>Participants</span>
           <strong>{participants}</strong>
         </div>
-        <div>
+        <div data-explain="Hover hesitation, rage click, false affordance, indecision, drag expectation, and touch-conflict observations.">
           <MousePointer2 size={16} />
           <span>Behavior signals</span>
           <strong>{behaviorSignals}</strong>
@@ -883,7 +1108,9 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
           <Activity size={18} />
           <div>
             <strong>Waiting for a real ProjectFlow interaction</strong>
-            <span>Start a study task to create the first ordered trace.</span>
+            <span>
+              Open ProjectFlow and interact to create the first trace.
+            </span>
           </div>
         </div>
       )}
@@ -949,12 +1176,32 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
           <div className="reasoning-workspace">
             <div className="reasoning-heading">
               <div>
-                <span className="section-label">Bounded model reasoning</span>
-                <strong>Evidence-backed mutation analysis</strong>
+                <span className="section-label">OpenAI reasoning boundary</span>
+                <div className="reasoning-title">
+                  <strong>{configuredModel} evidence reasoning</strong>
+                  <span
+                    className={`model-runtime ${liveModelAvailable ? 'is-live' : 'is-mock'}`}
+                  >
+                    {liveModelAvailable ? 'LIVE API' : 'DETERMINISTIC MOCK'}
+                  </span>
+                  <InfoTip text="This is the model invocation point. One request is made per evidence hash and cached; invalid citations or protected scope are rejected before a proposal can continue." />
+                </div>
                 <p>
                   One structured call per evidence hash. Unknown citations and
                   protected scope are rejected.
                 </p>
+                <div
+                  className="model-context"
+                  aria-label="Context supplied to GPT"
+                >
+                  <span>Context supplied</span>
+                  <code>product goals</code>
+                  <code>route inventory</code>
+                  <code>active variant</code>
+                  <code>capabilities</code>
+                  <code>friction signals</code>
+                  <code>bounded traces</code>
+                </div>
               </div>
               <button
                 className="primary-action evidence-action"
@@ -964,6 +1211,7 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
                   telemetry.analysing
                 }
                 onClick={() => void telemetry.analyseEvidence()}
+                data-explain={`Invoke ${configuredModel} once for this evidence hash. The request contains aggregate evidence and the structured ProjectFlow application map, never raw participant records.`}
               >
                 {telemetry.analysing ? (
                   <CircleDashed className="is-spinning" size={15} />
@@ -973,8 +1221,10 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
                 {telemetry.analysing
                   ? 'Reasoning over evidence'
                   : telemetry.analysis
-                    ? 'Re-run cached analysis'
-                    : 'Generate mutation'}
+                    ? 'Open cached reasoning'
+                    : liveModelAvailable
+                      ? `Ask ${configuredModel}`
+                      : `Run ${configuredModel} mock`}
               </button>
             </div>
             {telemetry.analysis && (
@@ -1210,13 +1460,16 @@ function ObservationPanel({
       <div className="panel-heading">
         <div>
           <p className="section-label">Observation cycle / seed 1859</p>
-          <h2 id="observation-title" className="mt-2 text-xl font-semibold">
-            {stage === 'observing'
-              ? 'Reading selection pressure'
-              : error
-                ? 'Observation interrupted'
-                : '10,000 interactions observed'}
-          </h2>
+          <div className="heading-with-help">
+            <h2 id="observation-title" className="mt-2 text-xl font-semibold">
+              {stage === 'observing'
+                ? 'Reading selection pressure'
+                : error
+                  ? 'Observation interrupted'
+                  : '10,000 interactions observed'}
+            </h2>
+            <InfoTip text="This is the deterministic scale demonstration: exactly 10,000 synthetic interactions across four personas, aggregated into measurable friction and fitness inputs." />
+          </div>
         </div>
         <span className="observation-state">
           <span
@@ -1373,9 +1626,12 @@ function MutationWorkspace({
       <div className="panel-heading mutation-heading">
         <div>
           <p className="section-label">Selection pressure / ranked analysis</p>
-          <h2 id="mutation-title" className="mt-2 text-xl font-semibold">
-            One controlled mutation proposed
-          </h2>
+          <div className="heading-with-help">
+            <h2 id="mutation-title" className="mt-2 text-xl font-semibold">
+              One controlled mutation proposed
+            </h2>
+            <InfoTip text="The configured analyzer ranks selection pressure and returns exactly one schema-validated, human-approved mutation proposal." />
+          </div>
         </div>
         <div
           className={`analysis-mode mode-${analysis.mode}`}
@@ -1453,6 +1709,7 @@ function MutationWorkspace({
                   type="button"
                   onClick={() => onDecision('reject')}
                   disabled={stage === 'deciding'}
+                  data-explain="Reject this proposal, retain ProjectFlow v1.0, and record the failed selection in the fossil record."
                 >
                   <X size={16} /> Reject
                 </button>
@@ -1461,6 +1718,7 @@ function MutationWorkspace({
                   type="button"
                   onClick={() => onDecision('approve')}
                   disabled={stage === 'deciding'}
+                  data-explain="Human approval allows Darwin to reveal the bounded repository diff and proceed to validation. It does not deploy production code."
                 >
                   {stage === 'deciding' ? (
                     <CircleDashed className="is-spinning" size={16} />
@@ -1514,7 +1772,7 @@ const proposalOutcome = (
     },
     released: {
       title: 'Mutation survived selection',
-      description: 'ProjectFlow v1.1 is now the active organism.',
+      description: 'ProjectFlow v1.1 is now the active target application.',
     },
   } as const;
   return outcomes[status];
@@ -1549,9 +1807,12 @@ function ValidationWorkspace({
           <p className="section-label">
             Codex implementation / controlled scope
           </p>
-          <h2 id="validation-title" className="mt-2 text-xl font-semibold">
-            Mutation execution
-          </h2>
+          <div className="heading-with-help">
+            <h2 id="validation-title" className="mt-2 text-xl font-semibold">
+              Mutation execution
+            </h2>
+            <InfoTip text="Shows the controlled implementation artifact, actual repository comparison, recorded checks, and measured fitness before release." />
+          </div>
         </div>
         <span className="artifact-badge">
           <Code2 size={14} /> Repository artifact
@@ -1669,6 +1930,7 @@ function ValidationWorkspace({
                 className="approve-action"
                 type="button"
                 onClick={onValidate}
+                data-explain="Load the recorded repository validation result produced by real TypeScript, unit, UX, and production-build commands."
               >
                 <FileCheck2 size={16} /> Run recorded validation
               </button>
@@ -1683,6 +1945,7 @@ function ValidationWorkspace({
                 className="approve-action"
                 type="button"
                 onClick={onRelease}
+                data-explain="Retain the passing v1.1 genome, switch the target variant, and append its outcome to the fossil record."
               >
                 <Rocket size={16} /> Release evolved genome
               </button>
@@ -1813,16 +2076,19 @@ function StatusRow({
   label,
   value,
   ready = false,
+  help,
 }: {
   icon: typeof Server;
   label: string;
   value: string;
   ready?: boolean;
+  help: string;
 }) {
   return (
     <div className="flex items-center gap-3 py-4">
       <Icon size={17} className="text-mist" />
       <span className="text-sm text-mist">{label}</span>
+      <InfoTip text={help} />
       <span
         className={`ml-auto font-mono text-xs capitalize ${ready ? 'text-signal' : 'text-white'}`}
       >

@@ -108,7 +108,7 @@ export const evidenceAnalysisJsonSchema = {
 
 export const evidenceAnalysisSystemPrompt = `You are Darwin's evidence analyst. Propose one selected mutation and no more than two alternatives for ProjectFlow.
 
-Use only the supplied evidence signals and cite their evidence IDs. Every scope value must come from mutableAreas. Never target protectedAreas. Keep changes small, testable, and human-approved. Predictions are hypotheses, not measured outcomes. The Codex brief must contain implementation intent and acceptance criteria, never raw telemetry or personal identifiers. Return only the requested structured output.`;
+First understand the supplied product, active variant, interface inventory, domain entities, user goals, and available capabilities. Use that application context to interpret the evidence, but make behavioral claims only from supplied evidence signals and cite their evidence IDs. Every scope value must come from mutableAreas. Never target protectedAreas. Keep changes small, testable, and human-approved. Predictions are hypotheses, not measured outcomes. The Codex brief must contain implementation intent and acceptance criteria, never raw telemetry or personal identifiers. Return only the requested structured output.`;
 
 export class EvidenceReasoningError extends Error {
   constructor(message: string) {

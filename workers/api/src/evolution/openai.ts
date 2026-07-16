@@ -197,7 +197,69 @@ export class OpenAIEvolutionAnalyzer implements EvolutionAnalyzer {
             {
               role: 'user',
               content: JSON.stringify({
-                organism: 'ProjectFlow',
+                targetApplication: 'ProjectFlow',
+                applicationContext: {
+                  purpose:
+                    'A project-management workspace for finding assigned work, coordinating projects, creating tasks, and reviewing delivery health.',
+                  primaryUser:
+                    'A knowledge worker managing personal tasks and shared project delivery.',
+                  domainEntities: [
+                    'workspace',
+                    'project',
+                    'task',
+                    'user',
+                    'report',
+                  ],
+                  primaryGoals: [
+                    'find assigned work',
+                    'create and assign tasks',
+                    'monitor project delivery',
+                    'review team workload',
+                  ],
+                  baselineVariant: {
+                    version: '1.0.0',
+                    navigation: [
+                      'Dashboard',
+                      'Projects',
+                      'Reports',
+                      'Settings',
+                    ],
+                    capabilities: [
+                      'dashboard task summary',
+                      'project directory',
+                      'project-scoped task search',
+                      'project-scoped task creation',
+                      'standalone reports',
+                    ],
+                  },
+                  interfaceInventory: [
+                    {
+                      area: 'dashboard',
+                      purpose:
+                        'Summarise work, project health, capacity, and activity.',
+                    },
+                    {
+                      area: 'projects',
+                      purpose:
+                        'Browse projects before opening project-scoped work.',
+                    },
+                    {
+                      area: 'task-discovery',
+                      purpose: 'Find and open assigned work.',
+                      baselinePath: [
+                        'Projects',
+                        'project detail',
+                        'task directory',
+                        'task',
+                      ],
+                    },
+                    {
+                      area: 'global-header',
+                      purpose:
+                        'Provide workspace actions and navigation context.',
+                    },
+                  ],
+                },
                 telemetry: input.summary,
                 selectionPressure: input.findings,
                 fitness: input.fitness,

@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
-  Check,
   ChevronRight,
   CircleUserRound,
   Clock3,
@@ -33,10 +32,8 @@ import {
   initialProjects,
   initialTasks,
   participantName,
-  studyTasks,
   type AppRoute,
   type Project,
-  type StudyTaskId,
   type Task,
 } from './data';
 
@@ -106,15 +103,6 @@ export function App() {
   const [studyMode, setStudyMode] = useState(() =>
     window.location.pathname.startsWith('/study'),
   );
-  const [activeStudyTask, setActiveStudyTask] = useState<StudyTaskId | null>(
-    null,
-  );
-  const [satisfiedTasks, setSatisfiedTasks] = useState<Set<StudyTaskId>>(
-    () => new Set(),
-  );
-  const [completedTasks, setCompletedTasks] = useState<Set<StudyTaskId>>(
-    () => new Set(),
-  );
   const [events, setEvents] = useState<StudyTelemetryEvent[]>([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const participantId = useMemo(
@@ -122,6 +110,7 @@ export function App() {
     [runtime.studyId],
   );
   const telemetryRef = useRef<DarwinTelemetryClient | null>(null);
+  const captureCompletedRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(workspaceKey, JSON.stringify({ projects, tasks }));
@@ -182,7 +171,9 @@ export function App() {
         setEvents((current) => [...current.slice(-39), event]),
     });
     telemetryRef.current = telemetry;
+    captureCompletedRef.current = false;
     telemetry.init();
+    if (studyMode) telemetry.taskStarted('find-assigned-task');
     return () => {
       telemetry.destroy();
       telemetryRef.current = null;
@@ -222,23 +213,16 @@ export function App() {
 
   const openProject = (projectId: string) => navigate('project', projectId);
 
-  const startStudyTask = (taskId: StudyTaskId) => {
-    setActiveStudyTask(taskId);
-    telemetryRef.current?.taskStarted(taskId);
-  };
-
-  const finishStudyTask = (outcome: 'success' | 'failed') => {
-    if (!activeStudyTask) return;
-    telemetryRef.current?.taskCompleted(outcome);
-    if (outcome === 'success') {
-      setCompletedTasks((current) => new Set(current).add(activeStudyTask));
+  const markSatisfied = (taskId: string) => {
+    if (
+      !studyMode ||
+      taskId !== 'find-assigned-task' ||
+      captureCompletedRef.current
+    ) {
+      return;
     }
-    setActiveStudyTask(null);
-  };
-
-  const markSatisfied = (taskId: StudyTaskId) => {
-    if (activeStudyTask !== taskId) return;
-    setSatisfiedTasks((current) => new Set(current).add(taskId));
+    captureCompletedRef.current = true;
+    telemetryRef.current?.taskCompleted('success');
   };
 
   const createProject = (event: FormEvent<HTMLFormElement>) => {
@@ -484,22 +468,6 @@ export function App() {
           </div>
         </header>
 
-        {studyMode && (
-          <StudyTaskDock
-            activeTask={activeStudyTask}
-            completedTasks={completedTasks}
-            eventCount={events.length}
-            satisfiedTasks={satisfiedTasks}
-            onDone={() => finishStudyTask('success')}
-            onShowEvidence={() =>
-              document
-                .querySelector('.event-monitor')
-                ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            }
-            onStart={startStudyTask}
-          />
-        )}
-
         <main className="content">
           {route === 'dashboard' && (
             <Dashboard
@@ -557,17 +525,8 @@ export function App() {
 
       {studyMode && (
         <StudyPanel
-          activeTask={activeStudyTask}
-          completedTasks={completedTasks}
           events={events}
           participantId={participantId}
-          satisfiedTasks={satisfiedTasks}
-          onCouldNotComplete={() => finishStudyTask('failed')}
-          onDone={() => finishStudyTask('success')}
-          onFeedback={(length) =>
-            telemetryRef.current?.feedbackSubmitted(length)
-          }
-          onStart={startStudyTask}
           variant={runtime.variant}
           version={runtime.appVersion}
         />
@@ -1144,85 +1103,6 @@ function SettingsView() {
   );
 }
 
-function StudyTaskDock({
-  activeTask,
-  completedTasks,
-  eventCount,
-  satisfiedTasks,
-  onDone,
-  onShowEvidence,
-  onStart,
-}: {
-  activeTask: StudyTaskId | null;
-  completedTasks: Set<StudyTaskId>;
-  eventCount: number;
-  satisfiedTasks: Set<StudyTaskId>;
-  onDone: () => void;
-  onShowEvidence: () => void;
-  onStart: (id: StudyTaskId) => void;
-}) {
-  const task = activeTask
-    ? studyTasks.find((candidate) => candidate.id === activeTask)
-    : studyTasks.find((candidate) => !completedTasks.has(candidate.id));
-  const satisfied = task ? satisfiedTasks.has(task.id) : false;
-
-  return (
-    <section className="study-task-dock" aria-label="Current study task">
-      <div className="study-task-dock-copy">
-        <span>
-          {activeTask
-            ? 'Study task in progress'
-            : task
-              ? `Study task ${task.number} of ${studyTasks.length}`
-              : 'Study complete'}
-        </span>
-        <strong>{task?.title ?? 'All study tasks completed'}</strong>
-        <p>
-          {task?.instruction ?? 'This session is ready for evidence review.'}
-        </p>
-      </div>
-      <div className="study-task-dock-actions">
-        <button
-          className="dock-evidence"
-          type="button"
-          title="View session evidence"
-          aria-label={`View session evidence, ${eventCount} events captured`}
-          onClick={onShowEvidence}
-        >
-          <BarChart3 size={15} />
-          <span>{eventCount}</span>
-        </button>
-        {task && !activeTask && (
-          <button
-            className="dock-start"
-            type="button"
-            data-darwin-id={`study-dock-start-${task.id}`}
-            onClick={() => onStart(task.id)}
-          >
-            Start task: {task.title}
-            <ChevronRight size={15} />
-          </button>
-        )}
-        {task && activeTask && (
-          <button
-            className="dock-done"
-            type="button"
-            data-darwin-id="study-dock-done"
-            disabled={!satisfied}
-            title={
-              satisfied ? 'Complete this study task' : 'Open the target first'
-            }
-            onClick={onDone}
-          >
-            {satisfied ? <Check size={15} /> : <Clock3 size={15} />}
-            Done
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
-
 function presentTelemetryEvent(event: StudyTelemetryEvent) {
   const target = 'targetId' in event ? event.targetId : undefined;
   const at = target ?? event.route;
@@ -1292,31 +1172,16 @@ const formatDuration = (milliseconds: number) =>
     : `${milliseconds}ms`;
 
 function StudyPanel({
-  activeTask,
-  completedTasks,
   events,
   participantId,
-  satisfiedTasks,
-  onCouldNotComplete,
-  onDone,
-  onFeedback,
-  onStart,
   variant,
   version,
 }: {
-  activeTask: StudyTaskId | null;
-  completedTasks: Set<StudyTaskId>;
   events: StudyTelemetryEvent[];
   participantId: string;
-  satisfiedTasks: Set<StudyTaskId>;
-  onCouldNotComplete: () => void;
-  onDone: () => void;
-  onFeedback: (length: number) => void;
-  onStart: (id: StudyTaskId) => void;
   variant: 'baseline' | 'evolved';
   version: string;
 }) {
-  const [feedback, setFeedback] = useState('');
   const behavioralSignals = events.filter((event) =>
     [
       'hover_ended',
@@ -1337,10 +1202,10 @@ function StudyPanel({
     ),
   ];
   return (
-    <aside className="study-panel" aria-label="ProjectFlow usability study">
+    <aside className="study-panel" aria-label="ProjectFlow live telemetry">
       <header>
         <div>
-          <span className="live-dot" /> Live study
+          <span className="live-dot" /> Live telemetry
         </div>
         <strong>
           {participantId.replace('participant-', 'P-').toUpperCase()}
@@ -1350,75 +1215,11 @@ function StudyPanel({
         <span>
           ProjectFlow {variant} - v{version}
         </span>
-        <h2>Complete three tasks</h2>
+        <h2>Session evidence</h2>
         <p>
-          Use the application normally. Interaction content and form values are
-          not recorded.
+          Interact with ProjectFlow normally. Darwin records semantic behavior,
+          never field values or typed content.
         </p>
-      </div>
-      <div className="study-tasks">
-        {studyTasks.map((task) => {
-          const active = activeTask === task.id;
-          const complete = completedTasks.has(task.id);
-          return (
-            <article
-              className={`${active ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`}
-              key={task.id}
-            >
-              <span className="task-number">
-                {complete ? <Check size={15} /> : task.number}
-              </span>
-              <div>
-                <strong>{task.title}</strong>
-                <p>{task.instruction}</p>
-                {active ? (
-                  <div>
-                    <div className="study-task-state">
-                      <span>In progress</span>
-                      <small>
-                        {satisfiedTasks.has(task.id)
-                          ? 'Target observed'
-                          : 'Waiting for target'}
-                      </small>
-                    </div>
-                    <div className="study-actions">
-                      <button
-                        type="button"
-                        className="button-secondary"
-                        data-darwin-id="study-task-failed"
-                        onClick={onCouldNotComplete}
-                      >
-                        Could not complete
-                      </button>
-                      <button
-                        type="button"
-                        className="button-primary"
-                        data-darwin-id="study-task-done"
-                        disabled={!satisfiedTasks.has(task.id)}
-                        onClick={onDone}
-                      >
-                        Done
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  !complete && (
-                    <button
-                      type="button"
-                      className="start-task"
-                      data-darwin-id={`study-start-${task.id}`}
-                      disabled={activeTask !== null}
-                      onClick={() => onStart(task.id)}
-                    >
-                      <span>Start task: {task.title}</span>
-                      <ChevronRight size={14} />
-                    </button>
-                  )
-                )}
-              </div>
-            </article>
-          );
-        })}
       </div>
       <div className="event-monitor">
         <div className="event-monitor-heading">
@@ -1463,31 +1264,6 @@ function StudyPanel({
           )}
         </div>
       </div>
-      <form
-        className="feedback"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onFeedback(feedback.length);
-          setFeedback('');
-        }}
-      >
-        <label htmlFor="study-feedback">Optional feedback</label>
-        <textarea
-          id="study-feedback"
-          maxLength={500}
-          value={feedback}
-          onChange={(event) => setFeedback(event.target.value)}
-          placeholder="One sentence about anything confusing"
-        />
-        <button
-          type="submit"
-          className="button-secondary"
-          data-darwin-id="study-feedback-submit"
-          disabled={!feedback.trim()}
-        >
-          Submit feedback
-        </button>
-      </form>
     </aside>
   );
 }

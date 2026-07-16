@@ -17,7 +17,7 @@ flowchart LR
 ```text
 Darwin Web App (`apps/web`)
 ├── Darwin Control Room
-├── ProjectFlow organism preview
+├── Standalone ProjectFlow target application launcher
 ├── Observation Visualisation
 ├── Mutation Viewer
 ├── Diff + Validation Viewer
@@ -181,7 +181,8 @@ The API chooses mock or OpenAI implementation based on environment variables.
 
 - `DARWIN_AI_MODE=mock` is the default and never makes an external request.
 - `DARWIN_AI_MODE=live` with `OPENAI_API_KEY` calls the OpenAI Responses API using `OPENAI_MODEL` and strict JSON-schema output.
-- Live input contains aggregate telemetry, ranked findings, fitness and the mutation allow-list; raw events and secrets are never included.
+- The scale-replay input contains aggregate telemetry, ranked findings, fitness, the mutation allow-list and a structured ProjectFlow product map covering purpose, users, entities, goals, navigation and capabilities; raw events and secrets are never included.
+- The real-session evidence path sends its compact, hashed evidence pack with the same structured ProjectFlow context so the model can interpret routes and controls rather than reason from isolated counters.
 - Live output is validated by the shared Zod schema and checked against the file allow-list before entering the approval workflow.
 - Missing credentials, timeouts, API errors and invalid responses fall back to the deterministic mock analyzer and expose the fallback reason to the UI.
 - Logs contain model, response/request IDs, duration and outcome only. Prompt content, response content and credentials are not logged.
@@ -205,7 +206,7 @@ Optional stretch: invoke Codex CLI in a local-only orchestration script, never f
 - `npm run validate:record` is the local command runner. It executes the real workspace typecheck, Vitest suites and production build, captures their exit status, duration and output, and derives evolved fitness from the seeded simulator.
 - The same recorder runs `git diff --no-index` against the typed baseline and evolved ProjectFlow genome sources. The resulting patch is an actual repository source comparison, not handwritten display text.
 - The generated `phase7-artifacts.json` fixture is checked in for hosted mode. The Worker serves it as a clearly labelled recorded repository run and never exposes arbitrary command execution.
-- Mutation state advances through `proposed → approved → validated → released`. Approval does not change the active organism; only a passing validation can be released.
+- Mutation state advances through `proposed → approved → validated → released`. Approval does not change the active target application; only a passing validation can be released.
 - React renders diff text as escaped content and never injects artifact HTML.
 - The in-memory timeline persists across browser reloads for the local/hosted fallback and is cleared by the deterministic demo reset. D1-backed persistence is introduced in Phase 9.
 

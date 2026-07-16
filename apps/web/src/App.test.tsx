@@ -175,6 +175,26 @@ const evidencePack = {
   tasks: [],
   frictionSignals: [],
   applicationMap: {
+    product: {
+      name: 'ProjectFlow',
+      purpose: 'Project management workspace.',
+      primaryUser: 'Knowledge worker.',
+      domainEntities: ['project', 'task', 'user'],
+      primaryGoals: ['find assigned work'],
+    },
+    activeVariant: {
+      name: 'baseline',
+      version: '1.0.0',
+      navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
+      capabilities: ['project-scoped task search'],
+    },
+    interfaceInventory: [
+      {
+        area: 'task-discovery',
+        purpose: 'Find assigned work.',
+        primaryActions: ['open task'],
+      },
+    ],
     routes: ['/study/dashboard'],
     mutableAreas: ['navigation'],
     protectedAreas: ['telemetry-history'],
@@ -245,6 +265,11 @@ const installApiMock = () => {
         status: 'ok',
         service: 'darwin-api',
         version: '0.7.0',
+        analysis: {
+          mode: 'mock',
+          model: 'gpt-5.6',
+          liveModelAvailable: false,
+        },
         timestamp,
       });
     }
@@ -311,31 +336,37 @@ afterEach(() => {
 });
 
 describe('Darwin control room', () => {
-  it('renders and previews the connected organism variants', async () => {
+  it('renders guidance and launches the standalone target variants', async () => {
     installApiMock();
     render(<App />);
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'Darwin' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Software that evolves.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Helping your software evolve.'),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Observe 10,000 interactions' }),
     ).toBeEnabled();
-    expect(screen.getByTestId('projectflow')).toHaveAttribute(
-      'data-variant',
-      'baseline',
-    );
+    expect(
+      screen.getByRole('link', {
+        name: 'Open ProjectFlow baseline target application',
+      }),
+    ).toHaveAttribute('href', '/?view=target&variant=baseline');
+    expect(
+      screen.getByRole('region', { name: 'Guided evolution cycle' }),
+    ).toHaveTextContent('gpt-5.6 reasons');
+    expect(screen.getByText('Start here')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Evolved v1.1/ }));
 
     expect(
-      await screen.findByPlaceholderText('Search tasks and projects'),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('projectflow')).toHaveAttribute(
-      'data-variant',
-      'evolved',
-    );
+      screen.getByRole('link', {
+        name: 'Open ProjectFlow evolved target application',
+      }),
+    ).toHaveAttribute('href', '/?view=target&variant=evolved');
+    expect(screen.getByText('Evolved v1.1')).toBeInTheDocument();
     expect(await screen.findAllByText('v0.7.0 online')).toHaveLength(2);
     expect(screen.getByText('Five configured loci')).toBeInTheDocument();
     expect(
@@ -365,7 +396,7 @@ describe('Darwin control room', () => {
         name: 'One controlled mutation proposed',
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Deterministic mock')).toBeInTheDocument();
+    expect(screen.getAllByText('Deterministic mock').length).toBeGreaterThan(0);
     expect(
       screen.getByText('Assigned tasks are difficult to locate'),
     ).toBeInTheDocument();
@@ -378,10 +409,11 @@ describe('Darwin control room', () => {
         'The implementation artifact is ready for validation.',
       ),
     ).toBeInTheDocument();
-    expect(screen.getByTestId('projectflow')).toHaveAttribute(
-      'data-variant',
-      'baseline',
-    );
+    expect(
+      screen.getByRole('link', {
+        name: 'Open ProjectFlow baseline target application',
+      }),
+    ).toHaveAttribute('href', '/?view=target&variant=baseline');
     expect(
       screen.getByLabelText('ProjectFlow mutation diff'),
     ).toHaveTextContent('globalSearch: true');
@@ -400,13 +432,16 @@ describe('Darwin control room', () => {
     );
 
     expect(
-      await screen.findByText('ProjectFlow v1.1 is now the active organism.'),
+      await screen.findByText(
+        'ProjectFlow v1.1 is now the active target application.',
+      ),
     ).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByTestId('projectflow')).toHaveAttribute(
-        'data-variant',
-        'evolved',
-      );
+      expect(
+        screen.getByRole('link', {
+          name: 'Open ProjectFlow evolved target application',
+        }),
+      ).toHaveAttribute('href', '/?view=target&variant=evolved');
     });
     expect(screen.getByText('Survived selection')).toBeInTheDocument();
 
@@ -415,10 +450,11 @@ describe('Darwin control room', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('projectflow')).toHaveAttribute(
-        'data-variant',
-        'baseline',
-      );
+      expect(
+        screen.getByRole('link', {
+          name: 'Open ProjectFlow baseline target application',
+        }),
+      ).toHaveAttribute('href', '/?view=target&variant=baseline');
     });
     expect(
       screen.getByRole('button', { name: 'Observe 10,000 interactions' }),

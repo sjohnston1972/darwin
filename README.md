@@ -1,6 +1,6 @@
 # Darwin
 
-> **Software that evolves.**
+> **Helping your software evolve.**
 
 Darwin is an autonomous product engineer that observes how an application is used, identifies evolutionary pressure, proposes a controlled mutation, validates the change, and records the result in the application's fossil record.
 
@@ -142,12 +142,12 @@ redeploying.
 
 ### Exact judge flow
 
-1. Open ProjectFlow `/study` and complete **Find your assigned task** through Projects.
+1. Open ProjectFlow `/study`; Darwin starts the observed workflow automatically. Find the assigned task through Projects and open its launch checklist.
 2. Open Darwin, inspect the ordered events, and generate the hashed evidence pack.
 3. Generate the evidence-citing mutation and prepare the constrained Codex manifest.
 4. Run the seed-locked 10,000-event synthetic scale replay.
 5. Approve, validate and release the mutation through the control room.
-6. Open ProjectFlow `/study?variant=evolved` and repeat the task through My Work.
+6. Open ProjectFlow `/study?variant=evolved` and repeat the same workflow through My Work.
 7. Show the automated 8-to-4 interaction result and the survived fossil record.
 
 If any step is interrupted, use the reset button in the control-room header. The

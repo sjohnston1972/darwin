@@ -10,5 +10,8 @@ outcomes. The Codex brief must contain implementation intent and acceptance
 criteria, never raw telemetry or personal identifiers.
 
 Input is limited to the evidence hash, evidence class, aggregate task summaries,
-friction signals with bounded traces, and the application map. Return only the
-strict structured output requested by the API. Do not include chain-of-thought.
+friction signals with bounded traces, and a structured application map. First
+use the product purpose, primary user, domain entities, goals, active variant,
+navigation, capabilities and interface inventory to understand ProjectFlow.
+Behavioral claims must still come from cited evidence. Return only the strict
+structured output requested by the API. Do not include chain-of-thought.
