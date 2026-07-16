@@ -235,6 +235,9 @@ describe('evidence-backed reasoning v2', () => {
       analysis.selectedMutation.scorecard.evidenceStrength / 100,
     );
     const requestBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(requestBody.reasoning).toEqual({ effort: 'none' });
+    expect(requestBody.text.verbosity).toBe('low');
+    expect(requestBody.max_output_tokens).toBe(3_500);
     expect(requestBody.prompt_cache_retention).toBe('24h');
     expect(requestBody.input[1].content).toContain(
       'Darwin Telemetry-to-Evolution Examples',

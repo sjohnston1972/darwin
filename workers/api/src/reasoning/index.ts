@@ -421,6 +421,7 @@ async function callOpenAI(
         store: false,
         prompt_cache_key: `darwin-${projectFlowReasoningContextVersion}`,
         prompt_cache_retention: '24h',
+        reasoning: { effort: 'none' },
         input: [
           { role: 'system', content: evidenceAnalysisSystemPrompt },
           { role: 'developer', content: projectFlowReasoningContext },
@@ -438,6 +439,7 @@ async function callOpenAI(
           },
         ],
         text: {
+          verbosity: 'low',
           format: {
             type: 'json_schema',
             name: 'darwin_evidence_analysis',
@@ -445,7 +447,7 @@ async function callOpenAI(
             strict: true,
           },
         },
-        max_output_tokens: 5_000,
+        max_output_tokens: 3_500,
       }),
       signal: controller.signal,
     });
