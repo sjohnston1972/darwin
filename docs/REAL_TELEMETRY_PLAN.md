@@ -55,6 +55,9 @@ captures only:
 - derived rapid-click, false-affordance, unexpected-double-click, target
   indecision and cursor-thrashing signals;
 - drag intent with bounded distance and whether the target supports dragging;
+- browser Back and Forward use between ProjectFlow history states;
+- relative browser zoom changes inferred from device pixel ratio and visual
+  viewport scale, never OS display settings;
 - touch cancellation duration and semantic target;
 - validation error codes without form values;
 - search result count and query length without query text;
@@ -109,6 +112,16 @@ The initial detectors are:
 - `drag_expectation`: pointer movement exceeds 12 px after press on a target
   that does not support dragging;
 - `touch_conflict`: the browser cancels an active touch interaction.
+- `browser_back_dependency`: browser Back returns from a nested ProjectFlow
+  route, indicating demand for visible in-app return navigation;
+- `zoom_readability`: browser zoom increases by at least 5% during the session,
+  indicating possible text readability pressure.
+
+The reasoning policy maps the strongest target-specific signals to bounded
+remediation priors: hover hesitation exposes item stats, drag expectation enables
+accessible dragging, false affordances gain a useful destination, browser Back
+dependency adds an in-app Back control, and zoom readability increases the type
+scale. GPT-5.6 must still cite the evidence and remain inside mutable areas.
 
 The client emits the observable measurements and bounded derived signals. The
 versioned TypeScript evidence engine, not GPT-5.6, decides which measurements

@@ -66,8 +66,8 @@ const proposal = {
   confidence: 0.86,
   risk: 'low',
   affectedFiles: [
-    'apps/web/src/projectflow/ProjectFlow.tsx',
-    'apps/web/src/projectflow/projectflow.css',
+    'apps/projectflow/src/App.tsx',
+    'apps/projectflow/src/styles.css',
   ],
   status: 'proposed',
 } as const;
@@ -355,6 +355,9 @@ describe('Darwin control room', () => {
       }),
     ).toHaveAttribute('href', '/?view=target&variant=baseline');
     expect(
+      screen.getByRole('link', { name: 'Target application' }),
+    ).toHaveAttribute('href', '/?view=target&variant=baseline');
+    expect(
       screen.getByRole('region', { name: 'Guided evolution cycle' }),
     ).toHaveTextContent('gpt-5.6 reasons');
     expect(screen.getByText('Start here')).toBeInTheDocument();
@@ -365,6 +368,9 @@ describe('Darwin control room', () => {
       screen.getByRole('link', {
         name: 'Open ProjectFlow evolved target application',
       }),
+    ).toHaveAttribute('href', '/?view=target&variant=evolved');
+    expect(
+      screen.getByRole('link', { name: 'Target application' }),
     ).toHaveAttribute('href', '/?view=target&variant=evolved');
     expect(screen.getByText('Evolved v1.1')).toBeInTheDocument();
     expect(await screen.findAllByText('v0.7.0 online')).toHaveLength(2);

@@ -4,11 +4,17 @@ import {
   EvidenceMutationCandidateSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
+  type EvidenceMutationCandidate,
   type EvidencePack,
 } from '@darwin/shared';
 import { z } from 'zod';
 
-export const evidencePromptVersion = '1.0.0' as const;
+import {
+  projectFlowReasoningContext,
+  projectFlowReasoningContextVersion,
+} from './generated-context';
+
+export const evidencePromptVersion = '1.1.0' as const;
 export const codexAllowedPaths = [
   'apps/projectflow/src/App.tsx',
   'apps/projectflow/src/styles.css',
@@ -108,7 +114,16 @@ export const evidenceAnalysisJsonSchema = {
 
 export const evidenceAnalysisSystemPrompt = `You are Darwin's evidence analyst. Propose one selected mutation and no more than two alternatives for ProjectFlow.
 
-First understand the supplied product, active variant, interface inventory, domain entities, user goals, and available capabilities. Use that application context to interpret the evidence, but make behavioral claims only from supplied evidence signals and cite their evidence IDs. Every scope value must come from mutableAreas. Never target protectedAreas. Keep changes small, testable, and human-approved. Predictions are hypotheses, not measured outcomes. The Codex brief must contain implementation intent and acceptance criteria, never raw telemetry or personal identifiers. Return only the requested structured output.`;
+First understand the supplied product, active variant, interface inventory, domain entities, user goals, and available capabilities. Use that application context to interpret the evidence, but make behavioral claims only from supplied evidence signals and cite their evidence IDs.
+
+Use these evidence-to-remediation priors when the corresponding signal is strongest:
+- hover_hesitation: expose useful contextual stats or detail on that exact item on hover and keyboard focus;
+- drag_expectation: make that exact item draggable with an accessible equivalent when the domain permits reordering;
+- false_affordance: make the clicked surface navigate to the most useful related destination;
+- browser_back_dependency: add a visible in-app Back control on the affected nested route;
+- zoom_readability: increase base and compact-label font sizes while preserving responsive layout.
+
+Every scope value must come from mutableAreas. Never target protectedAreas. Keep changes small, target-specific, testable, and human-approved. Predictions are hypotheses, not measured outcomes. The Codex brief must contain implementation intent and acceptance criteria, never raw telemetry or personal identifiers. Return only the requested structured output.`;
 
 export class EvidenceReasoningError extends Error {
   constructor(message: string) {
@@ -182,6 +197,141 @@ export function validateModelOutput(
   return output;
 }
 
+const targetedBehaviorMutation = (
+  pack: EvidencePack,
+): EvidenceMutationCandidate | null => {
+  const primary = pack.frictionSignals[0];
+  if (!primary) return null;
+  const target = primary.trace.find((event) => event.targetId)?.targetId;
+  const item = target ?? 'the affected item';
+  const evidenceIds = [primary.evidenceId];
+  const shared = { problem: primary.summary, evidenceIds };
+
+  switch (primary.ruleId) {
+    case 'hover_hesitation':
+      return {
+        ...shared,
+        id: 'show-item-hover-context',
+        title: `Show contextual stats for ${item}`,
+        hypothesis:
+          'Useful item-level detail on hover and keyboard focus will turn consideration into informed action.',
+        change: `Expose contextual stats and relevant status directly on ${item} during hover and keyboard focus.`,
+        predictedImpact: {
+          metric: 'feature discovery',
+          direction: 'increase',
+          rationale:
+            'The user can evaluate the item without guessing what it contains or leaving the current context.',
+        },
+        confidence: 0.78,
+        scope: ['item-presentation', 'contextual-help'],
+        acceptanceCriteria: [
+          `${item} exposes useful contextual stats on hover and keyboard focus.`,
+          'The detail surface does not shift surrounding layout or obscure the item action.',
+          'The existing semantic telemetry target remains stable.',
+        ],
+        codexBrief: `Add a compact contextual stats surface to ${item} for hover and keyboard focus. Keep it accessible, responsive, and bound to the existing semantic target. Add focused interaction tests.`,
+      };
+    case 'drag_expectation':
+      return {
+        ...shared,
+        id: 'enable-item-dragging',
+        title: `Make ${item} draggable`,
+        hypothesis:
+          'Supporting the observed drag expectation will make item organization match the user’s interaction model.',
+        change: `Make ${item} draggable with an explicit handle, reorder behavior, and an equivalent keyboard action.`,
+        predictedImpact: {
+          metric: 'interaction efficiency',
+          direction: 'increase',
+          rationale:
+            'The attempted direct manipulation becomes a supported action instead of a dead gesture.',
+        },
+        confidence: 0.8,
+        scope: ['interaction-behavior', 'drag-and-drop'],
+        acceptanceCriteria: [
+          `${item} can be reordered with pointer drag-and-drop.`,
+          'A keyboard-accessible reorder action produces the same result.',
+          'Drag state is visibly communicated and the new order is retained.',
+        ],
+        codexBrief: `Implement accessible drag-and-drop reordering for ${item}, including a visible handle, keyboard equivalent, retained ordering, semantic telemetry, and focused tests.`,
+      };
+    case 'false_affordance':
+      return {
+        ...shared,
+        id: 'activate-false-affordance',
+        title: `Make ${item} lead somewhere useful`,
+        hypothesis:
+          'Routing the clicked surface to its most relevant detail view will satisfy the action users already expect.',
+        change: `Make ${item} an accessible link or button that opens the most useful related ProjectFlow destination.`,
+        predictedImpact: {
+          metric: 'navigation efficiency',
+          direction: 'increase',
+          rationale:
+            'A currently dead click becomes a direct route to relevant work.',
+        },
+        confidence: 0.84,
+        scope: ['navigation', 'interaction-behavior'],
+        acceptanceCriteria: [
+          `${item} opens the most relevant related route on click or keyboard activation.`,
+          'Its visual affordance and accessible role accurately communicate the action.',
+          'The destination preserves a clear route back to the originating context.',
+        ],
+        codexBrief: `Convert ${item} into a useful accessible navigation action. Choose the closest related ProjectFlow route from the supplied application map, retain its semantic target, and add click and keyboard tests.`,
+      };
+    case 'browser_back_dependency':
+      return {
+        ...shared,
+        id: 'add-in-app-back-control',
+        title: 'Add an in-app Back control',
+        hypothesis:
+          'A visible contextual Back control will reduce dependence on browser history for returning from nested work.',
+        change:
+          'Add a Back control to nested ProjectFlow routes that returns to the previous meaningful in-app view.',
+        predictedImpact: {
+          metric: 'navigation efficiency',
+          direction: 'increase',
+          rationale:
+            'Return navigation becomes visible, predictable, and available inside the application.',
+        },
+        confidence: 0.86,
+        scope: ['navigation', 'in-app-history'],
+        acceptanceCriteria: [
+          'Nested project and task routes expose a visible Back control.',
+          'The control returns to the previous meaningful ProjectFlow view without leaving the application.',
+          'Browser Back and the in-app control preserve coherent route history.',
+        ],
+        codexBrief:
+          'Add an accessible in-app Back control to nested ProjectFlow views using the existing history state. Preserve browser Back behavior, emit semantic telemetry, and test both navigation paths.',
+      };
+    case 'zoom_readability':
+      return {
+        ...shared,
+        id: 'increase-interface-type-scale',
+        title: 'Increase interface font sizes',
+        hypothesis:
+          'A larger default type scale will reduce the need for users to increase browser zoom to read compact interface text.',
+        change:
+          'Increase base text, compact labels, metadata, and control font sizes while preserving information hierarchy.',
+        predictedImpact: {
+          metric: 'readability',
+          direction: 'increase',
+          rationale:
+            'Frequently read interface text becomes legible at the default browser zoom.',
+        },
+        confidence: 0.76,
+        scope: ['typography', 'item-presentation'],
+        acceptanceCriteria: [
+          'Base body text and compact metadata use a larger documented minimum size.',
+          'Controls and labels remain unclipped at mobile widths and 200% browser zoom.',
+          'Heading hierarchy and dense data layouts remain scannable.',
+        ],
+        codexBrief:
+          'Raise the ProjectFlow base and compact-label type scale, then adjust spacing where required. Verify mobile layouts and 200% browser zoom with focused visual and overflow tests.',
+      };
+    default:
+      return null;
+  }
+};
+
 const mockOutput = (pack: EvidencePack) => {
   const primary = pack.frictionSignals[0];
   if (!primary) {
@@ -189,9 +339,10 @@ const mockOutput = (pack: EvidencePack) => {
       'Evidence analysis requires at least one friction signal.',
     );
   }
+  const targeted = targetedBehaviorMutation(pack);
   const evidenceIds = [primary.evidenceId];
   return {
-    selectedMutation: {
+    selectedMutation: targeted ?? {
       id: 'promote-task-discovery',
       title: 'Promote task discovery',
       problem: primary.summary,
@@ -216,34 +367,38 @@ const mockOutput = (pack: EvidencePack) => {
       codexBrief:
         'Implement the evolved ProjectFlow variant by adding My Work to primary navigation and global task search. Preserve the baseline variant and existing telemetry semantics. Add focused tests for both paths.',
     },
-    alternatives: [
-      {
-        id: 'task-quick-create',
-        title: 'Add global task creation',
-        problem: primary.summary,
-        evidenceIds,
-        hypothesis:
-          'A global creation action may reduce navigation before task entry.',
-        change:
-          'Expose a compact task creation action in the application header.',
-        predictedImpact: {
-          metric: 'task duration',
-          direction: 'decrease' as const,
-          rationale:
-            'The action removes route changes before opening task entry.',
-        },
-        confidence: 0.61,
-        scope: ['navigation'],
-        acceptanceCriteria: ['Task creation opens from every primary route.'],
-        codexBrief:
-          'Add a globally reachable task creation action while preserving current validation and telemetry targets.',
-      },
-    ],
+    alternatives: targeted
+      ? []
+      : [
+          {
+            id: 'task-quick-create',
+            title: 'Add global task creation',
+            problem: primary.summary,
+            evidenceIds,
+            hypothesis:
+              'A global creation action may reduce navigation before task entry.',
+            change:
+              'Expose a compact task creation action in the application header.',
+            predictedImpact: {
+              metric: 'task duration',
+              direction: 'decrease' as const,
+              rationale:
+                'The action removes route changes before opening task entry.',
+            },
+            confidence: 0.61,
+            scope: ['navigation'],
+            acceptanceCriteria: [
+              'Task creation opens from every primary route.',
+            ],
+            codexBrief:
+              'Add a globally reachable task creation action while preserving current validation and telemetry targets.',
+          },
+        ],
     unsupportedIdeasRejected: [
       {
         idea: 'Rewrite the telemetry pipeline',
         reason:
-          'Telemetry history is protected and the evidence supports a navigation mutation, not an instrumentation change.',
+          'Telemetry history is protected; the selected mutation stays inside the target application.',
       },
     ],
   };
@@ -285,8 +440,11 @@ async function callOpenAI(
       body: JSON.stringify({
         model,
         store: false,
+        prompt_cache_key: `darwin-${projectFlowReasoningContextVersion}`,
+        prompt_cache_retention: '24h',
         input: [
           { role: 'system', content: evidenceAnalysisSystemPrompt },
+          { role: 'developer', content: projectFlowReasoningContext },
           {
             role: 'user',
             content: JSON.stringify({
@@ -315,9 +473,15 @@ async function callOpenAI(
         `OpenAI Responses API returned HTTP ${response.status}.`,
       );
     }
-    const text = responseText(await response.json());
+    const payload = (await response.json()) as {
+      usage?: { input_tokens_details?: { cached_tokens?: number } };
+    };
+    const text = responseText(payload);
     if (!text) throw new EvidenceReasoningError('OpenAI returned no output.');
-    return JSON.parse(text) as unknown;
+    return {
+      output: JSON.parse(text) as unknown,
+      cachedTokens: payload.usage?.input_tokens_details?.cached_tokens,
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -340,27 +504,44 @@ export async function analyseEvidence(
   const cacheKey = await analysisCacheKey(pack.evidenceHash, model);
   let mode: EvidenceAnalysis['mode'] = 'mock';
   let output: unknown;
+  let validated: z.infer<typeof modelOutputSchema>;
+  let fallbackReason: string | undefined;
+  let cachedTokens: number | undefined;
+  const promptCacheKey = `darwin-${projectFlowReasoningContextVersion}`;
 
   if (options.requestedMode === 'live' && options.apiKey) {
     try {
-      output = await callOpenAI(
+      const liveResult = await callOpenAI(
         pack,
         options.apiKey,
         model,
         options.timeoutMs ?? 12_000,
         options.fetch ?? fetch,
       );
+      output = liveResult.output;
+      cachedTokens = liveResult.cachedTokens;
+      validated = validateModelOutput(output, pack);
       mode = 'live';
-    } catch {
+    } catch (error) {
       output = mockOutput(pack);
+      validated = validateModelOutput(output, pack);
       mode = 'fallback';
+      fallbackReason =
+        error instanceof EvidenceReasoningError
+          ? error.message.slice(0, 240)
+          : error instanceof Error && error.name === 'AbortError'
+            ? 'OpenAI Responses API request timed out.'
+            : 'OpenAI returned an invalid structured evidence analysis.';
     }
   } else {
     output = mockOutput(pack);
+    validated = validateModelOutput(output, pack);
     mode = options.requestedMode === 'live' ? 'fallback' : 'mock';
+    if (mode === 'fallback') {
+      fallbackReason = 'Live analysis was requested without an API key.';
+    }
   }
 
-  const validated = validateModelOutput(output, pack);
   return EvidenceAnalysisSchema.parse({
     analysisId: `analysis-${cacheKey.slice(0, 12)}`,
     evidenceId: pack.evidenceId,
@@ -368,7 +549,18 @@ export async function analyseEvidence(
     cacheKey,
     promptVersion: evidencePromptVersion,
     mode,
+    ...(fallbackReason ? { fallbackReason } : {}),
     model,
+    ...(options.requestedMode === 'live'
+      ? {
+          promptCache: {
+            key: promptCacheKey,
+            contextVersion: projectFlowReasoningContextVersion,
+            retention: '24h' as const,
+            ...(cachedTokens === undefined ? {} : { cachedTokens }),
+          },
+        }
+      : {}),
     createdAt: options.createdAt ?? new Date().toISOString(),
     ...validated,
   });

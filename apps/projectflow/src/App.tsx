@@ -46,6 +46,37 @@ interface Workspace {
   tasks: Task[];
 }
 
+interface ProjectFlowHistoryState {
+  index: number;
+  route: AppRoute;
+  projectId: string | null;
+}
+
+const appRoutes: readonly AppRoute[] = [
+  'dashboard',
+  'my-work',
+  'projects',
+  'project',
+  'project-tasks',
+  'reports',
+  'settings',
+];
+
+const historyStateOf = (value: unknown): ProjectFlowHistoryState | null => {
+  if (!value || typeof value !== 'object') return null;
+  const state = (value as { projectFlow?: Partial<ProjectFlowHistoryState> })
+    .projectFlow;
+  if (
+    !state ||
+    typeof state.index !== 'number' ||
+    !appRoutes.includes(state.route as AppRoute) ||
+    (state.projectId !== null && typeof state.projectId !== 'string')
+  ) {
+    return null;
+  }
+  return state as ProjectFlowHistoryState;
+};
+
 const loadWorkspace = (): Workspace => {
   try {
     const stored = localStorage.getItem(workspaceKey);
@@ -111,6 +142,11 @@ export function App() {
   );
   const telemetryRef = useRef<DarwinTelemetryClient | null>(null);
   const captureCompletedRef = useRef(false);
+  const historyIndexRef = useRef(0);
+  const currentViewRef = useRef({
+    route: 'dashboard' as AppRoute,
+    projectId: null as string | null,
+  });
 
   useEffect(() => {
     localStorage.setItem(workspaceKey, JSON.stringify({ projects, tasks }));
@@ -167,8 +203,7 @@ export function App() {
           ? undefined
           : import.meta.env.VITE_TELEMETRY_ENDPOINT ||
             `${apiBaseUrl}/api/telemetry/events`,
-      onEvent: (event) =>
-        setEvents((current) => [...current.slice(-39), event]),
+      onEvent: (event) => setEvents((current) => [...current, event]),
     });
     telemetryRef.current = telemetry;
     captureCompletedRef.current = false;
@@ -179,6 +214,45 @@ export function App() {
       telemetryRef.current = null;
     };
   }, [participantId, runtime, studyMode]);
+
+  useEffect(() => {
+    const currentState: ProjectFlowHistoryState = {
+      index: historyIndexRef.current,
+      route: currentViewRef.current.route,
+      projectId: currentViewRef.current.projectId,
+    };
+    window.history.replaceState(
+      { ...window.history.state, projectFlow: currentState },
+      '',
+      window.location.href,
+    );
+
+    const onPopState = (event: PopStateEvent) => {
+      const next = historyStateOf(event.state);
+      if (!next) return;
+      const previous = currentViewRef.current;
+      const prefix = studyMode ? '/study' : '';
+      const fromRoute = `${prefix}${routePath(previous.route, previous.projectId ?? undefined)}`;
+      const toRoute = `${prefix}${routePath(next.route, next.projectId ?? undefined)}`;
+      telemetryRef.current?.trackBrowserNavigation(
+        next.index < historyIndexRef.current ? 'back' : 'forward',
+        fromRoute,
+        toRoute,
+      );
+      historyIndexRef.current = next.index;
+      currentViewRef.current = {
+        route: next.route,
+        projectId: next.projectId,
+      };
+      setRoute(next.route);
+      setSelectedProjectId(next.projectId);
+      setMobileNavOpen(false);
+      telemetryRef.current?.trackRouteChanged(toRoute);
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [studyMode]);
 
   const selectedProject = projects.find(
     (project) => project.id === selectedProjectId,
@@ -203,8 +277,28 @@ export function App() {
   );
 
   const navigate = (nextRoute: AppRoute, projectId?: string) => {
+    const nextProjectId = projectId ?? null;
+    if (
+      currentViewRef.current.route === nextRoute &&
+      currentViewRef.current.projectId === nextProjectId
+    ) {
+      setMobileNavOpen(false);
+      return;
+    }
+    const nextHistoryState: ProjectFlowHistoryState = {
+      index: historyIndexRef.current + 1,
+      route: nextRoute,
+      projectId: nextProjectId,
+    };
+    window.history.pushState(
+      { ...window.history.state, projectFlow: nextHistoryState },
+      '',
+      window.location.href,
+    );
+    historyIndexRef.current = nextHistoryState.index;
+    currentViewRef.current = { route: nextRoute, projectId: nextProjectId };
     setRoute(nextRoute);
-    setSelectedProjectId(projectId ?? null);
+    setSelectedProjectId(nextProjectId);
     setMobileNavOpen(false);
     telemetryRef.current?.trackRouteChanged(
       `${studyMode ? '/study' : ''}${routePath(nextRoute, projectId)}`,
@@ -325,7 +419,17 @@ export function App() {
   };
 
   const enterStudy = () => {
-    window.history.pushState({}, '', '/study');
+    const nextHistoryState: ProjectFlowHistoryState = {
+      index: historyIndexRef.current + 1,
+      route: currentViewRef.current.route,
+      projectId: currentViewRef.current.projectId,
+    };
+    window.history.pushState(
+      { ...window.history.state, projectFlow: nextHistoryState },
+      '',
+      '/study',
+    );
+    historyIndexRef.current = nextHistoryState.index;
     setStudyMode(true);
   };
 
@@ -1157,6 +1261,18 @@ function presentTelemetryEvent(event: StudyTelemetryEvent) {
         detail: `${at} · after ${formatDuration(event.properties.durationMs)}`,
         signal: true,
       };
+    case 'browser_navigation':
+      return {
+        label: `Browser ${event.properties.direction}`,
+        detail: `${event.properties.fromRoute} → ${event.properties.toRoute}`,
+        signal: event.properties.direction === 'back',
+      };
+    case 'viewport_zoom_changed':
+      return {
+        label: 'Browser zoom changed',
+        detail: `${Math.round(event.properties.fromScale * 100)}% → ${Math.round(event.properties.toScale * 100)}%`,
+        signal: event.properties.toScale > event.properties.fromScale,
+      };
     default:
       return {
         label: event.eventType.replaceAll('_', ' '),
@@ -1188,6 +1304,8 @@ function StudyPanel({
       'interaction_signal',
       'drag_attempted',
       'touch_cancelled',
+      'browser_navigation',
+      'viewport_zoom_changed',
     ].includes(event.eventType),
   ).length;
   const pointerTypes = [
@@ -1227,7 +1345,7 @@ function StudyPanel({
             <span className="capture-pulse" />
             <span>Live semantic telemetry</span>
           </div>
-          <strong>{events.length} events</strong>
+          <strong aria-label="Captured events">{events.length} events</strong>
         </div>
         <div className="event-monitor-stats">
           <div>
@@ -1241,24 +1359,21 @@ function StudyPanel({
         </div>
         <div className="live-event-stream" aria-live="polite">
           {events.length ? (
-            events
-              .slice(-6)
-              .reverse()
-              .map((event) => {
-                const presentation = presentTelemetryEvent(event);
-                return (
-                  <div
-                    className={`live-event-row ${presentation.signal ? 'is-signal' : ''}`}
-                    key={event.eventId}
-                  >
-                    <code>{event.sequence.toString().padStart(2, '0')}</code>
-                    <div>
-                      <strong>{presentation.label}</strong>
-                      <span>{presentation.detail}</span>
-                    </div>
+            [...events].reverse().map((event) => {
+              const presentation = presentTelemetryEvent(event);
+              return (
+                <div
+                  className={`live-event-row ${presentation.signal ? 'is-signal' : ''}`}
+                  key={event.eventId}
+                >
+                  <code>{event.sequence.toString().padStart(2, '0')}</code>
+                  <div>
+                    <strong>{presentation.label}</strong>
+                    <span>{presentation.detail}</span>
                   </div>
-                );
-              })
+                </div>
+              );
+            })
           ) : (
             <div className="event-stream-empty">Waiting for activity</div>
           )}

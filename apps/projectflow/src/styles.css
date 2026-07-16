@@ -1032,8 +1032,10 @@ button {
   position: sticky;
   top: 0;
   z-index: 25;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
   color: #dce4e8;
   background: #10191f;
   border-left: 1px solid #26343d;
@@ -1235,6 +1237,14 @@ button {
   border-radius: 6px;
 }
 
+.event-monitor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin-bottom: 14px;
+}
+
 .event-monitor-heading {
   display: flex;
   align-items: center;
@@ -1296,9 +1306,12 @@ button {
 
 .live-event-stream {
   display: grid;
-  max-height: 188px;
+  flex: 1;
+  align-content: start;
+  min-height: 0;
   margin-top: 7px;
-  overflow: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .live-event-row {
@@ -1521,7 +1534,7 @@ button {
 
   .study-panel {
     position: relative;
-    height: auto;
+    height: 100svh;
     min-height: 560px;
     border-top: 1px solid #26343d;
     border-left: 0;
@@ -1537,6 +1550,7 @@ button {
 
   .event-monitor,
   .feedback {
+    width: calc(100% - 28px);
     max-width: 620px;
     margin-inline: auto;
   }

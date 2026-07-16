@@ -102,6 +102,8 @@ describe('fitness and evolution analysis', () => {
     const body = JSON.parse(String(request[1].body)) as {
       text: { format: { strict: boolean; schema: unknown } };
       input: Array<{ role: string; content: string }>;
+      prompt_cache_key?: string;
+      prompt_cache_retention?: string;
     };
 
     expect(request[0]).toBe('https://api.openai.com/v1/responses');
@@ -112,7 +114,16 @@ describe('fitness and evolution analysis', () => {
       strict: true,
       schema: mutationProposalJsonSchema,
     });
-    const promptInput = JSON.parse(body.input[1]?.content ?? '{}') as {
+    expect(body.prompt_cache_key).toMatch(/^darwin-ctx-/);
+    expect(body.prompt_cache_retention).toBe('24h');
+    expect(body.input[1]).toMatchObject({ role: 'developer' });
+    expect(body.input[1]?.content).toContain(
+      'Darwin Telemetry-to-Evolution Examples',
+    );
+    expect(body.input[1]?.content).toContain(
+      'Source: apps/projectflow/src/App.tsx',
+    );
+    const promptInput = JSON.parse(body.input[2]?.content ?? '{}') as {
       targetApplication?: string;
       applicationContext?: {
         purpose?: string;
@@ -134,7 +145,7 @@ describe('fitness and evolution analysis', () => {
         ]),
       },
     });
-    expect(body.input[1]?.content).not.toContain('sk-test-secret');
+    expect(body.input[2]?.content).not.toContain('sk-test-secret');
     expect(events).toEqual([
       expect.objectContaining({
         event: 'openai_analysis_completed',

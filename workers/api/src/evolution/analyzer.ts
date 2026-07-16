@@ -58,8 +58,8 @@ export class MockEvolutionAnalyzer implements EvolutionAnalyzer {
       confidence: leadingFinding.confidence,
       risk: 'low',
       affectedFiles: [
-        'apps/web/src/projectflow/ProjectFlow.tsx',
-        'apps/web/src/projectflow/projectflow.css',
+        'apps/projectflow/src/App.tsx',
+        'apps/projectflow/src/styles.css',
       ],
       status: 'proposed',
     });

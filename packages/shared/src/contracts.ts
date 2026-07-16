@@ -210,6 +210,31 @@ export const RouteChangedEventSchema = StudyEventBaseSchema.extend({
     .strict(),
 });
 
+export const BrowserNavigationEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('browser_navigation'),
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      direction: z.enum(['back', 'forward']),
+      fromRoute: StudyRouteSchema,
+      toRoute: StudyRouteSchema,
+    })
+    .strict(),
+});
+
+export const ViewportZoomChangedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('viewport_zoom_changed'),
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      fromScale: z.number().min(0.25).max(5),
+      toScale: z.number().min(0.25).max(5),
+    })
+    .strict(),
+});
+
 export const ValidationErrorEventSchema = StudyEventBaseSchema.extend({
   eventType: z.literal('validation_error'),
   targetId: SemanticTargetSchema,
@@ -281,6 +306,8 @@ export const StudyTelemetryEventSchema = z.discriminatedUnion('eventType', [
   DragAttemptedEventSchema,
   TouchCancelledEventSchema,
   RouteChangedEventSchema,
+  BrowserNavigationEventSchema,
+  ViewportZoomChangedEventSchema,
   ValidationErrorEventSchema,
   SearchPerformedEventSchema,
   TaskStartedEventSchema,
@@ -314,6 +341,8 @@ export const StoredTelemetryEventSchema = z.discriminatedUnion('eventType', [
   DragAttemptedEventSchema.extend(storedAt),
   TouchCancelledEventSchema.extend(storedAt),
   RouteChangedEventSchema.extend(storedAt),
+  BrowserNavigationEventSchema.extend(storedAt),
+  ViewportZoomChangedEventSchema.extend(storedAt),
   ValidationErrorEventSchema.extend(storedAt),
   SearchPerformedEventSchema.extend(storedAt),
   TaskStartedEventSchema.extend(storedAt),
@@ -400,6 +429,8 @@ export const FrictionRuleSchema = z.enum([
   'cursor_indecision',
   'drag_expectation',
   'touch_conflict',
+  'browser_back_dependency',
+  'zoom_readability',
 ]);
 
 export const EvidenceTraceEventSchema = z.object({
@@ -507,9 +538,18 @@ export const EvidenceAnalysisSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   cacheKey: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.literal('1.0.0'),
+  promptVersion: z.enum(['1.0.0', '1.1.0']),
   mode: z.enum(['mock', 'live', 'fallback']),
+  fallbackReason: z.string().min(1).max(240).optional(),
   model: z.string().min(1),
+  promptCache: z
+    .object({
+      key: z.string().min(1).max(64),
+      contextVersion: z.string().min(1),
+      retention: z.literal('24h'),
+      cachedTokens: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
   createdAt: z.string().datetime(),
   selectedMutation: EvidenceMutationCandidateSchema,
   alternatives: z.array(EvidenceMutationCandidateSchema).max(2),
@@ -527,7 +567,7 @@ export const CodexImplementationManifestSchema = z.object({
   analysisId: StudyIdentifierSchema,
   mutationId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.literal('1.0.0'),
+  promptVersion: z.enum(['1.0.0', '1.1.0']),
   repositoryCommit: z.string().min(1),
   createdAt: z.string().datetime(),
   brief: z.string().min(1),

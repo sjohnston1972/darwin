@@ -136,6 +136,11 @@ describe('DarwinTelemetryClient', () => {
     const attemptId = client.taskStarted('find-assigned-task');
     button.click();
     client.trackRouteChanged('/projects/apollo/tasks');
+    client.trackBrowserNavigation(
+      'back',
+      '/projects/apollo/tasks',
+      '/projects/apollo',
+    );
     client.trackSearch('task-search', 14, 1);
     client.taskCompleted('success');
 
@@ -145,6 +150,9 @@ describe('DarwinTelemetryClient', () => {
     const click = parsed.find((event) => event.eventType === 'element_clicked');
     const completion = parsed.find(
       (event) => event.eventType === 'task_completed',
+    );
+    const browserBack = parsed.find(
+      (event) => event.eventType === 'browser_navigation',
     );
 
     expect(click).toMatchObject({
@@ -156,9 +164,54 @@ describe('DarwinTelemetryClient', () => {
       taskAttemptId: attemptId,
       outcome: 'success',
     });
+    expect(browserBack).toMatchObject({
+      taskAttemptId: attemptId,
+      properties: {
+        direction: 'back',
+        toRoute: '/projects/apollo',
+      },
+    });
     expect(JSON.stringify(parsed)).not.toContain('Private project title');
 
     client.destroy();
+  });
+
+  it('captures relative browser zoom increases', () => {
+    const originalPixelRatio = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      value: 1,
+    });
+    const captured: StudyTelemetryEvent[] = [];
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-zoom',
+      initialRoute: '/study/dashboard',
+      onEvent: (event) => captured.push(event),
+    });
+    client.init();
+
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      value: 1.25,
+    });
+    window.dispatchEvent(new Event('resize'));
+
+    expect(captured).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'viewport_zoom_changed',
+          properties: { fromScale: 1, toScale: 1.25 },
+        }),
+      ]),
+    );
+
+    client.destroy();
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      value: originalPixelRatio,
+    });
   });
 
   it('keeps failed deliveries and clears a successfully received batch', async () => {

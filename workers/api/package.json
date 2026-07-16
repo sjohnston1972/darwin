@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787",
+    "dev": "wrangler dev --env-file ../../.env --port 8787",
     "simulate": "tsx src/simulation/cli.ts",
     "build": "wrangler deploy --dry-run --outdir dist",
     "typecheck": "tsc --noEmit",

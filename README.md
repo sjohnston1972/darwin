@@ -17,7 +17,7 @@ npm install
 npm run dev
 ```
 
-The default mock analyzer needs no secret. Local services start at ports 5173,
+The analyzer falls back to a deterministic mock when live GPT is unavailable. Local services start at ports 5173,
 5174 and 8787. Run the complete verification set with:
 
 ```bash
@@ -56,15 +56,15 @@ npm run deploy
 ## Real telemetry foundation
 
 Real ProjectFlow study activity is Darwin's primary evidence source. The
-standalone application has functional project and task state, three fixed study
-tasks, anonymous participant IDs and stable `data-darwin-id` control identities.
+standalone application has functional project and task state, an automatically
+observed workflow, anonymous participant IDs and stable `data-darwin-id` control identities.
 
 `packages/telemetry-client` records routes, semantic control IDs, validation
 codes, search counts, explicit study outcomes and privacy-safe pointer evidence.
 Pointer evidence includes hover duration and outcome, hover-to-click latency,
 normalized click position, pointer type, semantic target transitions, rapid
-clicks, false affordances, direction-change aggregates, drag intent and touch
-cancellation. It never stores raw cursor trails, absolute page coordinates, form
+clicks, false affordances, direction-change aggregates, drag intent, browser
+Back/Forward use, relative browser zoom changes and touch cancellation. It never stores raw cursor trails, absolute page coordinates, form
 values, search text, arbitrary page text or feedback content. Events carry
 participant, session, task-attempt, application-version and source provenance.
 The browser delivers bounded batches to the Worker, which deduplicates and stores
@@ -81,10 +81,20 @@ model participates in this parsing stage.
 Evidence-backed reasoning is a separate, cached stage. Darwin sends the compact
 evidence pack to GPT-5.6 at most once for each evidence-hash, model and prompt
 version tuple, then validates every citation and requested mutation scope. The
-default deterministic analyzer follows the identical contract. A selected
+deterministic fallback analyzer follows the identical contract and maps hover,
+drag, false-affordance, browser Back and zoom-readability evidence to targeted
+remediation proposals. A selected
 mutation can be exported as a hashed Codex implementation manifest containing
 only the brief, evidence IDs, path policy and validation commands; raw telemetry
 is never part of the Codex handoff.
+
+Both GPT paths receive a generated static context prefix containing the complete
+`evolution examples/darwin-telemetry-evolution-examples.md` catalogue and the
+actual ProjectFlow `App.tsx`, `data.ts` and `styles.css` sources. Run
+`npm run context:generate` after those files change; `npm run typecheck` rejects
+a stale snapshot. The Responses API request uses a context-hash-derived
+`prompt_cache_key` and 24-hour retention, and the UI reports cached input tokens
+when the API returns them. Dynamic evidence is appended after the stable prefix.
 
 The critical Playwright flow also runs the same assigned-task task against
 versioned baseline and evolved cohorts using `source=automated`. It creates two
@@ -95,13 +105,15 @@ reliable hosted demo. Neither is presented as a human outcome.
 
 ## Evolution analyzer
 
-Deterministic mock analysis is the default and requires no API key. To run the optional live GPT-5.6 analyzer locally, create `workers/api/.dev.vars`:
+Live GPT-5.6 analysis is enabled when a key is available and falls back safely
+to the deterministic analyzer otherwise. The Worker development command loads
+the repository `.env`; `OPENAI_API_KEY` is preferred and the existing
+`OPENAI_API` name is accepted as a compatibility alias:
 
 ```dotenv
-DARWIN_AI_MODE=live
 OPENAI_API_KEY=your_api_key
 OPENAI_MODEL=gpt-5.6
-OPENAI_TIMEOUT_MS=12000
+OPENAI_TIMEOUT_MS=45000
 DARWIN_REPOSITORY_COMMIT=local-development
 DARWIN_DEMO_SEED=1859
 DARWIN_EVENT_COUNT=10000
@@ -132,7 +144,8 @@ npm run smoke:production
 deploys the Worker, and direct-uploads both Vite builds to their Pages projects.
 Set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for non-interactive CI.
 Use `npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml`
-only when enabling live GPT-5.6 mode; the default deployed mode is mock.
+to install the key in Cloudflare. The committed Worker mode is live, with a
+deterministic fallback if the secret or a valid model response is unavailable.
 
 For custom domains, attach `darwin.clydeford.net` to the control-room Pages
 project, `projectflow.clydeford.net` to ProjectFlow, and a Worker custom domain

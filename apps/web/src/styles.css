@@ -964,6 +964,26 @@ a:focus-visible {
   line-height: 1.6;
 }
 
+.mutation-causal-change {
+  max-width: 760px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgb(104 212 164 / 5%);
+  border-left: 2px solid #68d4a4;
+}
+
+.mutation-causal-change span {
+  color: #68d4a4;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.mutation-causal-change p {
+  margin-top: 5px;
+  color: #c8d3cf;
+}
+
 .mutation-citations {
   flex-wrap: wrap;
   gap: 7px;

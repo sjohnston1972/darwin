@@ -131,4 +131,47 @@ describe('shared contracts', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts browser history and relative zoom telemetry', () => {
+    const base = {
+      schemaVersion: 1,
+      sessionId: 'session-01',
+      participantId: 'participant-01',
+      studyId: 'projectflow-baseline-study',
+      appVersion: '1.0.0',
+      source: 'real_user',
+      occurredAt: '2026-07-16T12:00:00.000Z',
+      route: '/study/projects/apollo',
+      viewport: 'desktop',
+    } as const;
+
+    expect(
+      StudyTelemetryEventSchema.parse({
+        ...base,
+        eventId: '49d13df2-8dce-4ad3-b20e-d8b4edc01b63',
+        sequence: 6,
+        eventType: 'browser_navigation',
+        properties: {
+          direction: 'back',
+          fromRoute: '/study/projects/apollo',
+          toRoute: '/study/projects',
+        },
+      }),
+    ).toMatchObject({
+      eventType: 'browser_navigation',
+      properties: { direction: 'back' },
+    });
+    expect(
+      StudyTelemetryEventSchema.parse({
+        ...base,
+        eventId: '26f5d6df-87a7-486a-95f2-0285fbc85772',
+        sequence: 7,
+        eventType: 'viewport_zoom_changed',
+        properties: { fromScale: 1, toScale: 1.25 },
+      }),
+    ).toMatchObject({
+      eventType: 'viewport_zoom_changed',
+      properties: { toScale: 1.25 },
+    });
+  });
 });

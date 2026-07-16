@@ -6,12 +6,17 @@ import {
   type EvolutionAnalysisInput,
   type EvolutionAnalyzer,
 } from './analyzer';
+import {
+  projectFlowReasoningContext,
+  projectFlowReasoningContextVersion,
+} from '../reasoning/generated-context';
 
 const responsesEndpoint = 'https://api.openai.com/v1/responses';
 
 export const mutationFileAllowList = [
-  'apps/web/src/projectflow/ProjectFlow.tsx',
-  'apps/web/src/projectflow/projectflow.css',
+  'apps/projectflow/src/App.tsx',
+  'apps/projectflow/src/styles.css',
+  'apps/projectflow/src/data.ts',
 ] as const;
 
 export const evolutionAnalysisSystemPrompt = `You are Darwin, an autonomous product engineer operating under strict evidence and safety constraints.
@@ -192,8 +197,11 @@ export class OpenAIEvolutionAnalyzer implements EvolutionAnalyzer {
         body: JSON.stringify({
           model: this.model,
           store: false,
+          prompt_cache_key: `darwin-${projectFlowReasoningContextVersion}`,
+          prompt_cache_retention: '24h',
           input: [
             { role: 'system', content: evolutionAnalysisSystemPrompt },
+            { role: 'developer', content: projectFlowReasoningContext },
             {
               role: 'user',
               content: JSON.stringify({

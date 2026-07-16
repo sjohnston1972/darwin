@@ -326,9 +326,11 @@ function App() {
                 <a
                   className={active ? 'nav-item nav-item-active' : 'nav-item'}
                   href={
-                    active
-                      ? '#top'
-                      : `#${label.toLowerCase().replace(' ', '-')}`
+                    label === 'Target application'
+                      ? `/?view=target&variant=${organismVariant}`
+                      : active
+                        ? '#top'
+                        : `#${label.toLowerCase().replace(' ', '-')}`
                   }
                   onClick={() => setNavigationOpen(false)}
                   data-explain={help}
@@ -819,7 +821,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.17.0</p>
+            <p className="font-mono">DARWIN CORE 0.18.0</p>
           </footer>
         </div>
       </main>
@@ -986,6 +988,8 @@ function LiveTelemetryPanel({
       'interaction_signal',
       'drag_attempted',
       'touch_cancelled',
+      'browser_navigation',
+      'viewport_zoom_changed',
     ].includes(event.eventType),
   ).length;
   const configuredModel = analysisConfig?.model ?? 'gpt-5.6';
@@ -1064,7 +1068,7 @@ function LiveTelemetryPanel({
           <span>Participants</span>
           <strong>{participants}</strong>
         </div>
-        <div data-explain="Hover hesitation, rage click, false affordance, indecision, drag expectation, and touch-conflict observations.">
+        <div data-explain="Hover hesitation, rage click, false affordance, indecision, drag expectation, browser Back, zoom-readability, and touch-conflict observations.">
           <MousePointer2 size={16} />
           <span>Behavior signals</span>
           <strong>{behaviorSignals}</strong>
@@ -1201,6 +1205,9 @@ function LiveTelemetryPanel({
                   <code>capabilities</code>
                   <code>friction signals</code>
                   <code>bounded traces</code>
+                  <code>remediation policy</code>
+                  <code>50 evolution examples</code>
+                  <code>ProjectFlow source</code>
                 </div>
               </div>
               <button
@@ -1234,12 +1241,27 @@ function LiveTelemetryPanel({
                   <code>{telemetry.analysis.model}</code>
                   <code>prompt {telemetry.analysis.promptVersion}</code>
                   <code>{telemetry.analysis.cacheKey.slice(0, 16)}...</code>
+                  {telemetry.analysis.promptCache && (
+                    <code>
+                      prompt cache ·{' '}
+                      {telemetry.analysis.promptCache.cachedTokens === undefined
+                        ? telemetry.analysis.promptCache.contextVersion
+                        : `${telemetry.analysis.promptCache.cachedTokens} tokens`}
+                    </code>
+                  )}
+                  {telemetry.analysis.fallbackReason && (
+                    <span>{telemetry.analysis.fallbackReason}</span>
+                  )}
                 </div>
                 <div className="selected-mutation">
                   <div className="mutation-rank">SELECTED</div>
                   <div>
                     <h3>{telemetry.analysis.selectedMutation.title}</h3>
                     <p>{telemetry.analysis.selectedMutation.hypothesis}</p>
+                    <div className="mutation-causal-change">
+                      <span>Evidence-led change</span>
+                      <p>{telemetry.analysis.selectedMutation.change}</p>
+                    </div>
                     <div className="mutation-citations">
                       {telemetry.analysis.selectedMutation.evidenceIds.map(
                         (id) => (
@@ -1412,6 +1434,10 @@ function describeTelemetryEvent(event: StoredTelemetryEvent) {
       return `${event.properties.distancePx}px · ${event.properties.draggable ? 'supported' : 'unsupported drag'}`;
     case 'touch_cancelled':
       return `touch cancelled after ${formatTelemetryDuration(event.properties.durationMs)}`;
+    case 'browser_navigation':
+      return `${event.properties.direction} · ${event.properties.fromRoute} → ${event.properties.toRoute}`;
+    case 'viewport_zoom_changed':
+      return `${Math.round(event.properties.fromScale * 100)}% → ${Math.round(event.properties.toScale * 100)}%`;
     default:
       return 'ordered study event';
   }

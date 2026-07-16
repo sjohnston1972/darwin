@@ -1,0 +1,52 @@
+# Darwin Telemetry-to-Evolution Examples
+
+| Linked telemetry pattern | Likely interpretation | Darwin evolution | Validation metric |
+|---|---|---|---|
+| User hovers over an icon for 1.5+ seconds, moves away, then opens Help | The icon’s purpose is unclear | Add a tooltip and accessible label | Reduced hover hesitation and Help usage |
+| User repeatedly clicks browser Back after opening detail pages | In-app navigation does not match the user’s mental model | Add an in-app Back button or breadcrumb trail | Reduced browser Back usage and shorter return paths |
+| Users click a non-interactive card title or status badge | The element visually appears clickable | Make the element open the relevant detail view | Fewer dead clicks and faster navigation |
+| User opens Projects, returns to Dashboard, opens Tasks, then returns to Projects | Users cannot predict where information lives | Merge overlapping navigation items or rename them | Fewer navigation loops |
+| Users open several records and immediately return to the list | The list view does not provide enough information | Add preview panels or richer list rows | Reduced pogo-sticking |
+| Users repeatedly switch between two pages during one task | Information needed together is split across screens | Combine the views or add a side panel | Fewer route transitions per task |
+| Users scroll to the bottom, then rapidly return to the top to submit | The primary action is poorly positioned | Add a sticky action bar or duplicate the action near the form end | Reduced reverse scrolling and faster submission |
+| A button is visible for a long time but rarely clicked, while users use a slower route | The button is unclear or visually weak | Rename, reposition or restyle the button | Increased intended button usage |
+| Users click the same button several times before anything happens | The system appears unresponsive | Add an immediate loading state, disable repeat clicks and improve response time | Reduced rage clicks |
+| Users click, wait, then navigate away before completion | The action is too slow or gives insufficient feedback | Add progress indication, optimistic UI or background processing | Lower abandonment after action |
+| Users repeatedly focus and leave a field before entering data | The requested value is unclear | Add an example, helper text or better label | Reduced field focus count and completion time |
+| Users enter data, receive validation errors, correct it, then fail again | Validation requirements are unclear or too strict | Add inline validation and format examples | Fewer failed submissions |
+| Users complete optional fields, then later delete their contents | Users mistakenly think the fields are required | Mark optional fields clearly or hide them behind an expansion | Reduced unnecessary field interaction |
+| Users abandon a form after encountering a specific field | One field creates disproportionate friction | Simplify, remove or postpone that field | Higher form completion rate |
+| Users repeatedly paste values into several related fields | The workflow requires redundant input | Add autofill, duplication or import capability | Fewer field interactions |
+| Users search immediately after arriving on every page | Navigation does not support common tasks | Promote global search into the main header | Reduced time to the desired record |
+| Users reformulate the same search several times | Search terminology or matching is poor | Add synonyms, fuzzy matching or filters | Fewer query reformulations |
+| Users search for something that exists but receive zero results | Search indexing or terminology does not match user language | Expand indexed fields and add synonym mapping | Lower zero-result rate |
+| Users apply a filter, remove it, then apply another repeatedly | Filter behaviour or available choices are unclear | Show result counts and improve filter labels | Fewer filter changes per successful search |
+| Users sort a table the same way in most sessions | Default ordering does not match common needs | Make the dominant sort order the default | Fewer manual sort actions |
+| Users repeatedly resize columns or expand the same data field | Important information is not sufficiently visible | Change default column widths or promote the field | Reduced manual layout changes |
+| Users frequently open a record only to read one value | Important information is missing from the list view | Surface that value in the table or card | Fewer unnecessary detail-page visits |
+| Users click Edit immediately after creating an item | The creation form omits commonly needed fields | Add the missing fields to the creation workflow | Reduced immediate edits |
+| Users cancel an operation, reopen it, then complete it | They needed information that was unavailable inside the workflow | Add contextual information or a preview | Fewer cancel-and-restart sequences |
+| Users frequently use Undo after one specific action | The action is too easy to trigger or its effect is unclear | Add confirmation, clearer wording or delayed commit | Reduced undo rate |
+| Users close a modal by clicking outside it, then immediately reopen it | Accidental dismissal is common | Prevent outside-click dismissal or preserve entered state | Fewer reopen events |
+| Users press Escape repeatedly but a modal remains open | Expected keyboard behaviour is missing | Add Escape-to-close support | Reduced repeated key presses |
+| Keyboard users require many Tab presses to reach a primary action | Focus order does not follow task priority | Reorder focus flow and add skip links | Fewer Tab presses and faster task completion |
+| Users switch from keyboard to mouse at the same component | The component may not be keyboard accessible | Add correct focus, keyboard activation and ARIA behaviour | Reduced modality switching |
+| Mobile users zoom or rotate the screen before completing a task | Content is difficult to read or interact with | Improve responsive layout and target sizing | Reduced zoom and orientation changes |
+| Users repeatedly mis-tap neighbouring controls on mobile | Touch targets are too small or too close | Increase target size and spacing | Lower immediate correction rate |
+| Users open Help during the same step across many sessions | The interface fails to explain that step | Add inline guidance or redesign the step | Reduced Help usage at that point |
+| Users spend a long time viewing an empty state, then leave | The empty state gives no clear next action | Add an explanation and primary call to action | Increased progression from the empty state |
+| Users encounter a permission error, return, and retry several times | Permissions are unclear before the action | Hide unavailable actions or explain required access | Fewer repeated denied actions |
+| Users receive an error and refresh the entire page | Recovery options are missing | Add retry, preserve state and explain the failure | Reduced full-page refreshes |
+| Users open multiple browser tabs for the same app workflow | They need to compare information side by side | Add comparison mode or split view | Reduced duplicate-tab behaviour |
+| Users copy values from one page and paste them into another | Information needed together is separated | Add cross-linking, inline references or combined views | Reduced copy and paste between screens |
+| Users repeatedly open notifications and then navigate elsewhere | Notifications lack enough actionable context | Make notifications deep-link directly to the relevant item | Fewer extra navigation steps |
+| Users ignore dashboard widgets but repeatedly visit the underlying pages | The dashboard does not reflect actual priorities | Replace unused widgets with commonly accessed information | Increased dashboard task completion |
+| Users dismiss the same banner every session | The message is irrelevant or dismissal is not remembered | Persist dismissal or target the banner properly | Lower repeated dismissal rate |
+| Users hover over truncated text and then open the record | They expect to see the full value | Show full text on hover or allow expansion | Fewer unnecessary record openings |
+| Users repeatedly select the same value in a dropdown | The default value is wrong | Change the default based on dominant usage | Fewer field interactions |
+| Users select an option and immediately change it | Labels or choices are ambiguous | Rewrite options, add descriptions or group choices | Reduced immediate selection reversal |
+| Users pause for a long time before a destructive action, then cancel | Consequences are unclear or trust is low | Explain impact and offer a reversible alternative | Higher confident completion or fewer unnecessary starts |
+| Users repeatedly create nearly identical records | The app lacks duplication or templates | Add Duplicate or reusable templates | Reduced creation time and repeated input |
+| Users export data immediately after every report view | The in-app report lacks needed detail or portability | Improve report detail or provide scheduled exports | Lower repetitive manual export usage |
+| Users visit the same page at the same time each day | The workflow is predictable and repetitive | Add reminders, shortcuts or automation | Reduced manual navigation |
+| Users perform the same sequence across many sessions | A manual workflow is a candidate for automation | Add a one-click workflow or saved action | Reduced interactions per task |

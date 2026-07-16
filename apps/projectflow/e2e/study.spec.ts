@@ -84,3 +84,76 @@ test('keeps the workspace and study runner usable on mobile', async ({
   }));
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
 });
+
+test('captures browser Back and increased zoom as semantic evidence', async ({
+  page,
+  request,
+}) => {
+  await request.post('http://127.0.0.1:8787/api/demo/reset');
+  await page.goto('/study?variant=baseline&source=automated');
+  await page.getByRole('button', { name: /Projects/ }).click();
+  await page.getByRole('button', { name: /Apollo Release/ }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Apollo Release' }),
+  ).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+  const chrome = await page.context().newCDPSession(page);
+  await chrome.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1.25 });
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+
+  const capturedTypes = async () => {
+    const response = await request.get(
+      'http://127.0.0.1:8787/api/studies/projectflow-baseline-automated-study/events?limit=100',
+    );
+    const body = (await response.json()) as {
+      events: Array<{ eventType: string }>;
+    };
+    return body.events.map((event) => event.eventType);
+  };
+
+  await expect
+    .poll(capturedTypes, { timeout: 10_000 })
+    .toEqual(
+      expect.arrayContaining(['browser_navigation', 'viewport_zoom_changed']),
+    );
+});
+
+test('uses the full screen for uncapped session evidence', async ({ page }) => {
+  await page.goto('/study?variant=baseline&source=automated');
+  await page
+    .locator('[data-darwin-id="metric-open-tasks"]')
+    .evaluate((metric) => {
+      for (let click = 0; click < 45; click += 1) {
+        metric.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
+    });
+
+  const eventCount = Number.parseInt(
+    (await page.getByLabel('Captured events').textContent()) ?? '0',
+    10,
+  );
+  expect(eventCount).toBeGreaterThan(40);
+  await expect(page.locator('.live-event-row')).toHaveCount(eventCount);
+
+  const layout = await page.evaluate(() => {
+    const panel = document
+      .querySelector('.study-panel')!
+      .getBoundingClientRect();
+    const monitor = document
+      .querySelector('.event-monitor')!
+      .getBoundingClientRect();
+    return {
+      monitorBottom: monitor.bottom,
+      monitorHeight: monitor.height,
+      panelBottom: panel.bottom,
+      panelHeight: panel.height,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(layout.panelHeight).toBe(layout.viewportHeight);
+  expect(layout.monitorHeight).toBeGreaterThan(layout.viewportHeight / 2);
+  expect(layout.panelBottom - layout.monitorBottom).toBeLessThanOrEqual(16);
+});

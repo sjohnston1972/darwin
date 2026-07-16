@@ -67,7 +67,17 @@ const pack = EvidencePackSchema.parse({
       },
     ],
     routes: ['/study/dashboard'],
-    mutableAreas: ['navigation', 'search', 'task-discovery'],
+    mutableAreas: [
+      'navigation',
+      'search',
+      'task-discovery',
+      'item-presentation',
+      'contextual-help',
+      'interaction-behavior',
+      'drag-and-drop',
+      'in-app-history',
+      'typography',
+    ],
     protectedAreas: ['telemetry-history', 'authentication', 'database-schema'],
   },
 });
@@ -89,6 +99,36 @@ const candidate = {
   acceptanceCriteria: ['My Work is directly reachable.'],
   codexBrief: 'Add My Work while preserving baseline behavior.',
 };
+
+const behaviorPack = (
+  ruleId:
+    | 'hover_hesitation'
+    | 'drag_expectation'
+    | 'false_affordance'
+    | 'browser_back_dependency'
+    | 'zoom_readability',
+) =>
+  EvidencePackSchema.parse({
+    ...pack,
+    frictionSignals: [
+      {
+        ...pack.frictionSignals[0],
+        ruleId,
+        ruleVersion: '1.1.0',
+        summary: `Observed ${ruleId} on task-card-apl-241.`,
+        trace: [
+          {
+            ...pack.frictionSignals[0]!.trace[0],
+            targetId:
+              ruleId === 'browser_back_dependency' ||
+              ruleId === 'zoom_readability'
+                ? undefined
+                : 'task-card-apl-241',
+          },
+        ],
+      },
+    ],
+  });
 
 describe('evidence-backed reasoning', () => {
   it('rejects unknown evidence citations and protected scope', () => {
@@ -125,6 +165,7 @@ describe('evidence-backed reasoning', () => {
             alternatives: [],
             unsupportedIdeasRejected: [],
           }),
+          usage: { input_tokens_details: { cached_tokens: 12_288 } },
         }),
         { status: 200 },
       ),
@@ -141,8 +182,69 @@ describe('evidence-backed reasoning', () => {
     expect(fetcher).toHaveBeenCalledOnce();
     expect(analysis.mode).toBe('live');
     expect(analysis.selectedMutation.evidenceIds).toEqual(['EV-001']);
-    expect(fetcher.mock.calls[0]?.[1]?.body).not.toContain('participantId');
+    expect(analysis.promptCache).toMatchObject({
+      retention: '24h',
+      cachedTokens: 12_288,
+    });
+    const requestBody = JSON.parse(
+      String(fetcher.mock.calls[0]?.[1]?.body),
+    ) as {
+      prompt_cache_key?: string;
+      prompt_cache_retention?: string;
+      input?: Array<{ role?: string; content?: string }>;
+    };
+    expect(requestBody.prompt_cache_key).toMatch(/^darwin-ctx-/);
+    expect(requestBody.prompt_cache_retention).toBe('24h');
+    expect(requestBody.input?.[1]).toMatchObject({ role: 'developer' });
+    expect(requestBody.input?.[1]?.content).toContain(
+      'Darwin Telemetry-to-Evolution Examples',
+    );
+    expect(requestBody.input?.[1]?.content).toContain(
+      'Source: apps/projectflow/src/App.tsx',
+    );
+    expect(JSON.stringify(requestBody)).not.toContain(
+      'participant-evidence-record',
+    );
   });
+
+  it('exposes a sanitized live fallback reason and retains a valid proposal', async () => {
+    const analysis = await analyseEvidence(pack, {
+      requestedMode: 'live',
+      apiKey: 'test-key',
+      model: 'gpt-5.6',
+      fetch: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status: 503 })),
+      createdAt: '2026-07-16T12:01:00.000Z',
+    });
+
+    expect(analysis).toMatchObject({
+      mode: 'fallback',
+      fallbackReason: 'OpenAI Responses API returned HTTP 503.',
+      selectedMutation: { id: 'promote-task-discovery' },
+    });
+    expect(JSON.stringify(analysis)).not.toContain('test-key');
+  });
+
+  it.each([
+    ['hover_hesitation', 'show-item-hover-context', 'contextual stats'],
+    ['drag_expectation', 'enable-item-dragging', 'draggable'],
+    ['false_affordance', 'activate-false-affordance', 'most useful'],
+    ['browser_back_dependency', 'add-in-app-back-control', 'Back control'],
+    ['zoom_readability', 'increase-interface-type-scale', 'font sizes'],
+  ] as const)(
+    'maps %s evidence to the targeted %s mutation',
+    async (ruleId, mutationId, expectedChange) => {
+      const analysis = await analyseEvidence(behaviorPack(ruleId), {
+        createdAt: '2026-07-16T12:01:00.000Z',
+      });
+
+      expect(analysis.mode).toBe('mock');
+      expect(analysis.selectedMutation.id).toBe(mutationId);
+      expect(analysis.selectedMutation.change).toContain(expectedChange);
+      expect(analysis.selectedMutation.evidenceIds).toEqual(['EV-001']);
+    },
+  );
 
   it('builds a stable, raw-telemetry-free Codex manifest', async () => {
     const analysis = await analyseEvidence(pack, {

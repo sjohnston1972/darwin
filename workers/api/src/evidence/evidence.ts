@@ -144,9 +144,29 @@ export async function buildEvidencePack(
             ? ['search all tasks', 'create task']
             : ['view notifications'],
         },
+        {
+          area: 'work-items',
+          purpose:
+            'Present project and task summaries with clear actions and readable supporting detail.',
+          primaryActions: [
+            'inspect item details',
+            'open item',
+            'reorder item when supported',
+          ],
+        },
       ],
       routes: [...new Set(events.map((event) => event.route))].sort(),
-      mutableAreas: ['navigation', 'search', 'task-discovery'],
+      mutableAreas: [
+        'navigation',
+        'search',
+        'task-discovery',
+        'item-presentation',
+        'contextual-help',
+        'interaction-behavior',
+        'drag-and-drop',
+        'in-app-history',
+        'typography',
+      ],
       protectedAreas: [
         'telemetry-history',
         'authentication',
@@ -416,6 +436,35 @@ function detectFriction(
         events: [event],
       });
     }
+    if (
+      event.eventType === 'browser_navigation' &&
+      event.properties.direction === 'back'
+    ) {
+      candidates.push({
+        ruleId: 'browser_back_dependency',
+        severity: 'medium',
+        ...(taskId ? { taskId } : {}),
+        summary: `Browser Back was used to move from ${event.properties.fromRoute} to ${event.properties.toRoute}, indicating demand for clearer in-app return navigation.`,
+        attempts: attemptId,
+        events: [event],
+      });
+    }
+    if (
+      event.eventType === 'viewport_zoom_changed' &&
+      event.properties.toScale > event.properties.fromScale
+    ) {
+      candidates.push({
+        ruleId: 'zoom_readability',
+        severity:
+          event.properties.toScale - event.properties.fromScale >= 0.25
+            ? 'medium'
+            : 'low',
+        ...(taskId ? { taskId } : {}),
+        summary: `Browser zoom increased from ${Math.round(event.properties.fromScale * 100)}% to ${Math.round(event.properties.toScale * 100)}% on ${event.route}, indicating possible text readability pressure.`,
+        attempts: attemptId,
+        events: [event],
+      });
+    }
   }
 
   const order: FrictionRule[] = [
@@ -423,6 +472,7 @@ function detectFriction(
     'rage_click',
     'excess_path_length',
     'navigation_loop',
+    'browser_back_dependency',
     'validation_friction',
     'repeated_target',
     'false_affordance',
@@ -430,6 +480,7 @@ function detectFriction(
     'cursor_indecision',
     'drag_expectation',
     'touch_conflict',
+    'zoom_readability',
     'search_dependency',
   ];
   return compactBehaviorCandidates(candidates).sort(
@@ -446,6 +497,8 @@ const behaviorRules = new Set<FrictionRule>([
   'cursor_indecision',
   'drag_expectation',
   'touch_conflict',
+  'browser_back_dependency',
+  'zoom_readability',
 ]);
 
 function compactBehaviorCandidates(candidates: SignalCandidate[]) {

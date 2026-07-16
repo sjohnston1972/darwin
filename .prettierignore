@@ -3,3 +3,4 @@ dist
 coverage
 .wrangler
 package-lock.json
+workers/api/src/reasoning/generated-context.ts

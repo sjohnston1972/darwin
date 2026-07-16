@@ -57,6 +57,23 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
+    expect(body.version).toBe('0.18.0');
+
+    const liveResponse = await handleRequest(
+      new Request('http://localhost/api/health'),
+      {
+        DARWIN_AI_MODE: 'live',
+        OPENAI_API: 'legacy-local-key-name',
+        OPENAI_MODEL: 'gpt-5.6',
+      },
+    );
+    await expect(liveResponse.json()).resolves.toMatchObject({
+      analysis: {
+        mode: 'live',
+        model: 'gpt-5.6',
+        liveModelAvailable: true,
+      },
+    });
   });
 
   it('returns a structured 404 for unknown routes', async () => {

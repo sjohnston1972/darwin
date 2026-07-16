@@ -174,6 +174,24 @@ describe('real telemetry evidence engine', () => {
           windowMs: 540,
         },
       },
+      {
+        ...base(13, '/study/projects/apollo/tasks'),
+        eventType: 'browser_navigation',
+        taskAttemptId: attemptId,
+        taskId,
+        properties: {
+          direction: 'back',
+          fromRoute: '/study/projects/apollo/tasks',
+          toRoute: '/study/projects/apollo',
+        },
+      },
+      {
+        ...base(14, '/study/projects/apollo'),
+        eventType: 'viewport_zoom_changed',
+        taskAttemptId: attemptId,
+        taskId,
+        properties: { fromScale: 1, toScale: 1.25 },
+      },
     ];
 
     const pack = await buildEvidencePack(
@@ -193,6 +211,14 @@ describe('real telemetry evidence engine', () => {
         expect.objectContaining({
           ruleId: 'hover_hesitation',
           supportingEventIds: [id(11)],
+        }),
+        expect.objectContaining({
+          ruleId: 'browser_back_dependency',
+          supportingEventIds: [id(14)],
+        }),
+        expect.objectContaining({
+          ruleId: 'zoom_readability',
+          supportingEventIds: [id(15)],
         }),
       ]),
     );

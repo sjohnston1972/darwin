@@ -179,10 +179,12 @@ interface EvolutionAnalyzer {
 
 The API chooses mock or OpenAI implementation based on environment variables.
 
-- `DARWIN_AI_MODE=mock` is the default and never makes an external request.
-- `DARWIN_AI_MODE=live` with `OPENAI_API_KEY` calls the OpenAI Responses API using `OPENAI_MODEL` and strict JSON-schema output.
+- `DARWIN_AI_MODE=live` is the deployed configuration. With `OPENAI_API_KEY` it calls the OpenAI Responses API using `OPENAI_MODEL` and strict JSON-schema output.
+- Missing credentials, timeouts, API failures or invalid structured output use the deterministic analyzer, which follows the same evidence-to-remediation policy.
 - The scale-replay input contains aggregate telemetry, ranked findings, fitness, the mutation allow-list and a structured ProjectFlow product map covering purpose, users, entities, goals, navigation and capabilities; raw events and secrets are never included.
 - The real-session evidence path sends its compact, hashed evidence pack with the same structured ProjectFlow context so the model can interpret routes and controls rather than reason from isolated counters.
+- Both model paths prepend a generated, hash-versioned static corpus containing the approved telemetry-to-evolution examples and the real ProjectFlow application, data and style sources. Dynamic evidence is placed last.
+- Requests use the context version as `prompt_cache_key` with 24-hour retention. Returned cached-token usage is recorded on evidence analysis when available, while `npm run context:check` prevents stale source snapshots.
 - Live output is validated by the shared Zod schema and checked against the file allow-list before entering the approval workflow.
 - Missing credentials, timeouts, API errors and invalid responses fall back to the deterministic mock analyzer and expose the fallback reason to the UI.
 - Logs contain model, response/request IDs, duration and outcome only. Prompt content, response content and credentials are not logged.

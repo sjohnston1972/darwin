@@ -58,7 +58,8 @@ export interface Env {
   DARWIN_AI_MODE: string;
   DARWIN_DEMO_SEED: string;
   DARWIN_EVENT_COUNT: string;
-  OPENAI_API_KEY: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_API?: string;
   OPENAI_MODEL: string;
   OPENAI_TIMEOUT_MS: string;
   DARWIN_REPOSITORY_COMMIT: string;
@@ -68,6 +69,9 @@ const defaultCorsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
 };
+
+const openAIKey = (env?: Partial<Env>) =>
+  env?.OPENAI_API_KEY || env?.OPENAI_API;
 
 const jsonResponse = (
   body: unknown,
@@ -204,12 +208,12 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.17.0',
+      version: '0.18.0',
       analysis: {
         mode: env?.DARWIN_AI_MODE === 'live' ? 'live' : 'mock',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
         liveModelAvailable:
-          env?.DARWIN_AI_MODE === 'live' && Boolean(env.OPENAI_API_KEY),
+          env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
       },
       timestamp: new Date().toISOString(),
     };
@@ -464,7 +468,7 @@ export const handleRequest = async (
       const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
       const analysis = await analyseEvidence(pack, {
         requestedMode: env?.DARWIN_AI_MODE,
-        apiKey: env?.OPENAI_API_KEY,
+        apiKey: openAIKey(env),
         model,
         timeoutMs: Number.isFinite(configuredTimeout)
           ? Math.min(30_000, Math.max(1_000, configuredTimeout))
@@ -708,7 +712,7 @@ export const handleRequest = async (
         { summary: baseline.summary, findings, fitness },
         {
           requestedMode: env?.DARWIN_AI_MODE,
-          apiKey: env?.OPENAI_API_KEY,
+          apiKey: openAIKey(env),
           model: env?.OPENAI_MODEL,
           timeoutMs,
         },

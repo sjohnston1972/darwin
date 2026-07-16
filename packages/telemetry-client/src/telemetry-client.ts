@@ -134,6 +134,9 @@ export class DarwinTelemetryClient {
   private cursorState: CursorState | null = null;
   private directionChanges: number[] = [];
   private lastThrashAt = 0;
+  private basePixelRatio = 1;
+  private baseViewportScale = 1;
+  private lastZoomScale = 1;
 
   constructor(config: TelemetryClientConfig) {
     this.config = {
@@ -155,6 +158,9 @@ export class DarwinTelemetryClient {
     if (this.initialized) return;
     this.initialized = true;
     this.startedAt = Date.now();
+    this.basePixelRatio = window.devicePixelRatio || 1;
+    this.baseViewportScale = window.visualViewport?.scale || 1;
+    this.lastZoomScale = 1;
     document.addEventListener('click', this.captureClick);
     document.addEventListener('pointerover', this.capturePointerOver);
     document.addEventListener('pointerout', this.capturePointerOut);
@@ -165,6 +171,8 @@ export class DarwinTelemetryClient {
     document.addEventListener('touchcancel', this.captureTouchCancel);
     document.addEventListener('visibilitychange', this.captureVisibility);
     window.addEventListener('pagehide', this.capturePageHide);
+    window.addEventListener('resize', this.captureViewportZoom);
+    window.visualViewport?.addEventListener('resize', this.captureViewportZoom);
 
     this.enqueue({ eventType: 'session_started' });
     this.enqueue({ eventType: 'page_view' });
@@ -189,6 +197,11 @@ export class DarwinTelemetryClient {
     document.removeEventListener('touchcancel', this.captureTouchCancel);
     document.removeEventListener('visibilitychange', this.captureVisibility);
     window.removeEventListener('pagehide', this.capturePageHide);
+    window.removeEventListener('resize', this.captureViewportZoom);
+    window.visualViewport?.removeEventListener(
+      'resize',
+      this.captureViewportZoom,
+    );
     if (this.flushTimer !== null) window.clearInterval(this.flushTimer);
     this.flushTimer = null;
     this.initialized = false;
@@ -209,6 +222,22 @@ export class DarwinTelemetryClient {
       properties: { fromRoute },
     });
     this.enqueue({ eventType: 'page_view' });
+  }
+
+  trackBrowserNavigation(
+    direction: 'back' | 'forward',
+    fromRoute: string,
+    toRoute: string,
+  ) {
+    this.enqueue({
+      eventType: 'browser_navigation',
+      ...this.attemptFields(),
+      properties: {
+        direction,
+        fromRoute: normalizeRoute(fromRoute),
+        toRoute: normalizeRoute(toRoute),
+      },
+    });
   }
 
   trackValidationError(targetId: string, fieldId: string, errorCode: string) {
@@ -657,6 +686,24 @@ export class DarwinTelemetryClient {
     this.flushWithBeacon();
   };
 
+  private readonly captureViewportZoom = () => {
+    const pixelRatio = (window.devicePixelRatio || 1) / this.basePixelRatio;
+    const viewportScale =
+      (window.visualViewport?.scale || 1) / this.baseViewportScale;
+    const nextScale = Math.round(pixelRatio * viewportScale * 100) / 100;
+    if (Math.abs(nextScale - this.lastZoomScale) < 0.05) return;
+    const fromScale = this.lastZoomScale;
+    this.lastZoomScale = nextScale;
+    this.enqueue({
+      eventType: 'viewport_zoom_changed',
+      ...this.attemptFields(),
+      properties: {
+        fromScale: clamp(fromScale, 0.25, 5),
+        toScale: clamp(nextScale, 0.25, 5),
+      },
+    });
+  };
+
   private endSession() {
     if (this.activeAttempt) this.taskCompleted('abandoned');
     this.enqueue({
@@ -783,6 +830,22 @@ export class DarwinTelemetryClient {
           };
         }
       | { eventType: 'route_changed'; properties: { fromRoute: string } }
+      | {
+          eventType: 'browser_navigation';
+          taskAttemptId?: string;
+          taskId?: string;
+          properties: {
+            direction: 'back' | 'forward';
+            fromRoute: string;
+            toRoute: string;
+          };
+        }
+      | {
+          eventType: 'viewport_zoom_changed';
+          taskAttemptId?: string;
+          taskId?: string;
+          properties: { fromScale: number; toScale: number };
+        }
       | {
           eventType: 'validation_error';
           targetId: string;

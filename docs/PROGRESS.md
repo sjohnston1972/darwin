@@ -717,6 +717,70 @@ Next phase:
 - Deploy `0.17.0`, smoke production, reset shared evidence and rehearse the
   complete three-minute flow.
 
+### Phase 18 — Browser intent and causal mutations
+Date: 2026-07-16
+
+Completed:
+- Added typed real telemetry for browser Back/Forward use and relative browser
+  zoom changes without collecting page content or OS display settings.
+- Added same-document ProjectFlow history states so browser Back returns to the
+  previous meaningful application view and can be measured reliably.
+- Added deterministic evidence rules for browser Back dependency and zoom
+  readability, including compact source-event provenance.
+- Added explicit evidence-to-remediation mappings for contextual hover stats,
+  accessible dragging, useful false-affordance destinations, in-app Back
+  controls and larger interface type.
+- Expanded the mutable ProjectFlow surface and GPT-5.6 prompt so live and mock
+  analysis share the same target-specific policy.
+- Wired the complete evolution-examples catalogue and actual ProjectFlow source
+  into both GPT paths through a generated, hash-checked static context module.
+- Added stable Responses API prompt-cache keys, 24-hour retention, cached-token
+  audit metadata and a stale-context build check.
+- Moved the scale-replay mutation allow-list from the retired dashboard-local
+  duplicate to the standalone ProjectFlow source.
+- Configured the Worker for live analysis with deterministic fallback, accepted
+  the existing local `OPENAI_API` alias and updated runtime version labels to
+  `0.18.0`.
+- Expanded ProjectFlow session evidence to fill the remaining viewport, retain
+  the complete in-page session history and render every captured event instead
+  of silently capping state at 40 and the visible stream at six rows.
+- Corrected the Control Room sidebar so `Target application` opens the
+  dedicated full-width ProjectFlow view rather than scrolling to its summary
+  tile.
+
+Verification commands:
+```bash
+npm run format
+npm run lint
+npm run format:check
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- All 57 unit tests and all four ProjectFlow Playwright scenarios passed.
+- The browser Back scenario returned from Apollo Release to Projects and both
+  `browser_navigation` and `viewport_zoom_changed` reached the Worker.
+- The evidence-layout scenario retained more than 40 events, rendered one row
+  per event and confirmed that the monitor fills the available screen height.
+- A live GPT-5.6 call loaded the generated source/examples context and returned
+  a schema-valid false-affordance mutation with the correct evidence citation.
+- The generated context hash and stale-source check passed during typecheck and
+  the production build.
+
+Known issues:
+- Browser zoom is inferred relative to the scale at session start because web
+  applications cannot read the browser's absolute zoom control directly.
+- Responses requests include a stable prompt-cache key and 24-hour retention,
+  but short-run verification returned zero cached tokens. The UI reports actual
+  cached-token usage rather than assuming a cache hit.
+
+Next phase:
+- Install the Worker secret, deploy `0.18.0`, verify a live structured model
+  call and reset the shared evidence state.
+
 ## Entry template
 
 ### Phase N — Name

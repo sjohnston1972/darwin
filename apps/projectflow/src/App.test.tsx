@@ -69,4 +69,26 @@ describe('standalone ProjectFlow', () => {
 
     expect(screen.getByText('task completed')).toBeInTheDocument();
   });
+
+  it('retains more than 40 events in the session evidence stream', () => {
+    window.history.replaceState({}, '', '/study');
+    const { container } = render(<App />);
+    const metric = container.querySelector<HTMLElement>(
+      '[data-darwin-id="metric-open-tasks"]',
+    );
+
+    expect(metric).not.toBeNull();
+    for (let click = 0; click < 45; click += 1) {
+      fireEvent.click(metric!);
+    }
+
+    const eventCount = Number.parseInt(
+      screen.getByLabelText('Captured events').textContent ?? '0',
+      10,
+    );
+    expect(eventCount).toBeGreaterThan(40);
+    expect(container.querySelectorAll('.live-event-row')).toHaveLength(
+      eventCount,
+    );
+  });
 });
