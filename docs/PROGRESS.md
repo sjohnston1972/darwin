@@ -347,6 +347,43 @@ Known issues:
 Next phase:
 - Phase 9 — D1 ingestion and live traces.
 
+### Phase 9 — D1 ingestion and live traces
+Date: 2026-07-16
+
+Completed:
+- Added a telemetry repository interface with D1 and process-memory adapters for raw events and participant workspaces.
+- Added the first D1 migration with event identity, study, participant, session, attempt, provenance, receipt time and query indexes.
+- Added `POST /api/telemetry/events` with a 256 KB body limit, 1-50 event batches, per-event strict validation, server receipt timestamps and synthetic-source rejection.
+- Added idempotent event ingestion by `eventId` with accepted, rejected and duplicate counts.
+- Added ordered recent-study and full-session trace routes plus total event counts.
+- Added participant workspace GET/PUT routes backed by the same repository and connected ProjectFlow's local workspace to them.
+- Connected the telemetry client to Worker ingestion by default outside tests while retaining its bounded offline outbox and retry behavior.
+- Added Darwin's live real-evidence panel with source status, raw event, session and participant counts, session filtering and ordered event traces.
+- Updated API and control-room version labels to `0.9.0`.
+
+Verification commands:
+```bash
+npm run typecheck
+npm run test
+npm run test:e2e:projectflow
+npm run lint
+npm run format:check
+npm run build
+```
+
+Results:
+- API tests accepted one valid event from a mixed batch, rejected the event containing an unknown raw-text field, and treated a repeated event ID as a duplicate.
+- Participant workspace state round-tripped through the repository API.
+- The real Chrome study flow delivered 19 browser-generated events to the Worker across two ordered sessions for one anonymous participant.
+- Darwin displayed the live records and allowed the trace to be filtered by session.
+
+Known issues:
+- Local development uses the process-memory repository until a D1 binding is configured; the checked-in migration and D1 adapter are ready for Phase 13 deployment.
+- Public ingestion rate limiting and production origin restrictions are applied with the Cloudflare environment in Phase 13.
+
+Next phase:
+- Phase 10 — Deterministic evidence engine.
+
 ## Entry template
 
 ### Phase N — Name

@@ -79,6 +79,7 @@ describe('DarwinTelemetryClient', () => {
       status: 'delivered',
       accepted: 2,
       rejected: 0,
+      duplicates: 0,
     });
     expect(client.snapshot()).toHaveLength(0);
     expect(fetcher).toHaveBeenCalledOnce();

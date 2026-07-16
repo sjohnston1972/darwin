@@ -55,8 +55,9 @@ tasks, anonymous participant IDs and stable `data-darwin-id` control identities.
 `packages/telemetry-client` records only routes, semantic control IDs, validation
 codes, search counts and explicit study outcomes. It does not record form values,
 search text, arbitrary page text or feedback content. Events carry participant,
-session, task-attempt, application-version and source provenance and are retained
-in a bounded browser outbox until Phase 9 adds D1 ingestion.
+session, task-attempt, application-version and source provenance. The browser
+delivers bounded batches to the Worker, which deduplicates and stores them through
+a D1-compatible repository with an in-memory local fallback.
 
 The existing 10,000-event generator is a separately labelled synthetic scale
 replay. See `docs/REAL_TELEMETRY_PLAN.md` for the evidence and reasoning boundary.

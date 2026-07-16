@@ -24,7 +24,10 @@ import {
   createTelemetryClient,
   type DarwinTelemetryClient,
 } from '@darwin/telemetry-client';
-import type { StudyTelemetryEvent } from '@darwin/shared';
+import {
+  ParticipantWorkspaceResponseSchema,
+  type StudyTelemetryEvent,
+} from '@darwin/shared';
 
 import {
   initialProjects,
@@ -41,6 +44,7 @@ const workspaceKey = 'projectflow:workspace:v1';
 const participantKey = 'projectflow:participant';
 const appVersion = '1.0.0';
 const studyId = 'projectflow-baseline-study';
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787';
 
 interface Workspace {
   projects: Project[];
@@ -102,7 +106,46 @@ export function App() {
 
   useEffect(() => {
     localStorage.setItem(workspaceKey, JSON.stringify({ projects, tasks }));
-  }, [projects, tasks]);
+    if (import.meta.env.MODE === 'test') return;
+    const timeout = window.setTimeout(() => {
+      void fetch(
+        `${apiBaseUrl}/api/studies/${studyId}/participants/${participantId}/workspace`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projects,
+            tasks,
+            updatedAt: new Date().toISOString(),
+          }),
+        },
+      ).catch(() => undefined);
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [participantId, projects, tasks]);
+
+  useEffect(() => {
+    if (import.meta.env.MODE === 'test') return;
+    const controller = new AbortController();
+    void fetch(
+      `${apiBaseUrl}/api/studies/${studyId}/participants/${participantId}/workspace`,
+      { signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = ParticipantWorkspaceResponseSchema.parse(
+          await response.json(),
+        );
+        if (result.workspace) {
+          setWorkspace({
+            projects: result.workspace.projects,
+            tasks: result.workspace.tasks,
+          });
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [participantId]);
 
   useEffect(() => {
     const telemetry = createTelemetryClient({
@@ -110,7 +153,11 @@ export function App() {
       studyId,
       participantId,
       initialRoute: studyMode ? '/study/dashboard' : '/dashboard',
-      endpoint: import.meta.env.VITE_TELEMETRY_ENDPOINT,
+      endpoint:
+        import.meta.env.MODE === 'test'
+          ? undefined
+          : import.meta.env.VITE_TELEMETRY_ENDPOINT ||
+            `${apiBaseUrl}/api/telemetry/events`,
       onEvent: (event) =>
         setEvents((current) => [...current.slice(-39), event]),
     });
@@ -1054,7 +1101,7 @@ function StudyPanel({
       </div>
       <div className="event-monitor">
         <div>
-          <span>Local evidence outbox</span>
+          <span>Session evidence captured</span>
           <strong>{eventCount} events</strong>
         </div>
         <code>

@@ -191,6 +191,64 @@ export const TelemetryBatchSchema = z
 export const TelemetryReceiptSchema = z.object({
   accepted: z.number().int().nonnegative(),
   rejected: z.number().int().nonnegative(),
+  duplicates: z.number().int().nonnegative().default(0),
+});
+
+const storedAt = { receivedAt: z.string().datetime() };
+export const StoredTelemetryEventSchema = z.discriminatedUnion('eventType', [
+  SessionStartedEventSchema.extend(storedAt),
+  SessionEndedEventSchema.extend(storedAt),
+  PageViewEventSchema.extend(storedAt),
+  ElementClickedEventSchema.extend(storedAt),
+  RouteChangedEventSchema.extend(storedAt),
+  ValidationErrorEventSchema.extend(storedAt),
+  SearchPerformedEventSchema.extend(storedAt),
+  TaskStartedEventSchema.extend(storedAt),
+  TaskCompletedEventSchema.extend(storedAt),
+  TaskFailedEventSchema.extend(storedAt),
+  FeedbackSubmittedEventSchema.extend(storedAt),
+]);
+
+export const StudyEventsResponseSchema = z.object({
+  studyId: StudyIdentifierSchema,
+  events: z.array(StoredTelemetryEventSchema),
+  count: z.number().int().nonnegative(),
+});
+
+export const StudySessionResponseSchema = z.object({
+  studyId: StudyIdentifierSchema,
+  sessionId: StudyIdentifierSchema,
+  events: z.array(StoredTelemetryEventSchema),
+});
+
+export const ProjectFlowProjectSchema = z.object({
+  id: StudyIdentifierSchema,
+  name: z.string().min(1).max(120),
+  code: z.string().min(1).max(8),
+  owner: z.string().min(1).max(80),
+  status: z.enum(['On track', 'At risk', 'Overdue']),
+  dueDate: z.string().min(1).max(32),
+});
+
+export const ProjectFlowTaskSchema = z.object({
+  id: StudyIdentifierSchema,
+  projectId: StudyIdentifierSchema,
+  title: z.string().min(1).max(160),
+  assignee: z.string().min(1).max(80),
+  status: z.enum(['To do', 'In progress', 'Done']),
+  dueDate: z.string().min(1).max(32),
+});
+
+export const ProjectFlowWorkspaceSchema = z.object({
+  projects: z.array(ProjectFlowProjectSchema).max(100),
+  tasks: z.array(ProjectFlowTaskSchema).max(500),
+  updatedAt: z.string().datetime(),
+});
+
+export const ParticipantWorkspaceResponseSchema = z.object({
+  studyId: StudyIdentifierSchema,
+  participantId: StudyIdentifierSchema,
+  workspace: ProjectFlowWorkspaceSchema.nullable(),
 });
 
 export const FitnessBreakdownSchema = z.object({
@@ -398,6 +456,15 @@ export type ViewportClass = z.infer<typeof ViewportClassSchema>;
 export type StudyTelemetryEvent = z.infer<typeof StudyTelemetryEventSchema>;
 export type TelemetryBatch = z.infer<typeof TelemetryBatchSchema>;
 export type TelemetryReceipt = z.infer<typeof TelemetryReceiptSchema>;
+export type StoredTelemetryEvent = z.infer<typeof StoredTelemetryEventSchema>;
+export type StudyEventsResponse = z.infer<typeof StudyEventsResponseSchema>;
+export type StudySessionResponse = z.infer<typeof StudySessionResponseSchema>;
+export type ProjectFlowProject = z.infer<typeof ProjectFlowProjectSchema>;
+export type ProjectFlowTask = z.infer<typeof ProjectFlowTaskSchema>;
+export type ProjectFlowWorkspace = z.infer<typeof ProjectFlowWorkspaceSchema>;
+export type ParticipantWorkspaceResponse = z.infer<
+  typeof ParticipantWorkspaceResponseSchema
+>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;

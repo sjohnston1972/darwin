@@ -5,6 +5,7 @@ import {
   type FitnessBreakdown,
   type MutationDiff,
   type SimulationSummary,
+  type StoredTelemetryEvent,
   type ValidationResult,
 } from '@darwin/shared';
 import {
@@ -40,6 +41,10 @@ import { useEffect, useState } from 'react';
 import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
 import { ProjectFlow } from './projectflow/ProjectFlow';
 import type { ProjectFlowVariant } from './projectflow/data';
+import {
+  useLiveTelemetry,
+  type LiveTelemetryState,
+} from './telemetry/useLiveTelemetry';
 
 type HealthState = 'checking' | 'online' | 'offline';
 
@@ -65,6 +70,7 @@ function App() {
         : 'baseline',
   );
   const demo = useEvolutionDemo();
+  const liveTelemetry = useLiveTelemetry();
   const observed = demo.eventCount.toLocaleString('en-US');
   const measuredFitness = demo.analysis
     ? demo.organism.variant === 'evolved'
@@ -380,6 +386,8 @@ function App() {
             ))}
           </section>
 
+          <LiveTelemetryPanel telemetry={liveTelemetry} />
+
           {(demo.stage !== 'idle' || demo.error) && (
             <ObservationPanel
               eventCount={demo.eventCount}
@@ -620,7 +628,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.7.0</p>
+            <p className="font-mono">DARWIN CORE 0.9.0</p>
           </footer>
         </div>
       </main>
@@ -652,6 +660,135 @@ const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
     return `Mock fallback · ${analysis.fallbackReason?.replaceAll('_', ' ') ?? 'unavailable'}`;
   }
   return 'Deterministic mock';
+};
+
+function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
+  const sessions = [
+    ...new Set(telemetry.events.map((event) => event.sessionId)),
+  ];
+  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const visibleEvents = selectedSession
+    ? telemetry.events.filter((event) => event.sessionId === selectedSession)
+    : telemetry.events;
+  const participants = new Set(
+    telemetry.events.map((event) => event.participantId),
+  ).size;
+
+  return (
+    <section className="mt-8 surface-panel live-evidence" id="real-evidence">
+      <div className="panel-heading live-evidence-heading">
+        <div>
+          <p className="section-label">Measured source · real users</p>
+          <h2 className="mt-2 text-xl font-semibold">Live study evidence</h2>
+          <p className="mt-2 text-sm text-mist">
+            Ordered semantic events from standalone ProjectFlow.
+          </p>
+        </div>
+        <div className="live-evidence-actions">
+          <span className={`source-status source-${telemetry.status}`}>
+            <span /> {telemetry.status}
+          </span>
+          <a
+            className="secondary-action"
+            href="http://localhost:5174/study"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open study <ChevronRight size={15} />
+          </a>
+        </div>
+      </div>
+
+      <div className="evidence-stats" aria-label="Real study counts">
+        <div>
+          <Database size={16} />
+          <span>Raw events</span>
+          <strong>{telemetry.count}</strong>
+        </div>
+        <div>
+          <Network size={16} />
+          <span>Sessions</span>
+          <strong>{sessions.length}</strong>
+        </div>
+        <div>
+          <Users size={16} />
+          <span>Participants</span>
+          <strong>{participants}</strong>
+        </div>
+      </div>
+
+      {telemetry.events.length ? (
+        <div className="trace-layout">
+          <div className="session-index">
+            <button
+              className={selectedSession === null ? 'is-active' : ''}
+              type="button"
+              onClick={() => setSelectedSession(null)}
+            >
+              All recent events <span>{telemetry.events.length}</span>
+            </button>
+            {sessions.map((session) => {
+              const count = telemetry.events.filter(
+                (event) => event.sessionId === session,
+              ).length;
+              return (
+                <button
+                  className={selectedSession === session ? 'is-active' : ''}
+                  key={session}
+                  type="button"
+                  onClick={() => setSelectedSession(session)}
+                >
+                  {shortId(session)} <span>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="event-trace" aria-label="Ordered event trace">
+            {visibleEvents.slice(-12).map((event) => (
+              <EventTraceRow event={event} key={event.eventId} />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="empty-evidence">
+          <Activity size={18} />
+          <div>
+            <strong>Waiting for a real ProjectFlow interaction</strong>
+            <span>Start a study task to create the first ordered trace.</span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EventTraceRow({ event }: { event: StoredTelemetryEvent }) {
+  const target =
+    'targetId' in event && event.targetId ? event.targetId : event.route;
+  return (
+    <div className="event-trace-row">
+      <span className="event-sequence">
+        {event.sequence.toString().padStart(2, '0')}
+      </span>
+      <span className={`event-kind kind-${event.eventType}`}>
+        {event.eventType.replaceAll('_', ' ')}
+      </span>
+      <code>{target}</code>
+      <span>{shortId(event.participantId)}</span>
+      <time dateTime={event.receivedAt}>
+        {new Date(event.receivedAt).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })}
+      </time>
+    </div>
+  );
+}
+
+const shortId = (value: string) => {
+  const suffix = value.split('-').at(-1) ?? value;
+  return suffix.length > 10 ? suffix.slice(0, 10) : suffix;
 };
 
 function ObservationPanel({

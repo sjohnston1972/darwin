@@ -9,7 +9,13 @@ import {
   MutationReleaseResponseSchema,
   MutationValidationResponseSchema,
   OrganismStateSchema,
+  ParticipantWorkspaceResponseSchema,
+  ProjectFlowWorkspaceSchema,
   SimulationRequestSchema,
+  StudyEventsResponseSchema,
+  StudySessionResponseSchema,
+  StudyTelemetryEventSchema,
+  TelemetryReceiptSchema,
   ValidationResultSchema,
   type EvolutionRecord,
   type FitnessComparison,
@@ -27,8 +33,10 @@ import {
   executeEvolutionAnalysis,
   rankFrictionFindings,
 } from './evolution';
+import { getTelemetryRepository } from './persistence/telemetry-repository';
 
 export interface Env {
+  DB?: D1Database;
   DARWIN_AI_MODE: string;
   DARWIN_DEMO_SEED: string;
   DARWIN_EVENT_COUNT: string;
@@ -39,7 +47,7 @@ export interface Env {
 
 const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
   'Access-Control-Allow-Origin': '*',
 };
 
@@ -86,7 +94,9 @@ export const handleRequest = async (
   request: Request,
   env?: Partial<Env>,
 ): Promise<Response> => {
-  const { pathname } = new URL(request.url);
+  const url = new URL(request.url);
+  const { pathname } = url;
+  const telemetryRepository = getTelemetryRepository(env?.DB);
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -96,7 +106,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.7.0',
+      version: '0.9.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -105,6 +115,7 @@ export const handleRequest = async (
 
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
     resetSimulationStore();
+    await telemetryRepository.reset();
     return json(
       DemoResetResponseSchema.parse({
         status: 'reset',
@@ -121,6 +132,166 @@ export const handleRequest = async (
     return json(
       EvolutionTimelineResponseSchema.parse({ records: timelineStore }),
     );
+  }
+
+  if (request.method === 'POST' && pathname === '/api/telemetry/events') {
+    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+    if (contentLength > 256_000) {
+      return json(
+        {
+          error: 'payload_too_large',
+          message: 'Telemetry batch is too large.',
+        },
+        { status: 413 },
+      );
+    }
+
+    let input: unknown;
+    try {
+      const body = await request.text();
+      if (new TextEncoder().encode(body).byteLength > 256_000) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Telemetry batch is too large.',
+          },
+          { status: 413 },
+        );
+      }
+      input = JSON.parse(body);
+    } catch {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Request body must be valid JSON.',
+        },
+        { status: 400 },
+      );
+    }
+
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).some((key) => key !== 'events') ||
+      !Array.isArray((input as { events?: unknown }).events) ||
+      (input as { events: unknown[] }).events.length < 1 ||
+      (input as { events: unknown[] }).events.length > 50
+    ) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Telemetry batches require between 1 and 50 events.',
+        },
+        { status: 400 },
+      );
+    }
+
+    const candidates = (input as { events: unknown[] }).events;
+    const events = candidates.flatMap((candidate) => {
+      const parsed = StudyTelemetryEventSchema.safeParse(candidate);
+      if (!parsed.success || parsed.data.source === 'synthetic') return [];
+      return [parsed.data];
+    });
+    const stored = await telemetryRepository.insertEvents(
+      events,
+      new Date().toISOString(),
+    );
+    return json(
+      TelemetryReceiptSchema.parse({
+        accepted: stored.accepted,
+        rejected: candidates.length - events.length,
+        duplicates: stored.duplicates,
+      }),
+      { status: 202 },
+    );
+  }
+
+  const studyEventsMatch = pathname.match(/^\/api\/studies\/([^/]+)\/events$/);
+  if (request.method === 'GET' && studyEventsMatch) {
+    const studyId = decodeURIComponent(studyEventsMatch[1]!);
+    const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
+      : 50;
+    const events = await telemetryRepository.listEvents(studyId, limit);
+    const count = await telemetryRepository.countEvents(studyId);
+    return json(
+      StudyEventsResponseSchema.parse({
+        studyId,
+        events,
+        count,
+      }),
+    );
+  }
+
+  const studySessionMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/sessions\/([^/]+)$/,
+  );
+  if (request.method === 'GET' && studySessionMatch) {
+    const studyId = decodeURIComponent(studySessionMatch[1]!);
+    const sessionId = decodeURIComponent(studySessionMatch[2]!);
+    const events = await telemetryRepository.listSession(studyId, sessionId);
+    return json(
+      StudySessionResponseSchema.parse({ studyId, sessionId, events }),
+    );
+  }
+
+  const participantWorkspaceMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/participants\/([^/]+)\/workspace$/,
+  );
+  if (participantWorkspaceMatch) {
+    const studyId = decodeURIComponent(participantWorkspaceMatch[1]!);
+    const participantId = decodeURIComponent(participantWorkspaceMatch[2]!);
+    if (request.method === 'GET') {
+      const workspace = await telemetryRepository.getWorkspace(
+        studyId,
+        participantId,
+      );
+      return json(
+        ParticipantWorkspaceResponseSchema.parse({
+          studyId,
+          participantId,
+          workspace,
+        }),
+      );
+    }
+    if (request.method === 'PUT') {
+      let input: unknown;
+      try {
+        input = await request.json();
+      } catch {
+        return json(
+          {
+            error: 'invalid_request',
+            message: 'Workspace body must be valid JSON.',
+          },
+          { status: 400 },
+        );
+      }
+      const workspace = ProjectFlowWorkspaceSchema.safeParse(input);
+      if (!workspace.success) {
+        return json(
+          {
+            error: 'invalid_request',
+            message: 'Workspace failed validation.',
+          },
+          { status: 400 },
+        );
+      }
+      await telemetryRepository.putWorkspace(
+        studyId,
+        participantId,
+        workspace.data,
+      );
+      return json(
+        ParticipantWorkspaceResponseSchema.parse({
+          studyId,
+          participantId,
+          workspace: workspace.data,
+        }),
+      );
+    }
   }
 
   if (request.method === 'POST' && pathname === '/api/simulations') {

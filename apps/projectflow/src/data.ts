@@ -1,20 +1,7 @@
-export interface Project {
-  id: string;
-  name: string;
-  code: string;
-  owner: string;
-  status: 'On track' | 'At risk' | 'Overdue';
-  dueDate: string;
-}
+import type { ProjectFlowProject, ProjectFlowTask } from '@darwin/shared';
 
-export interface Task {
-  id: string;
-  projectId: string;
-  title: string;
-  assignee: string;
-  status: 'To do' | 'In progress' | 'Done';
-  dueDate: string;
-}
+export type Project = ProjectFlowProject;
+export type Task = ProjectFlowTask;
 
 export const participantName = 'Alex Morgan';
 

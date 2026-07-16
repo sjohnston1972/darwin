@@ -8,14 +8,37 @@ import {
   MutationReleaseResponseSchema,
   MutationValidationResponseSchema,
   OrganismStateSchema,
+  ParticipantWorkspaceResponseSchema,
   SimulationSummarySchema,
+  StudyEventsResponseSchema,
+  StudySessionResponseSchema,
+  TelemetryReceiptSchema,
 } from '@darwin/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { handleRequest, resetSimulationStore } from './index';
+import { resetInMemoryTelemetry } from './persistence/telemetry-repository';
+
+const studyEvent = {
+  schemaVersion: 1,
+  eventId: '49d13df2-8dce-4ad3-b20e-d8b4edc01b63',
+  sessionId: 'session-api-test',
+  participantId: 'participant-api-test',
+  studyId: 'projectflow-baseline-study',
+  appVersion: '1.0.0',
+  source: 'real_user',
+  occurredAt: '2026-07-16T12:00:00.000Z',
+  sequence: 0,
+  route: '/study/dashboard',
+  viewport: 'desktop',
+  eventType: 'page_view',
+} as const;
 
 describe('Darwin API', () => {
-  beforeEach(() => resetSimulationStore());
+  beforeEach(async () => {
+    resetSimulationStore();
+    await resetInMemoryTelemetry();
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -41,6 +64,91 @@ describe('Darwin API', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: 'not_found',
     });
+  });
+
+  it('ingests, deduplicates, and exposes ordered real telemetry', async () => {
+    const invalid = {
+      ...studyEvent,
+      eventId: crypto.randomUUID(),
+      rawText: 'no',
+    };
+    const ingest = await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [studyEvent, invalid] }),
+      }),
+    );
+    const receipt = TelemetryReceiptSchema.parse(await ingest.json());
+    expect(ingest.status).toBe(202);
+    expect(receipt).toEqual({ accepted: 1, rejected: 1, duplicates: 0 });
+
+    const duplicate = await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({ events: [studyEvent] }),
+      }),
+    );
+    expect(TelemetryReceiptSchema.parse(await duplicate.json())).toEqual({
+      accepted: 0,
+      rejected: 0,
+      duplicates: 1,
+    });
+
+    const eventsResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
+      ),
+    );
+    const events = StudyEventsResponseSchema.parse(await eventsResponse.json());
+    expect(events.events).toHaveLength(1);
+    expect(events.events[0]).toMatchObject({
+      eventId: studyEvent.eventId,
+      source: 'real_user',
+    });
+
+    const sessionResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/sessions/session-api-test',
+      ),
+    );
+    const session = StudySessionResponseSchema.parse(
+      await sessionResponse.json(),
+    );
+    expect(session.events.map((event) => event.sequence)).toEqual([0]);
+  });
+
+  it('persists participant-specific ProjectFlow workspaces', async () => {
+    const workspace = {
+      projects: [
+        {
+          id: 'polaris',
+          name: 'Polaris Launch',
+          code: 'POL',
+          owner: 'Alex Morgan',
+          status: 'On track',
+          dueDate: 'Aug 30',
+        },
+      ],
+      tasks: [],
+      updatedAt: '2026-07-16T12:00:00.000Z',
+    };
+    const path =
+      'http://localhost/api/studies/projectflow-baseline-study/participants/participant-api-test/workspace';
+    const storedResponse = await handleRequest(
+      new Request(path, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(workspace),
+      }),
+    );
+    expect(storedResponse.status).toBe(200);
+
+    const loadedResponse = await handleRequest(new Request(path));
+    const loaded = ParticipantWorkspaceResponseSchema.parse(
+      await loadedResponse.json(),
+    );
+    expect(loaded.workspace?.projects[0]?.name).toBe('Polaris Launch');
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

@@ -64,6 +64,8 @@ POST /api/demo/reset
 POST /api/telemetry/events
 GET  /api/studies/:id/events
 GET  /api/studies/:id/sessions/:sessionId
+GET  /api/studies/:id/participants/:participantId/workspace
+PUT  /api/studies/:id/participants/:participantId/workspace
 POST /api/studies/:id/evidence
 POST /api/simulations
 GET  /api/simulations/:id

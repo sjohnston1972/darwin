@@ -159,6 +159,13 @@ const installApiMock = () => {
   let timeline: Array<typeof baselineRecord | typeof survivedRecord> = [];
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('/api/studies/projectflow-baseline-study/events')) {
+      return jsonResponse({
+        studyId: 'projectflow-baseline-study',
+        events: [],
+        count: 0,
+      });
+    }
     if (url.endsWith('/api/health')) {
       return jsonResponse({
         status: 'ok',
