@@ -44,12 +44,18 @@ import { useEffect, useState } from 'react';
 import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
 import { ProjectFlow } from './projectflow/ProjectFlow';
 import type { ProjectFlowVariant } from './projectflow/data';
+import { projectFlowGenomes } from './projectflow/genomes';
 import {
   useLiveTelemetry,
   type LiveTelemetryState,
 } from './telemetry/useLiveTelemetry';
 
 type HealthState = 'checking' | 'online' | 'offline';
+
+interface ApiHealthState {
+  status: HealthState;
+  version: string | null;
+}
 
 const navItems = [
   { label: 'Control room', icon: LayoutDashboard, active: true },
@@ -63,8 +69,47 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const projectFlowBaseUrl =
   import.meta.env.VITE_PROJECTFLOW_BASE_URL ?? 'http://localhost:5174';
 
+const genomeComparison = [
+  {
+    locus: 'Initial route',
+    baseline: projectFlowGenomes.baseline.initialRoute,
+    evolved: projectFlowGenomes.evolved.initialRoute,
+  },
+  {
+    locus: 'Task destination',
+    baseline: projectFlowGenomes.baseline.taskDestination,
+    evolved: projectFlowGenomes.evolved.taskDestination,
+  },
+  {
+    locus: 'Global search',
+    baseline: projectFlowGenomes.baseline.globalSearch ? 'enabled' : 'absent',
+    evolved: projectFlowGenomes.evolved.globalSearch ? 'enabled' : 'absent',
+  },
+  {
+    locus: 'Quick create',
+    baseline: projectFlowGenomes.baseline.globalQuickCreate
+      ? 'enabled'
+      : 'absent',
+    evolved: projectFlowGenomes.evolved.globalQuickCreate
+      ? 'enabled'
+      : 'absent',
+  },
+  {
+    locus: 'Primary navigation',
+    baseline: projectFlowGenomes.baseline.navigation
+      .map((item) => item.label)
+      .join(' / '),
+    evolved: projectFlowGenomes.evolved.navigation
+      .map((item) => item.label)
+      .join(' / '),
+  },
+] as const;
+
 function App() {
-  const [health, setHealth] = useState<HealthState>('checking');
+  const [health, setHealth] = useState<ApiHealthState>({
+    status: 'checking',
+    version: null,
+  });
   const [navigationOpen, setNavigationOpen] = useState(false);
   const organismOnly =
     new URLSearchParams(window.location.search).get('view') === 'organism';
@@ -138,12 +183,16 @@ function App() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Health request failed');
         const parsed = HealthResponseSchema.safeParse(await response.json());
-        setHealth(parsed.success ? 'online' : 'offline');
+        setHealth(
+          parsed.success
+            ? { status: 'online', version: parsed.data.version }
+            : { status: 'offline', version: null },
+        );
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError')
           return;
-        setHealth('offline');
+        setHealth({ status: 'offline', version: null });
       });
 
     return () => controller.abort();
@@ -256,12 +305,16 @@ function App() {
         <div className="border-t border-line p-4">
           <div className="flex items-center gap-3 px-2 py-2">
             <span
-              className={`status-dot status-${health}`}
+              className={`status-dot status-${health.status}`}
               aria-hidden="true"
             />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">Darwin API</p>
-              <p className="mt-0.5 text-xs capitalize text-mist">{health}</p>
+              <p className="mt-0.5 text-xs capitalize text-mist">
+                {health.version
+                  ? `v${health.version} ${health.status}`
+                  : health.status}
+              </p>
             </div>
             <Server className="ml-auto text-mist" size={16} />
           </div>
@@ -482,37 +535,49 @@ function App() {
                     id="system-status-title"
                     className="mt-2 text-xl font-semibold"
                   >
-                    Organism ready
+                    {health.status === 'online'
+                      ? 'Runtime connected'
+                      : health.status === 'offline'
+                        ? 'Runtime unavailable'
+                        : 'Checking runtime'}
                   </h2>
                 </div>
                 <Network size={19} className="text-mist" />
               </div>
               <div className="divide-y divide-line px-5 sm:px-6">
                 <StatusRow
-                  icon={Database}
-                  label="Shared contracts"
-                  value="Ready"
-                  ready
-                />
-                <StatusRow
                   icon={Server}
                   label="Worker API"
-                  value={health === 'online' ? 'Online' : health}
-                  ready={health === 'online'}
-                />
-                <StatusRow
-                  icon={LayoutDashboard}
-                  label="ProjectFlow variants"
-                  value="2 ready"
-                  ready
-                />
-                <StatusRow
-                  icon={Radar}
-                  label="Telemetry"
                   value={
-                    demo.eventCount === 10_000 ? '10,000 observed' : 'Ready'
+                    health.version ? `v${health.version} online` : health.status
                   }
-                  ready={demo.eventCount === 10_000}
+                  ready={health.status === 'online'}
+                />
+                <StatusRow
+                  icon={Database}
+                  label="D1 telemetry"
+                  value={
+                    liveTelemetry.status === 'live'
+                      ? `${liveTelemetry.count} events`
+                      : liveTelemetry.status
+                  }
+                  ready={liveTelemetry.status === 'live'}
+                />
+                <StatusRow
+                  icon={FileCheck2}
+                  label="Evidence engine"
+                  value={
+                    liveTelemetry.evidence
+                      ? `parser ${liveTelemetry.evidence.parserVersion} · ${liveTelemetry.evidence.frictionSignals.length} signals`
+                      : 'awaiting evidence'
+                  }
+                  ready={liveTelemetry.evidence !== null}
+                />
+                <StatusRow
+                  icon={GitBranch}
+                  label="Active genome"
+                  value={`${demo.organism.genomeVersion} · ${demo.organism.variant}`}
+                  ready={demo.organism.variant === 'evolved'}
                 />
               </div>
             </aside>
@@ -528,45 +593,61 @@ function App() {
                     id="variant-summary-title"
                     className="mt-2 text-xl font-semibold"
                   >
-                    {organismVariant === 'baseline'
-                      ? 'Visible friction'
-                      : 'Candidate mutation'}
+                    Five configured loci
                   </h2>
                 </div>
                 <GitCompareArrows size={19} className="text-mist" />
               </div>
-              <div className="variant-summary">
-                {organismVariant === 'baseline' ? (
-                  <>
-                    <p>
-                      <span>01</span> Tasks sit behind Projects and a separate
-                      Tasks route.
-                    </p>
-                    <p>
-                      <span>02</span> Search appears only inside the task
-                      directory.
-                    </p>
-                    <p>
-                      <span>03</span> The dashboard competes for attention with
-                      seven widgets.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      <span>01</span> My Work opens directly on assigned
-                      priorities.
-                    </p>
-                    <p>
-                      <span>02</span> Search and quick task creation remain
-                      globally available.
-                    </p>
-                    <p>
-                      <span>03</span> Reports become concise, actionable
-                      Insights.
-                    </p>
-                  </>
-                )}
+              <div
+                className="genome-comparison"
+                role="table"
+                aria-label="Configured genome comparison"
+              >
+                <div className="genome-comparison-header" role="row">
+                  <span role="columnheader">Locus</span>
+                  <strong
+                    className={
+                      organismVariant === 'baseline' ? 'is-active' : ''
+                    }
+                    role="columnheader"
+                  >
+                    Baseline · {projectFlowGenomes.baseline.version}
+                  </strong>
+                  <strong
+                    className={organismVariant === 'evolved' ? 'is-active' : ''}
+                    role="columnheader"
+                  >
+                    Evolved · {projectFlowGenomes.evolved.version}
+                  </strong>
+                </div>
+                {genomeComparison.map((row) => (
+                  <div
+                    className="genome-comparison-row"
+                    key={row.locus}
+                    role="row"
+                  >
+                    <span role="cell">{row.locus}</span>
+                    <code
+                      className={
+                        organismVariant === 'baseline' ? 'is-active' : ''
+                      }
+                      role="cell"
+                    >
+                      {row.baseline}
+                    </code>
+                    <code
+                      className={
+                        organismVariant === 'evolved' ? 'is-active' : ''
+                      }
+                      role="cell"
+                    >
+                      {row.evolved}
+                    </code>
+                  </div>
+                ))}
+                <div className="genome-comparison-source">
+                  <Code2 size={13} /> Checked-in genome configuration
+                </div>
               </div>
             </aside>
           </section>
@@ -636,7 +717,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.15.0</p>
+            <p className="font-mono">DARWIN CORE 0.16.0</p>
           </footer>
         </div>
       </main>

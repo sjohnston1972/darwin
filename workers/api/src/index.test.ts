@@ -256,8 +256,12 @@ describe('Darwin API', () => {
         'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
       ),
     );
+    const resetOutcome = await handleRequest(
+      new Request('http://localhost/api/outcomes/automated-comparison'),
+    );
 
     expect(resetEvidence.status).toBe(204);
+    expect(resetOutcome.status).toBe(204);
     expect(
       StudyEventsResponseSchema.parse(await resetEvents.json()),
     ).toMatchObject({ count: 0, events: [] });

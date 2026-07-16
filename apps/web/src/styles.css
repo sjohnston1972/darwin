@@ -1846,30 +1846,84 @@ a:focus-visible {
   color: #b9f36b;
 }
 
-.variant-summary {
-  padding: 8px 24px 12px;
+.genome-comparison {
+  padding: 8px 20px 14px;
 }
 
-.variant-summary p {
+.genome-comparison-header,
+.genome-comparison-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
-  margin: 0;
+  grid-template-columns: minmax(92px, 0.72fr) repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+
+.genome-comparison-header {
+  min-height: 35px;
+  align-items: center;
   border-bottom: 1px solid #2b302d;
-  padding: 13px 0;
-  color: #a9b2ac;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.variant-summary p:last-child {
-  border-bottom: 0;
-}
-
-.variant-summary span {
-  color: #b9f36b;
+  color: #717b74;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.genome-comparison-header strong {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  padding: 0 8px;
+  color: #879089;
+  font-weight: 500;
+}
+
+.genome-comparison-header strong.is-active {
+  color: #b9f36b;
+  background: rgb(185 243 107 / 5%);
+  box-shadow: inset 0 -2px #7d9f50;
+}
+
+.genome-comparison-row {
+  min-height: 48px;
+  border-bottom: 1px solid #2b302d;
+}
+
+.genome-comparison-row > span,
+.genome-comparison-row code {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 8px;
+}
+
+.genome-comparison-row > span {
+  color: #8f9992;
+  font-size: 9px;
+}
+
+.genome-comparison-row code {
+  overflow-wrap: anywhere;
+  color: #9da69f;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 8px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.genome-comparison-row code.is-active {
+  color: #d4ded7;
+  background: rgb(185 243 107 / 4%);
+}
+
+.genome-comparison-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 11px;
+  color: #69736c;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
 }
 
 .organism-preview-page {

@@ -18,6 +18,7 @@ export interface PersistedDemoState {
   mutations: Array<[string, MutationProposal]>;
   validations: Array<[string, unknown]>;
   fitness: Array<[string, FitnessComparison]>;
+  recordedOutcomeVisible: boolean;
 }
 
 export interface TelemetryInsertResult {

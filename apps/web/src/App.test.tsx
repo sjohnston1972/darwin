@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
@@ -174,6 +180,45 @@ const evidencePack = {
     protectedAreas: ['telemetry-history'],
   },
 } as const;
+const recordedOutcome = {
+  validationId: 'outcome-reset-test',
+  evidenceClass: 'automated',
+  provenance: 'recorded_automated_run',
+  generatedAt: timestamp,
+  taskId: 'find-assigned-task',
+  baseline: {
+    cohortId: 'cohort-baseline-test',
+    studyId: 'projectflow-baseline-automated-study',
+    variant: 'baseline',
+    appVersion: '1.0.0',
+    source: 'automated',
+    evidenceId: 'evidence-baseline-test',
+    evidenceHash: 'b'.repeat(64),
+    taskId: 'find-assigned-task',
+    attempts: 1,
+    successes: 1,
+    completionRate: 1,
+    medianInteractions: 8,
+    medianDurationMs: 160,
+  },
+  evolved: {
+    cohortId: 'cohort-evolved-test',
+    studyId: 'projectflow-evolved-automated-study',
+    variant: 'evolved',
+    appVersion: '1.1.0',
+    source: 'automated',
+    evidenceId: 'evidence-evolved-test',
+    evidenceHash: 'c'.repeat(64),
+    taskId: 'find-assigned-task',
+    attempts: 1,
+    successes: 1,
+    completionRate: 1,
+    medianInteractions: 4,
+    medianDurationMs: 90,
+  },
+  delta: { interactions: -4, durationMs: -70, completionRate: 0 },
+  conclusion: 'Automated validation completed the evolved path.',
+} as const;
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
@@ -191,6 +236,9 @@ const installApiMock = () => {
     }
     if (url.includes('/evidence/latest?optional=true')) {
       return jsonResponse(evidencePack);
+    }
+    if (url.endsWith('/api/outcomes/automated-comparison')) {
+      return jsonResponse(recordedOutcome);
     }
     if (url.endsWith('/api/health')) {
       return jsonResponse({
@@ -288,7 +336,13 @@ describe('Darwin control room', () => {
       'data-variant',
       'evolved',
     );
-    expect(await screen.findByText('Online')).toBeInTheDocument();
+    expect(await screen.findAllByText('v0.7.0 online')).toHaveLength(2);
+    expect(screen.getByText('Five configured loci')).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole('table', { name: 'Configured genome comparison' }),
+      ).getAllByText('my-work'),
+    ).toHaveLength(2);
   });
 
   it('approves, validates, releases, records, and resets the mutation', async () => {
@@ -297,6 +351,9 @@ describe('Darwin control room', () => {
 
     expect(
       await screen.findByText('Evidence pack evidence-reset-test'),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText('Versioned outcome validation'),
     ).toBeInTheDocument();
 
     fireEvent.click(
@@ -368,6 +425,9 @@ describe('Darwin control room', () => {
     ).toBeEnabled();
     expect(
       screen.queryByText('Evidence pack evidence-reset-test'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Versioned outcome validation'),
     ).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/demo/reset'),

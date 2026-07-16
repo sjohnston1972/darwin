@@ -618,6 +618,55 @@ Known issues:
 Next phase:
 - Deploy `0.15.0` and perform the final narrated judge rehearsal.
 
+### Phase 16 — Runtime truth and persistent outcome reset
+Date: 2026-07-16
+
+Completed:
+- Replaced the decorative System Status rows with live Worker health and
+  version, persisted telemetry count, evidence parser state and active genome.
+- Replaced the prose Genome Comparison with five loci read directly from the
+  checked-in baseline and evolved ProjectFlow genome configurations.
+- Extended the persisted demo state so `Reset evolution demo` hides the
+  recorded outcome fallback as well as deleting generated outcome validation.
+- Added API regression coverage for the post-reset `204` outcome response and
+  UI coverage for removing Versioned Outcome Validation.
+- Updated API, smoke-test and control-room version labels to `0.16.0`.
+
+Runtime boundary:
+- The Worker performs schema validation, telemetry persistence and queries,
+  deterministic evidence generation, analysis orchestration, demo state,
+  outcome comparison and reset behavior.
+- The analyzer remains deterministic in mock mode unless an OpenAI API key is
+  configured. Production displays a controlled implementation manifest,
+  repository diff and recorded validation results; it does not execute Codex
+  or arbitrary shell commands inside the Worker.
+
+Verification commands:
+```bash
+npm run format
+npm run lint
+npm run format:check
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- All 48 unit tests and both ProjectFlow Playwright scenarios passed.
+- The browser probe received a successful reset response and confirmed that
+  outcome validation and evidence remained absent after a full page reload.
+- Desktop and 390x844 views rendered the live status and configured genome
+  table with no console errors or horizontal overflow.
+
+Known issues:
+- Genome Comparison is real repository configuration rather than API data; the
+  label identifies that provenance directly.
+
+Next phase:
+- Deploy `0.16.0`, verify reset persistence after refresh and rehearse the
+  complete judge flow.
+
 ## Entry template
 
 ### Phase N — Name

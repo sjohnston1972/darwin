@@ -106,6 +106,7 @@ const initialOrganismState = (): OrganismState => ({
 });
 
 let organismState = initialOrganismState();
+let recordedOutcomeVisible = true;
 
 const demoState = (): PersistedDemoState => ({
   organism: organismState,
@@ -113,6 +114,7 @@ const demoState = (): PersistedDemoState => ({
   mutations: [...mutationStore.entries()],
   validations: [...validationStore.entries()],
   fitness: [...fitnessStore.entries()],
+  recordedOutcomeVisible,
 });
 
 const restoreDemoState = (state: PersistedDemoState) => {
@@ -128,6 +130,7 @@ const restoreDemoState = (state: PersistedDemoState) => {
   );
   fitnessStore.clear();
   state.fitness.forEach(([id, fitness]) => fitnessStore.set(id, fitness));
+  recordedOutcomeVisible = state.recordedOutcomeVisible ?? true;
 };
 
 const simulationFromId = (id: string) => {
@@ -139,13 +142,14 @@ const simulationFromId = (id: string) => {
   });
 };
 
-export const resetSimulationStore = () => {
+export const resetSimulationStore = (showRecordedOutcome = true) => {
   simulationStore.clear();
   mutationStore.clear();
   validationStore.clear();
   fitnessStore.clear();
   timelineStore = [];
   organismState = initialOrganismState();
+  recordedOutcomeVisible = showRecordedOutcome;
 };
 
 export const handleRequest = async (
@@ -200,7 +204,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.15.0',
+      version: '0.16.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -208,7 +212,7 @@ export const handleRequest = async (
   }
 
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
-    resetSimulationStore();
+    resetSimulationStore(false);
     await telemetryRepository.reset();
     await telemetryRepository.saveDemoState(demoState());
     return json(
@@ -369,7 +373,12 @@ export const handleRequest = async (
   if (pathname === '/api/outcomes/automated-comparison') {
     if (request.method === 'GET') {
       const validation = await telemetryRepository.getLatestOutcomeValidation();
-      return json(OutcomeValidationSchema.parse(validation ?? recordedOutcome));
+      const outcome =
+        validation ?? (recordedOutcomeVisible ? recordedOutcome : null);
+      if (!outcome) {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+      return json(OutcomeValidationSchema.parse(outcome));
     }
     if (request.method === 'POST') {
       const baseline = await telemetryRepository.getLatestEvidence(
