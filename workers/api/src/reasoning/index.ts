@@ -286,11 +286,16 @@ export function validateModelOutput(
   const knownClusters = new Set(
     output.evidenceAssessment.pressureClusters.map((cluster) => cluster.id),
   );
-  const knownTargets = new Set(
-    pack.frictionSignals.flatMap((signal) =>
+  const knownTargets = new Set([
+    ...pack.frictionSignals.flatMap((signal) =>
       signal.trace.flatMap((event) => (event.targetId ? [event.targetId] : [])),
     ),
-  );
+    ...pack.journeys.flatMap((journey) =>
+      journey.events.flatMap((event) =>
+        event.targetId ? [event.targetId] : [],
+      ),
+    ),
+  ]);
   const mutableAreas = new Set(pack.applicationMap.mutableAreas);
   const protectedAreas = new Set(pack.applicationMap.protectedAreas);
 

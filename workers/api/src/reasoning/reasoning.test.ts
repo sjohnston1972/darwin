@@ -204,6 +204,24 @@ describe('evidence-backed reasoning v2', () => {
         pack,
       ),
     ).toThrow('exceeds the mutable application scope');
+
+    expect(() =>
+      validateModelOutput(
+        {
+          ...modelOutput,
+          evidenceAssessment: {
+            ...modelOutput.evidenceAssessment,
+            pressureClusters: [
+              {
+                ...modelOutput.evidenceAssessment.pressureClusters[0],
+                affectedTargets: ['invented-control'],
+              },
+            ],
+          },
+        },
+        pack,
+      ),
+    ).toThrow('unobserved semantic target');
   });
 
   it('uses ordered journeys and returns an evidence-normalized portfolio', async () => {
