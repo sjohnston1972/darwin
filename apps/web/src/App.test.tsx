@@ -107,29 +107,104 @@ const baselineState = {
   activeMutationId: null,
   updatedAt: timestamp,
 } as const;
+const baselineRecord = {
+  id: 'record-baseline-1859',
+  version: 'v1.0',
+  outcome: 'baseline',
+  fitness: analysis.fitness.baseline,
+  recordedAt: timestamp,
+} as const;
+const survivedRecord = {
+  id: 'record-survived-mutation-global-task-discovery-v1',
+  version: 'v1.1',
+  mutationId: proposal.id,
+  outcome: 'survived',
+  fitness: analysis.fitness.evolved,
+  recordedAt: timestamp,
+} as const;
+const recordedValidation = {
+  id: 'validation-global-task-discovery-v1',
+  mutationId: proposal.id,
+  status: 'passed',
+  source: 'recorded_repository_run',
+  commit: 'a25ed09',
+  checks: [
+    {
+      name: 'TypeScript workspace check',
+      status: 'passed',
+      durationMs: 1_200,
+      output: 'TypeScript workspace check passed.',
+    },
+    {
+      name: 'Unit and UX component tests',
+      status: 'passed',
+      durationMs: 1_800,
+      output: 'All component tests passed.',
+    },
+    {
+      name: 'Production build',
+      status: 'passed',
+      durationMs: 2_100,
+      output: 'Production build completed.',
+    },
+  ],
+  fitness: analysis.fitness.evolved,
+  recordedAt: timestamp,
+} as const;
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
 
 const installApiMock = () => {
+  let timeline: Array<typeof baselineRecord | typeof survivedRecord> = [];
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input.toString();
     if (url.endsWith('/api/health')) {
       return jsonResponse({
         status: 'ok',
         service: 'darwin-api',
-        version: '0.6.0',
+        version: '0.7.0',
         timestamp,
       });
     }
     if (url.endsWith('/api/organism/state')) return jsonResponse(baselineState);
+    if (url.endsWith('/api/evolution/timeline')) {
+      return jsonResponse({ records: timeline });
+    }
     if (url.endsWith('/api/simulations')) {
       return jsonResponse({ run, summary }, 201);
     }
-    if (url.endsWith('/api/evolution/analyse')) return jsonResponse(analysis);
+    if (url.endsWith('/api/evolution/analyse')) {
+      timeline = [baselineRecord];
+      return jsonResponse(analysis);
+    }
     if (url.endsWith('/approve')) {
       return jsonResponse({
         proposal: { ...proposal, status: 'approved' },
+        organism: baselineState,
+      });
+    }
+    if (url.endsWith('/diff')) {
+      return jsonResponse({
+        mutationId: proposal.id,
+        source: 'repository_source_comparison',
+        baseRef: 'apps/web/src/projectflow/genomes/baseline.ts',
+        targetRef: 'apps/web/src/projectflow/genomes/evolved.ts',
+        patch:
+          '--- baseline.ts\n+++ evolved.ts\n@@ -1 +1 @@\n-globalSearch: false\n+globalSearch: true',
+        generatedAt: timestamp,
+      });
+    }
+    if (url.endsWith('/validate')) {
+      return jsonResponse({
+        proposal: { ...proposal, status: 'validated' },
+        validation: recordedValidation,
+      });
+    }
+    if (url.endsWith('/release')) {
+      timeline = [baselineRecord, survivedRecord];
+      return jsonResponse({
+        proposal: { ...proposal, status: 'released' },
         organism: {
           ...baselineState,
           variant: 'evolved',
@@ -137,9 +212,11 @@ const installApiMock = () => {
           evolutionCycles: 1,
           activeMutationId: proposal.id,
         },
+        record: survivedRecord,
       });
     }
     if (url.endsWith('/api/demo/reset')) {
+      timeline = [];
       return jsonResponse({ status: 'reset', organism: baselineState });
     }
     return jsonResponse({ message: 'Unexpected test route' }, 404);
@@ -181,7 +258,7 @@ describe('Darwin control room', () => {
     expect(await screen.findByText('Online')).toBeInTheDocument();
   });
 
-  it('runs the mock evolution cycle, approves the mutation, and resets', async () => {
+  it('approves, validates, releases, records, and resets the mutation', async () => {
     const fetchMock = installApiMock();
     render(<App />);
 
@@ -203,6 +280,32 @@ describe('Darwin control room', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve mutation' }));
 
     expect(
+      await screen.findByText(
+        'The implementation artifact is ready for validation.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('projectflow')).toHaveAttribute(
+      'data-variant',
+      'baseline',
+    );
+    expect(
+      screen.getByLabelText('ProjectFlow mutation diff'),
+    ).toHaveTextContent('globalSearch: true');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Run recorded validation' }),
+    );
+
+    expect(
+      await screen.findByText('All recorded repository checks passed.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('TypeScript workspace check')).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Release evolved genome' }),
+    );
+
+    expect(
       await screen.findByText('ProjectFlow v1.1 is now the active organism.'),
     ).toBeInTheDocument();
     await waitFor(() => {
@@ -211,6 +314,7 @@ describe('Darwin control room', () => {
         'evolved',
       );
     });
+    expect(screen.getByText('Survived selection')).toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Reset evolution demo' }),

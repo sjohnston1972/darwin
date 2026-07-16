@@ -137,6 +137,15 @@ For MVP reliability, implement two complementary paths:
 
 Optional stretch: invoke Codex CLI in a local-only orchestration script, never from Cloudflare production.
 
+### Validation and release
+
+- `npm run validate:record` is the local command runner. It executes the real workspace typecheck, Vitest suites and production build, captures their exit status, duration and output, and derives evolved fitness from the seeded simulator.
+- The same recorder runs `git diff --no-index` against the typed baseline and evolved ProjectFlow genome sources. The resulting patch is an actual repository source comparison, not handwritten display text.
+- The generated `phase7-artifacts.json` fixture is checked in for hosted mode. The Worker serves it as a clearly labelled recorded repository run and never exposes arbitrary command execution.
+- Mutation state advances through `proposed → approved → validated → released`. Approval does not change the active organism; only a passing validation can be released.
+- React renders diff text as escaped content and never injects artifact HTML.
+- The in-memory timeline persists across browser reloads for the local/hosted fallback and is cleared by the deterministic demo reset. D1-backed persistence is introduced in Phase 8.
+
 ## Persistence
 Use repository interfaces so D1 and in-memory implementations share behaviour.
 

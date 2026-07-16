@@ -39,50 +39,35 @@ import {
   type ProjectFlowVariant,
   type Task,
 } from './data';
+import { projectFlowGenomes, type GenomeNavigationIcon } from './genomes';
 
 interface ProjectFlowProps {
   variant: ProjectFlowVariant;
 }
 
-interface NavItem {
-  route: ProjectFlowRoute;
-  label: string;
-  icon: LucideIcon;
-  count?: number;
-}
-
-const baselineNavigation: NavItem[] = [
-  { route: 'dashboard', label: 'Dashboard', icon: Home },
-  { route: 'projects', label: 'Projects', icon: FolderKanban, count: 4 },
-  { route: 'tasks', label: 'Tasks', icon: CheckCircle2, count: 26 },
-  { route: 'reports', label: 'Reports', icon: FileBarChart },
-  { route: 'settings', label: 'Settings', icon: Settings },
-];
-
-const evolvedNavigation: NavItem[] = [
-  { route: 'my-work', label: 'My Work', icon: LayoutList, count: 4 },
-  { route: 'projects', label: 'Projects', icon: FolderKanban, count: 4 },
-  { route: 'insights', label: 'Insights', icon: Sparkles },
-  { route: 'settings', label: 'Settings', icon: Settings },
-];
+const navigationIcons: Record<GenomeNavigationIcon, LucideIcon> = {
+  home: Home,
+  projects: FolderKanban,
+  tasks: CheckCircle2,
+  reports: FileBarChart,
+  'my-work': LayoutList,
+  insights: Sparkles,
+  settings: Settings,
+};
 
 export function ProjectFlow({ variant }: ProjectFlowProps) {
-  const [route, setRoute] = useState<ProjectFlowRoute>(
-    variant === 'baseline' ? 'dashboard' : 'my-work',
-  );
+  const genome = projectFlowGenomes[variant];
+  const [route, setRoute] = useState<ProjectFlowRoute>(genome.initialRoute);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [taskComposerOpen, setTaskComposerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [tasks, setTasks] = useState<Task[]>(seedTasks);
 
-  const navigation =
-    variant === 'baseline' ? baselineNavigation : evolvedNavigation;
-
   useEffect(() => {
-    setRoute(variant === 'baseline' ? 'dashboard' : 'my-work');
+    setRoute(genome.initialRoute);
     setSelectedProject(null);
     setSearchQuery('');
-  }, [variant]);
+  }, [genome.initialRoute]);
 
   const visibleTasks = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -120,7 +105,7 @@ export function ProjectFlow({ variant }: ProjectFlowProps) {
     setTasks((current) => [task, ...current]);
     setTaskComposerOpen(false);
     setSearchQuery('');
-    setRoute(variant === 'baseline' ? 'tasks' : 'my-work');
+    setRoute(genome.taskDestination);
   };
 
   return (
@@ -134,9 +119,7 @@ export function ProjectFlow({ variant }: ProjectFlowProps) {
           <button
             className="pf-logo"
             type="button"
-            onClick={() =>
-              navigate(variant === 'baseline' ? 'dashboard' : 'my-work')
-            }
+            onClick={() => navigate(genome.initialRoute)}
           >
             <span className="pf-logo-mark" aria-hidden="true">
               P
@@ -145,25 +128,28 @@ export function ProjectFlow({ variant }: ProjectFlowProps) {
           </button>
 
           <nav className="pf-nav" aria-label="ProjectFlow primary">
-            {navigation.map(
-              ({ route: itemRoute, label, icon: Icon, count }) => (
-                <button
-                  className={
-                    route === itemRoute
-                      ? 'pf-nav-item is-active'
-                      : 'pf-nav-item'
-                  }
-                  key={itemRoute}
-                  onClick={() => navigate(itemRoute)}
-                  type="button"
-                >
-                  <Icon size={16} />
-                  <span>{label}</span>
-                  {count !== undefined && (
-                    <span className="pf-nav-count">{count}</span>
-                  )}
-                </button>
-              ),
+            {genome.navigation.map(
+              ({ route: itemRoute, label, icon, count }) => {
+                const Icon = navigationIcons[icon];
+                return (
+                  <button
+                    className={
+                      route === itemRoute
+                        ? 'pf-nav-item is-active'
+                        : 'pf-nav-item'
+                    }
+                    key={itemRoute}
+                    onClick={() => navigate(itemRoute)}
+                    type="button"
+                  >
+                    <Icon size={16} />
+                    <span>{label}</span>
+                    {count !== undefined && (
+                      <span className="pf-nav-count">{count}</span>
+                    )}
+                  </button>
+                );
+              },
             )}
           </nav>
 
@@ -192,7 +178,7 @@ export function ProjectFlow({ variant }: ProjectFlowProps) {
 
         <div className="pf-workspace">
           <header className="pf-topbar">
-            {variant === 'baseline' ? (
+            {!genome.globalSearch ? (
               <>
                 <div className="pf-mobile-brand">
                   <Menu size={17} /> ProjectFlow
@@ -277,7 +263,7 @@ export function ProjectFlow({ variant }: ProjectFlowProps) {
               <ProjectsView
                 selectedProject={selectedProject}
                 tasks={tasks}
-                variant={variant}
+                showIndirectTaskPath={genome.showIndirectTaskPath}
                 onSelectProject={setSelectedProject}
                 onBack={() => setSelectedProject(null)}
                 onCreateTask={() => setTaskComposerOpen(true)}
@@ -299,7 +285,7 @@ export function ProjectFlow({ variant }: ProjectFlowProps) {
 
       {taskComposerOpen && (
         <TaskComposer
-          variant={variant}
+          quickCreate={genome.globalQuickCreate}
           onClose={() => setTaskComposerOpen(false)}
           onSubmit={createTask}
           selectedProject={selectedProject}
@@ -577,14 +563,14 @@ function MyWork({
 function ProjectsView({
   selectedProject,
   tasks,
-  variant,
+  showIndirectTaskPath,
   onSelectProject,
   onBack,
   onCreateTask,
 }: {
   selectedProject: Project | null;
   tasks: Task[];
-  variant: ProjectFlowVariant;
+  showIndirectTaskPath: boolean;
   onSelectProject: (project: Project) => void;
   onBack: () => void;
   onCreateTask: () => void;
@@ -612,7 +598,7 @@ function ProjectsView({
             </button>
           }
         />
-        {variant === 'baseline' && (
+        {showIndirectTaskPath && (
           <div
             className="pf-friction-path"
             aria-label="Task creation navigation path"
@@ -851,12 +837,12 @@ function SettingsView() {
 }
 
 function TaskComposer({
-  variant,
+  quickCreate,
   selectedProject,
   onClose,
   onSubmit,
 }: {
-  variant: ProjectFlowVariant;
+  quickCreate: boolean;
   selectedProject: Project | null;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -875,9 +861,7 @@ function TaskComposer({
       >
         <div className="pf-modal-heading">
           <div>
-            <span>
-              {variant === 'evolved' ? 'Quick create' : 'Project task'}
-            </span>
+            <span>{quickCreate ? 'Quick create' : 'Project task'}</span>
             <h3 id="task-composer-title">Create a task</h3>
           </div>
           <button

@@ -1,16 +1,25 @@
 import {
   DemoResetResponseSchema,
+  EvolutionTimelineResponseSchema,
   EvolutionAnalysisRequestSchema,
   EvolutionAnalysisResponseSchema,
+  FitnessComparisonSchema,
+  MutationDiffSchema,
   MutationDecisionResponseSchema,
+  MutationReleaseResponseSchema,
+  MutationValidationResponseSchema,
   OrganismStateSchema,
   SimulationRequestSchema,
+  ValidationResultSchema,
+  type EvolutionRecord,
+  type FitnessComparison,
   type HealthResponse,
   type MutationProposal,
   type OrganismState,
   type SimulationResult,
 } from '@darwin/shared';
 
+import phase7Artifacts from './fixtures/phase7-artifacts.json';
 import { simulate } from './simulation';
 import {
   EvolutionAnalysisError,
@@ -46,6 +55,13 @@ const json = (body: unknown, init: ResponseInit = {}) => {
 
 const simulationStore = new Map<string, SimulationResult>();
 const mutationStore = new Map<string, MutationProposal>();
+const validationStore = new Map<string, unknown>();
+const fitnessStore = new Map<string, FitnessComparison>();
+let timelineStore: EvolutionRecord[] = [];
+const recordedValidation = ValidationResultSchema.parse(
+  phase7Artifacts.validation,
+);
+const recordedDiff = MutationDiffSchema.parse(phase7Artifacts.diff);
 
 const initialOrganismState = (): OrganismState => ({
   variant: 'baseline',
@@ -60,6 +76,9 @@ let organismState = initialOrganismState();
 export const resetSimulationStore = () => {
   simulationStore.clear();
   mutationStore.clear();
+  validationStore.clear();
+  fitnessStore.clear();
+  timelineStore = [];
   organismState = initialOrganismState();
 };
 
@@ -77,7 +96,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.6.0',
+      version: '0.7.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -96,6 +115,12 @@ export const handleRequest = async (
 
   if (request.method === 'GET' && pathname === '/api/organism/state') {
     return json(OrganismStateSchema.parse(organismState));
+  }
+
+  if (request.method === 'GET' && pathname === '/api/evolution/timeline') {
+    return json(
+      EvolutionTimelineResponseSchema.parse({ records: timelineStore }),
+    );
   }
 
   if (request.method === 'POST' && pathname === '/api/simulations') {
@@ -210,6 +235,16 @@ export const handleRequest = async (
         proposal: analysis.proposal,
       });
       mutationStore.set(analysis.proposal.id, analysis.proposal);
+      fitnessStore.set(analysis.proposal.id, fitness);
+      if (!timelineStore.some((record) => record.outcome === 'baseline')) {
+        timelineStore.push({
+          id: `record-baseline-${baseline.run.seed}`,
+          version: 'v1.0',
+          outcome: 'baseline',
+          fitness: fitness.baseline,
+          recordedAt: baseline.run.completedAt ?? baseline.run.startedAt,
+        });
+      }
       return json(response);
     } catch (error) {
       if (error instanceof EvolutionAnalysisError) {
@@ -253,20 +288,131 @@ export const handleRequest = async (
     };
     mutationStore.set(id, decidedProposal);
 
-    if (decision === 'approve') {
-      organismState = {
-        variant: 'evolved',
-        genomeVersion: 'v1.1',
-        evolutionCycles: 1,
-        activeMutationId: id,
-        updatedAt: new Date().toISOString(),
-      };
+    if (decision === 'reject') {
+      const fitness = fitnessStore.get(id);
+      if (fitness) {
+        timelineStore.push({
+          id: `record-rejected-${id}`,
+          version: 'v1.0',
+          mutationId: id,
+          outcome: 'failed_selection',
+          fitness: fitness.baseline,
+          recordedAt: new Date().toISOString(),
+        });
+      }
     }
 
     return json(
       MutationDecisionResponseSchema.parse({
         proposal: decidedProposal,
         organism: organismState,
+      }),
+    );
+  }
+
+  const mutationDiffMatch = pathname.match(/^\/api\/mutations\/([^/]+)\/diff$/);
+  if (request.method === 'GET' && mutationDiffMatch) {
+    const id = decodeURIComponent(mutationDiffMatch[1]!);
+    if (!mutationStore.has(id) || recordedDiff.mutationId !== id) {
+      return json(
+        { error: 'not_found', message: 'Mutation diff was not found.' },
+        { status: 404 },
+      );
+    }
+    return json(recordedDiff);
+  }
+
+  const mutationValidationMatch = pathname.match(
+    /^\/api\/mutations\/([^/]+)\/validate$/,
+  );
+  if (request.method === 'POST' && mutationValidationMatch) {
+    const id = decodeURIComponent(mutationValidationMatch[1]!);
+    const proposal = mutationStore.get(id);
+    if (!proposal || recordedValidation.mutationId !== id) {
+      return json(
+        { error: 'not_found', message: 'Mutation proposal was not found.' },
+        { status: 404 },
+      );
+    }
+    if (proposal.status !== 'approved') {
+      return json(
+        {
+          error: 'invalid_state',
+          message: 'Mutation must be approved before validation.',
+        },
+        { status: 409 },
+      );
+    }
+
+    validationStore.set(id, recordedValidation);
+    const validatedProposal: MutationProposal = {
+      ...proposal,
+      status: recordedValidation.status === 'passed' ? 'validated' : 'approved',
+    };
+    mutationStore.set(id, validatedProposal);
+    return json(
+      MutationValidationResponseSchema.parse({
+        proposal: validatedProposal,
+        validation: recordedValidation,
+      }),
+    );
+  }
+
+  const mutationReleaseMatch = pathname.match(
+    /^\/api\/mutations\/([^/]+)\/release$/,
+  );
+  if (request.method === 'POST' && mutationReleaseMatch) {
+    const id = decodeURIComponent(mutationReleaseMatch[1]!);
+    const proposal = mutationStore.get(id);
+    const validation = validationStore.get(id);
+    if (!proposal) {
+      return json(
+        { error: 'not_found', message: 'Mutation proposal was not found.' },
+        { status: 404 },
+      );
+    }
+    if (
+      proposal.status !== 'validated' ||
+      !validation ||
+      ValidationResultSchema.parse(validation).status !== 'passed'
+    ) {
+      return json(
+        {
+          error: 'invalid_state',
+          message: 'Mutation must pass validation before release.',
+        },
+        { status: 409 },
+      );
+    }
+
+    const releasedProposal: MutationProposal = {
+      ...proposal,
+      status: 'released',
+    };
+    mutationStore.set(id, releasedProposal);
+    organismState = {
+      variant: 'evolved',
+      genomeVersion: 'v1.1',
+      evolutionCycles: 1,
+      activeMutationId: id,
+      updatedAt: new Date().toISOString(),
+    };
+    const fitness = FitnessComparisonSchema.parse(fitnessStore.get(id));
+    const record: EvolutionRecord = {
+      id: `record-survived-${id}`,
+      version: 'v1.1',
+      mutationId: id,
+      outcome: 'survived',
+      fitness: fitness.evolved,
+      recordedAt: new Date().toISOString(),
+    };
+    timelineStore.push(record);
+
+    return json(
+      MutationReleaseResponseSchema.parse({
+        proposal: releasedProposal,
+        organism: organismState,
+        record,
       }),
     );
   }

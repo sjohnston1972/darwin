@@ -259,6 +259,47 @@ Known issues:
 Next phase:
 - Phase 7 — Validation and fossil record.
 
+### Phase 7 — Validation and fossil record
+Date: 2026-07-16
+
+Completed:
+- Split ProjectFlow baseline and evolved behavior into typed genome sources while preserving the existing organism interactions and tests.
+- Added `npm run validate:record`, which executes the actual workspace typecheck, unit/UX tests, and production build and records exit status, duration, and command output.
+- Derived the recorded evolved fitness from the seeded simulator rather than copying a UI fixture score.
+- Generated a real 31-line repository source comparison between the baseline and evolved ProjectFlow genome files.
+- Added shared contracts for recorded validation, mutation diffs, mutation validation/release responses, and the evolution timeline.
+- Added `GET /api/mutations/:id/diff`, `POST /api/mutations/:id/validate`, `POST /api/mutations/:id/release`, and `GET /api/evolution/timeline`.
+- Enforced the controlled lifecycle `proposed → approved → validated → released`; approval alone now retains ProjectFlow `v1.0`.
+- Added the mutation execution surface with the implementation steps, escaped source diff, recorded command evidence, expandable actual output, and before/after fitness components.
+- Added explicit release after successful validation; only release activates ProjectFlow `v1.1`.
+- Added baseline, survived, and failed-selection records to the fossil timeline and restored organism/timeline state on browser reload.
+- Kept hosted mode free of arbitrary command execution by serving the clearly labelled checked-in repository artifact.
+- Updated API health and dashboard version labels to `0.7.0`.
+
+Verification commands:
+```bash
+npm run validate:record
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+```
+
+Results:
+- The recorded repository run passed all three command groups and produced evolved fitness 87.4.
+- Live Worker approval retained the baseline, validation passed three recorded checks, release activated the evolved organism, and the timeline ended with `survived`.
+- Release before validation returned `409`; reset removed validation, proposal, organism, and timeline state.
+- The actual ProjectFlow source comparison contained 31 lines and visibly promoted My Work, global search, global quick-create, and Insights.
+- Two Chrome flows passed at 1440×900 and 390×844; a page reload preserved ProjectFlow `v1.1` and the survived fossil record.
+
+Known issues:
+- Phase 7 timeline persistence uses the Worker in-memory fallback and survives browser reloads but not Worker restarts; D1 persistence is scheduled for Phase 8.
+- Hosted validation is a checked-in recorded repository run. Only the local recorder executes commands, and the UI labels the provenance explicitly.
+
+Next phase:
+- Phase 8 — Cloudflare deployment.
+
 ## Entry template
 
 ### Phase N — Name

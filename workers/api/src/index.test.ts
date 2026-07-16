@@ -1,8 +1,12 @@
 import {
   DemoResetResponseSchema,
   EvolutionAnalysisResponseSchema,
+  EvolutionTimelineResponseSchema,
   HealthResponseSchema,
+  MutationDiffSchema,
   MutationDecisionResponseSchema,
+  MutationReleaseResponseSchema,
+  MutationValidationResponseSchema,
   OrganismStateSchema,
   SimulationSummarySchema,
 } from '@darwin/shared';
@@ -166,7 +170,7 @@ describe('Darwin API', () => {
     expect(JSON.stringify(analysis)).not.toContain('sk-test-secret');
   });
 
-  it('requires one explicit mutation decision and reset restores the baseline', async () => {
+  it('approves, validates, releases, persists the timeline, and resets', async () => {
     await handleRequest(
       new Request('http://localhost/api/simulations', {
         method: 'POST',
@@ -194,9 +198,9 @@ describe('Darwin API', () => {
 
     expect(approval.proposal.status).toBe('approved');
     expect(approval.organism).toMatchObject({
-      variant: 'evolved',
-      genomeVersion: 'v1.1',
-      evolutionCycles: 1,
+      variant: 'baseline',
+      genomeVersion: 'v1.0',
+      evolutionCycles: 0,
     });
 
     const repeatedResponse = await handleRequest(
@@ -207,12 +211,81 @@ describe('Darwin API', () => {
     );
     expect(repeatedResponse.status).toBe(409);
 
+    const diffResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/diff',
+      ),
+    );
+    const diff = MutationDiffSchema.parse(await diffResponse.json());
+    expect(diff.source).toBe('repository_source_comparison');
+    expect(diff.patch).toContain("initialRoute: 'my-work'");
+
+    const earlyReleaseResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/release',
+        { method: 'POST' },
+      ),
+    );
+    expect(earlyReleaseResponse.status).toBe(409);
+
+    const validationResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/validate',
+        { method: 'POST' },
+      ),
+    );
+    const validation = MutationValidationResponseSchema.parse(
+      await validationResponse.json(),
+    );
+    expect(validation.proposal.status).toBe('validated');
+    expect(validation.validation).toMatchObject({
+      status: 'passed',
+      source: 'recorded_repository_run',
+    });
+    expect(validation.validation.checks).toHaveLength(3);
+
+    const releaseResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/release',
+        { method: 'POST' },
+      ),
+    );
+    const release = MutationReleaseResponseSchema.parse(
+      await releaseResponse.json(),
+    );
+    expect(release.proposal.status).toBe('released');
+    expect(release.organism).toMatchObject({
+      variant: 'evolved',
+      genomeVersion: 'v1.1',
+      evolutionCycles: 1,
+    });
+    expect(release.record).toMatchObject({
+      version: 'v1.1',
+      outcome: 'survived',
+    });
+
     const stateResponse = await handleRequest(
       new Request('http://localhost/api/organism/state'),
     );
     expect(OrganismStateSchema.parse(await stateResponse.json()).variant).toBe(
       'evolved',
     );
+
+    const timelineResponse = await handleRequest(
+      new Request('http://localhost/api/evolution/timeline'),
+    );
+    const timeline = EvolutionTimelineResponseSchema.parse(
+      await timelineResponse.json(),
+    );
+    expect(timeline.records.map((record) => record.outcome)).toEqual([
+      'baseline',
+      'survived',
+    ]);
+
+    const reloadedTimelineResponse = await handleRequest(
+      new Request('http://localhost/api/evolution/timeline'),
+    );
+    expect(await reloadedTimelineResponse.json()).toEqual(timeline);
 
     const resetResponse = await handleRequest(
       new Request('http://localhost/api/demo/reset', { method: 'POST' }),
@@ -223,6 +296,11 @@ describe('Darwin API', () => {
       genomeVersion: 'v1.0',
       evolutionCycles: 0,
     });
+
+    const resetTimelineResponse = await handleRequest(
+      new Request('http://localhost/api/evolution/timeline'),
+    );
+    expect(await resetTimelineResponse.json()).toEqual({ records: [] });
 
     const missingProposalResponse = await handleRequest(
       new Request(
@@ -262,5 +340,13 @@ describe('Darwin API', () => {
     expect(decision.proposal.status).toBe('rejected');
     expect(decision.organism.variant).toBe('baseline');
     expect(decision.organism.evolutionCycles).toBe(0);
+
+    const timelineResponse = await handleRequest(
+      new Request('http://localhost/api/evolution/timeline'),
+    );
+    const timeline = EvolutionTimelineResponseSchema.parse(
+      await timelineResponse.json(),
+    );
+    expect(timeline.records.at(-1)?.outcome).toBe('failed_selection');
   });
 });

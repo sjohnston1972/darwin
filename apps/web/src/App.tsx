@@ -1,7 +1,11 @@
 import {
   HealthResponseSchema,
   type EvolutionAnalysisResponse,
+  type EvolutionRecord,
+  type FitnessBreakdown,
+  type MutationDiff,
   type SimulationSummary,
+  type ValidationResult,
 } from '@darwin/shared';
 import {
   Activity,
@@ -11,7 +15,9 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleDashed,
+  Code2,
   Database,
+  FileCheck2,
   FlaskConical,
   Gauge,
   GitBranch,
@@ -21,6 +27,7 @@ import {
   Menu,
   Network,
   Radar,
+  Rocket,
   RotateCcw,
   Server,
   ShieldCheck,
@@ -63,7 +70,7 @@ function App() {
     ? demo.organism.variant === 'evolved'
       ? demo.analysis.fitness.evolved.score
       : demo.analysis.fitness.baseline.score
-    : null;
+    : (demo.timeline.at(-1)?.fitness.score ?? null);
 
   const metrics = [
     {
@@ -82,7 +89,7 @@ function App() {
       value: String(demo.organism.evolutionCycles),
       meta:
         demo.organism.evolutionCycles > 0
-          ? 'Mutation survived approval'
+          ? 'Mutation survived selection'
           : 'No mutations retained',
       tone: demo.organism.evolutionCycles > 0 ? 'signal' : 'neutral',
     },
@@ -90,19 +97,21 @@ function App() {
       label: 'Current fitness',
       value: measuredFitness === null ? '--' : measuredFitness.toFixed(1),
       meta:
-        demo.stage === 'approved'
-          ? `+${demo.analysis?.fitness.delta.toFixed(1) ?? '0.0'} fitness`
+        demo.organism.variant === 'evolved'
+          ? demo.analysis
+            ? `+${demo.analysis.fitness.delta.toFixed(1)} fitness`
+            : 'Released fitness measured'
           : demo.analysis
             ? 'Baseline measured'
             : 'Baseline not measured',
-      tone: demo.stage === 'approved' ? 'signal' : 'amber',
+      tone: demo.organism.variant === 'evolved' ? 'signal' : 'amber',
     },
     {
       label: 'Genome version',
       value: demo.organism.genomeVersion,
       meta:
         demo.organism.variant === 'evolved'
-          ? 'Mutation approved'
+          ? 'Mutation released'
           : 'Baseline retained',
       tone: demo.organism.variant === 'evolved' ? 'signal' : 'neutral',
     },
@@ -314,14 +323,14 @@ function App() {
               >
                 {demo.stage === 'observing' ? (
                   <CircleDashed className="is-spinning" size={17} />
-                ) : demo.stage === 'approved' ? (
+                ) : demo.stage === 'released' ? (
                   <Check size={17} />
                 ) : (
                   <Radar size={17} />
                 )}
                 {demo.stage === 'observing'
                   ? `Observing ${observed}`
-                  : demo.stage === 'approved'
+                  : demo.stage === 'released'
                     ? 'Evolution cycle complete'
                     : demo.analysis
                       ? 'Observation complete'
@@ -333,6 +342,10 @@ function App() {
                 {demo.stage === 'proposal' && <FlaskConical size={15} />}
                 {demo.stage === 'deciding' && <CircleDashed size={15} />}
                 {demo.stage === 'approved' && <CheckCircle2 size={15} />}
+                {demo.stage === 'validating' && <CircleDashed size={15} />}
+                {demo.stage === 'validated' && <FileCheck2 size={15} />}
+                {demo.stage === 'releasing' && <CircleDashed size={15} />}
+                {demo.stage === 'released' && <Rocket size={15} />}
                 {demo.stage === 'rejected' && <ShieldCheck size={15} />}
                 {demo.stage === 'resetting' && <RotateCcw size={15} />}
                 {demo.stage === 'error' && <AlertTriangle size={15} />}
@@ -381,6 +394,17 @@ function App() {
               analysis={demo.analysis}
               stage={demo.stage}
               onDecision={(decision) => void demo.decide(decision)}
+            />
+          )}
+
+          {demo.analysis && demo.mutationDiff && (
+            <ValidationWorkspace
+              analysis={demo.analysis}
+              diff={demo.mutationDiff}
+              validation={demo.validation}
+              stage={demo.stage}
+              onValidate={() => void demo.validate()}
+              onRelease={() => void demo.release()}
             />
           )}
 
@@ -568,29 +592,27 @@ function App() {
                       <span className="status-badge">RETAINED</span>
                     </td>
                   </tr>
-                  <tr className="border-t border-line">
-                    <td className="px-6 py-5 font-mono">
-                      {demo.organism.genomeVersion}
-                    </td>
-                    <td className="px-6 py-5 text-mist">
-                      {demo.organism.variant === 'evolved'
-                        ? 'Global task discovery approved'
-                        : 'ProjectFlow organism connected'}
-                    </td>
-                    <td className="px-6 py-5 text-mist">
-                      {demo.organism.variant === 'evolved'
-                        ? 'Survived approval'
-                        : 'Baseline'}
-                    </td>
-                    <td className="px-6 py-5 font-mono text-mist">
-                      {measuredFitness === null
-                        ? '--'
-                        : measuredFitness.toFixed(1)}
-                    </td>
-                    <td className="px-6 py-5 text-right">
-                      <span className="status-badge">CURRENT</span>
-                    </td>
-                  </tr>
+                  {demo.timeline.length === 0 ? (
+                    <tr className="border-t border-line">
+                      <td className="px-6 py-5 font-mono">v1.0</td>
+                      <td className="px-6 py-5 text-mist">
+                        ProjectFlow organism connected
+                      </td>
+                      <td className="px-6 py-5 text-mist">Baseline</td>
+                      <td className="px-6 py-5 font-mono text-mist">--</td>
+                      <td className="px-6 py-5 text-right">
+                        <span className="status-badge">CURRENT</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    demo.timeline.map((record, index) => (
+                      <FossilRow
+                        key={record.id}
+                        record={record}
+                        current={index === demo.timeline.length - 1}
+                      />
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -598,7 +620,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.6.0</p>
+            <p className="font-mono">DARWIN CORE 0.7.0</p>
           </footer>
         </div>
       </main>
@@ -612,7 +634,11 @@ const stageLabel = (stage: DemoStage) => {
     observing: 'Telemetry stream active',
     proposal: 'Selection pressure detected',
     deciding: 'Recording decision',
-    approved: 'Mutation approved · evolved active',
+    approved: 'Mutation approved · validation required',
+    validating: 'Repository checks in progress',
+    validated: 'Mutation passed validation',
+    releasing: 'Applying selected genome',
+    released: 'Mutation survived · evolved active',
     rejected: 'Failed selection · baseline retained',
     resetting: 'Restoring baseline',
     error: 'Evolution cycle interrupted',
@@ -813,7 +839,7 @@ function MutationWorkspace({
   onDecision: (decision: 'approve' | 'reject') => void;
 }) {
   const proposal = analysis.proposal;
-  const pending = stage === 'proposal' || stage === 'deciding';
+  const pending = proposal.status === 'proposed';
 
   return (
     <section
@@ -924,28 +950,326 @@ function MutationWorkspace({
             </div>
           ) : (
             <div className={`decision-outcome outcome-${proposal.status}`}>
-              {proposal.status === 'approved' ? (
-                <CheckCircle2 size={18} />
-              ) : (
+              {proposal.status === 'rejected' ? (
                 <ShieldCheck size={18} />
+              ) : proposal.status === 'released' ? (
+                <Rocket size={18} />
+              ) : (
+                <CheckCircle2 size={18} />
               )}
               <div>
-                <strong>
-                  {proposal.status === 'approved'
-                    ? 'Mutation approved'
-                    : 'Mutation failed selection'}
-                </strong>
-                <span>
-                  {proposal.status === 'approved'
-                    ? 'ProjectFlow v1.1 is now the active organism.'
-                    : 'ProjectFlow v1.0 remains active.'}
-                </span>
+                <strong>{proposalOutcome(proposal.status).title}</strong>
+                <span>{proposalOutcome(proposal.status).description}</span>
               </div>
             </div>
           )}
         </div>
       </div>
     </section>
+  );
+}
+
+const proposalOutcome = (
+  status: EvolutionAnalysisResponse['proposal']['status'],
+) => {
+  const outcomes = {
+    proposed: {
+      title: 'Mutation proposed',
+      description: 'Human approval is required.',
+    },
+    approved: {
+      title: 'Mutation approved',
+      description: 'The implementation artifact is ready for validation.',
+    },
+    rejected: {
+      title: 'Mutation failed selection',
+      description: 'ProjectFlow v1.0 remains active.',
+    },
+    validated: {
+      title: 'Mutation validated',
+      description: 'All recorded repository checks passed.',
+    },
+    released: {
+      title: 'Mutation survived selection',
+      description: 'ProjectFlow v1.1 is now the active organism.',
+    },
+  } as const;
+  return outcomes[status];
+};
+
+function ValidationWorkspace({
+  analysis,
+  diff,
+  validation,
+  stage,
+  onValidate,
+  onRelease,
+}: {
+  analysis: EvolutionAnalysisResponse;
+  diff: MutationDiff;
+  validation: ValidationResult | null;
+  stage: DemoStage;
+  onValidate: () => void;
+  onRelease: () => void;
+}) {
+  const lines = diff.patch.split('\n');
+  const validationPassed = validation?.status === 'passed';
+
+  return (
+    <section
+      className="mt-8 surface-panel execution-panel"
+      id="validation"
+      aria-labelledby="validation-title"
+    >
+      <div className="panel-heading execution-heading">
+        <div>
+          <p className="section-label">
+            Codex implementation / controlled scope
+          </p>
+          <h2 id="validation-title" className="mt-2 text-xl font-semibold">
+            Mutation execution
+          </h2>
+        </div>
+        <span className="artifact-badge">
+          <Code2 size={14} /> Repository artifact
+        </span>
+      </div>
+
+      <div className="execution-steps" aria-label="Mutation execution progress">
+        <ExecutionStep index="01" label="Brief" state="complete" />
+        <ExecutionStep index="02" label="Diff" state="complete" />
+        <ExecutionStep
+          index="03"
+          label="Validation"
+          state={
+            stage === 'validating'
+              ? 'active'
+              : validationPassed
+                ? 'complete'
+                : 'pending'
+          }
+        />
+        <ExecutionStep
+          index="04"
+          label="Release"
+          state={
+            stage === 'released'
+              ? 'complete'
+              : stage === 'releasing'
+                ? 'active'
+                : 'pending'
+          }
+        />
+      </div>
+
+      <div className="execution-layout">
+        <div className="diff-column">
+          <div className="artifact-heading">
+            <div>
+              <span>Actual source comparison</span>
+              <strong>
+                {diff.baseRef.split('/').at(-1)} →{' '}
+                {diff.targetRef.split('/').at(-1)}
+              </strong>
+            </div>
+            <span>{lines.length} lines</span>
+          </div>
+          <pre className="diff-viewer" aria-label="ProjectFlow mutation diff">
+            <code>
+              {lines.map((line, index) => (
+                <span
+                  className={
+                    line.startsWith('+') && !line.startsWith('+++')
+                      ? 'diff-addition'
+                      : line.startsWith('-') && !line.startsWith('---')
+                        ? 'diff-removal'
+                        : line.startsWith('@@')
+                          ? 'diff-hunk'
+                          : ''
+                  }
+                  key={`${index}-${line}`}
+                >
+                  <i>{String(index + 1).padStart(2, '0')}</i>
+                  {line || ' '}
+                </span>
+              ))}
+            </code>
+          </pre>
+        </div>
+
+        <div className="validation-column">
+          <div className="artifact-heading">
+            <div>
+              <span>Validation evidence</span>
+              <strong>
+                {validation
+                  ? `Recorded repository run · ${validation.commit}`
+                  : 'Awaiting controlled validation'}
+              </strong>
+            </div>
+            {validation && (
+              <span className={`check-summary summary-${validation.status}`}>
+                {validation.status}
+              </span>
+            )}
+          </div>
+
+          {validation ? (
+            <div className="validation-checks">
+              {validation.checks.map((check) => (
+                <details key={check.name}>
+                  <summary>
+                    <CheckCircle2 size={15} />
+                    <span>{check.name}</span>
+                    <strong>{(check.durationMs / 1_000).toFixed(1)}s</strong>
+                  </summary>
+                  <pre>{check.output}</pre>
+                </details>
+              ))}
+            </div>
+          ) : (
+            <div className="validation-ready">
+              <FileCheck2 size={22} />
+              <strong>Recorded checks ready</strong>
+              <span>TypeScript, unit and UX tests, production build</span>
+            </div>
+          )}
+
+          <FitnessEvidence
+            baseline={analysis.fitness.baseline}
+            evolved={analysis.fitness.evolved}
+          />
+
+          <div className="validation-actions">
+            {stage === 'approved' && (
+              <button
+                className="approve-action"
+                type="button"
+                onClick={onValidate}
+              >
+                <FileCheck2 size={16} /> Run recorded validation
+              </button>
+            )}
+            {stage === 'validating' && (
+              <button className="approve-action" type="button" disabled>
+                <CircleDashed className="is-spinning" size={16} /> Validating
+              </button>
+            )}
+            {stage === 'validated' && (
+              <button
+                className="approve-action"
+                type="button"
+                onClick={onRelease}
+              >
+                <Rocket size={16} /> Release evolved genome
+              </button>
+            )}
+            {stage === 'releasing' && (
+              <button className="approve-action" type="button" disabled>
+                <CircleDashed className="is-spinning" size={16} /> Releasing
+              </button>
+            )}
+            {stage === 'released' && (
+              <div className="release-confirmation">
+                <CheckCircle2 size={17} /> Mutation survived selection
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExecutionStep({
+  index,
+  label,
+  state,
+}: {
+  index: string;
+  label: string;
+  state: 'pending' | 'active' | 'complete';
+}) {
+  return (
+    <div className={`execution-step step-${state}`}>
+      <span>{state === 'complete' ? <Check size={12} /> : index}</span>
+      <strong>{label}</strong>
+    </div>
+  );
+}
+
+const fitnessMetricLabels: Array<[keyof FitnessBreakdown, string]> = [
+  ['completionRate', 'Completion'],
+  ['navigationEfficiency', 'Navigation'],
+  ['inverseErrorRate', 'Error resistance'],
+  ['featureDiscovery', 'Discovery'],
+  ['inverseTaskDuration', 'Task speed'],
+];
+
+function FitnessEvidence({
+  baseline,
+  evolved,
+}: {
+  baseline: FitnessBreakdown;
+  evolved: FitnessBreakdown;
+}) {
+  return (
+    <div className="fitness-evidence">
+      <div className="artifact-heading">
+        <div>
+          <span>Fitness replay</span>
+          <strong>Before / after metrics</strong>
+        </div>
+        <span className="fitness-gain">
+          +{(evolved.score - baseline.score).toFixed(1)}
+        </span>
+      </div>
+      <div className="fitness-evidence-grid">
+        {fitnessMetricLabels.map(([key, label]) => (
+          <div key={key}>
+            <span>{label}</span>
+            <strong>{baseline[key].toFixed(1)}</strong>
+            <ChevronRight size={12} />
+            <strong>{evolved[key].toFixed(1)}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FossilRow({
+  record,
+  current,
+}: {
+  record: EvolutionRecord;
+  current: boolean;
+}) {
+  const failed = record.outcome === 'failed_selection';
+  return (
+    <tr className="border-t border-line">
+      <td className="px-6 py-5 font-mono">{record.version}</td>
+      <td className="px-6 py-5 text-mist">
+        {record.outcome === 'baseline'
+          ? 'ProjectFlow baseline measured'
+          : 'Promote global task discovery'}
+      </td>
+      <td className="px-6 py-5 text-mist">
+        {record.outcome === 'baseline'
+          ? 'Baseline'
+          : record.outcome === 'survived'
+            ? 'Survived selection'
+            : 'Failed selection'}
+      </td>
+      <td className="px-6 py-5 font-mono text-mist">
+        {record.fitness.score.toFixed(1)}
+      </td>
+      <td className="px-6 py-5 text-right">
+        <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
+          {failed ? 'REJECTED' : current ? 'CURRENT' : 'RETAINED'}
+        </span>
+      </td>
+    </tr>
   );
 }
 

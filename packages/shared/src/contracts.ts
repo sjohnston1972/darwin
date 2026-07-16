@@ -185,6 +185,8 @@ export const ValidationResultSchema = z.object({
   id: z.string().min(1),
   mutationId: z.string().min(1),
   status: z.enum(['passed', 'failed']),
+  source: z.literal('recorded_repository_run'),
+  commit: z.string().min(1),
   checks: z.array(
     z.object({
       name: z.string().min(1),
@@ -204,6 +206,30 @@ export const EvolutionRecordSchema = z.object({
   outcome: z.enum(['baseline', 'survived', 'failed_selection']),
   fitness: FitnessBreakdownSchema,
   recordedAt: z.string().datetime(),
+});
+
+export const MutationDiffSchema = z.object({
+  mutationId: z.string().min(1),
+  source: z.literal('repository_source_comparison'),
+  baseRef: z.string().min(1),
+  targetRef: z.string().min(1),
+  patch: z.string().min(1),
+  generatedAt: z.string().datetime(),
+});
+
+export const MutationValidationResponseSchema = z.object({
+  proposal: MutationProposalSchema,
+  validation: ValidationResultSchema,
+});
+
+export const MutationReleaseResponseSchema = z.object({
+  proposal: MutationProposalSchema,
+  organism: OrganismStateSchema,
+  record: EvolutionRecordSchema,
+});
+
+export const EvolutionTimelineResponseSchema = z.object({
+  records: z.array(EvolutionRecordSchema),
 });
 
 export const HealthResponseSchema = z.object({
@@ -246,6 +272,16 @@ export type MutationDecisionResponse = z.infer<
 >;
 export type DemoResetResponse = z.infer<typeof DemoResetResponseSchema>;
 export type ValidationResult = z.infer<typeof ValidationResultSchema>;
+export type MutationDiff = z.infer<typeof MutationDiffSchema>;
+export type MutationValidationResponse = z.infer<
+  typeof MutationValidationResponseSchema
+>;
+export type MutationReleaseResponse = z.infer<
+  typeof MutationReleaseResponseSchema
+>;
 export type FitnessBreakdown = z.infer<typeof FitnessBreakdownSchema>;
 export type EvolutionRecord = z.infer<typeof EvolutionRecordSchema>;
+export type EvolutionTimelineResponse = z.infer<
+  typeof EvolutionTimelineResponseSchema
+>;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;

@@ -1,12 +1,19 @@
 import {
   DemoResetResponseSchema,
   EvolutionAnalysisResponseSchema,
+  EvolutionTimelineResponseSchema,
+  MutationDiffSchema,
   MutationDecisionResponseSchema,
+  MutationReleaseResponseSchema,
+  MutationValidationResponseSchema,
   OrganismStateSchema,
   SimulationCreateResponseSchema,
   type EvolutionAnalysisResponse,
+  type EvolutionRecord,
+  type MutationDiff,
   type OrganismState,
   type SimulationSummary,
+  type ValidationResult,
 } from '@darwin/shared';
 import { useEffect, useRef, useState } from 'react';
 import type { z } from 'zod';
@@ -42,6 +49,10 @@ export type DemoStage =
   | 'proposal'
   | 'deciding'
   | 'approved'
+  | 'validating'
+  | 'validated'
+  | 'releasing'
+  | 'released'
   | 'rejected'
   | 'resetting'
   | 'error';
@@ -87,18 +98,27 @@ export function useEvolutionDemo() {
   const [analysis, setAnalysis] = useState<EvolutionAnalysisResponse | null>(
     null,
   );
+  const [mutationDiff, setMutationDiff] = useState<MutationDiff | null>(null);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [timeline, setTimeline] = useState<EvolutionRecord[]>([]);
   const [organism, setOrganism] = useState<OrganismState>(baselineOrganism);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
 
   useEffect(() => {
     const controller = new AbortController();
-    request('/api/organism/state', OrganismStateSchema, {
-      signal: controller.signal,
-    })
-      .then((state) => {
+    Promise.all([
+      request('/api/organism/state', OrganismStateSchema, {
+        signal: controller.signal,
+      }),
+      request('/api/evolution/timeline', EvolutionTimelineResponseSchema, {
+        signal: controller.signal,
+      }),
+    ])
+      .then(([state, history]) => {
         setOrganism(state);
-        if (state.variant === 'evolved') setStage('approved');
+        setTimeline(history.records);
+        if (state.variant === 'evolved') setStage('released');
       })
       .catch((requestError: unknown) => {
         if (
@@ -118,6 +138,8 @@ export function useEvolutionDemo() {
     setEventCount(0);
     setSummary(null);
     setAnalysis(null);
+    setMutationDiff(null);
+    setValidation(null);
     setError(null);
     setOrganism(baselineOrganism);
 
@@ -155,6 +177,11 @@ export function useEvolutionDemo() {
 
       if (generation.current !== runGeneration) return;
       setAnalysis(result);
+      const history = await request(
+        '/api/evolution/timeline',
+        EvolutionTimelineResponseSchema,
+      );
+      setTimeline(history.records);
       setStage('proposal');
     } catch (requestError) {
       if (generation.current !== runGeneration) return;
@@ -180,12 +207,78 @@ export function useEvolutionDemo() {
       );
       setAnalysis({ ...analysis, proposal: result.proposal });
       setOrganism(result.organism);
-      setStage(decision === 'approve' ? 'approved' : 'rejected');
+      if (decision === 'approve') {
+        const diff = await request(
+          `/api/mutations/${encodeURIComponent(analysis.proposal.id)}/diff`,
+          MutationDiffSchema,
+        );
+        setMutationDiff(diff);
+        setStage('approved');
+      } else {
+        const history = await request(
+          '/api/evolution/timeline',
+          EvolutionTimelineResponseSchema,
+        );
+        setTimeline(history.records);
+        setStage('rejected');
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
           : 'Mutation decision failed unexpectedly.',
+      );
+      setStage('error');
+    }
+  };
+
+  const validate = async () => {
+    if (!analysis || stage !== 'approved') return;
+    setStage('validating');
+    setError(null);
+
+    try {
+      const result = await request(
+        `/api/mutations/${encodeURIComponent(analysis.proposal.id)}/validate`,
+        MutationValidationResponseSchema,
+        { method: 'POST' },
+      );
+      setAnalysis({ ...analysis, proposal: result.proposal });
+      setValidation(result.validation);
+      setStage(result.validation.status === 'passed' ? 'validated' : 'error');
+      if (result.validation.status === 'failed') {
+        setError('The mutation failed recorded repository validation.');
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Mutation validation failed unexpectedly.',
+      );
+      setStage('error');
+    }
+  };
+
+  const release = async () => {
+    if (!analysis || stage !== 'validated') return;
+    setStage('releasing');
+    setError(null);
+
+    try {
+      const result = await request(
+        `/api/mutations/${encodeURIComponent(analysis.proposal.id)}/release`,
+        MutationReleaseResponseSchema,
+        { method: 'POST' },
+      );
+      setAnalysis({ ...analysis, proposal: result.proposal });
+      setOrganism(result.organism);
+      setTimeline((current) => [...current, result.record]);
+      setStage('released');
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Mutation release failed unexpectedly.',
       );
       setStage('error');
     }
@@ -203,6 +296,9 @@ export function useEvolutionDemo() {
       setEventCount(0);
       setSummary(null);
       setAnalysis(null);
+      setMutationDiff(null);
+      setValidation(null);
+      setTimeline([]);
       setOrganism(result.organism);
       setStage('idle');
     } catch (requestError) {
@@ -220,10 +316,15 @@ export function useEvolutionDemo() {
     decide,
     error,
     eventCount,
+    mutationDiff,
     observe,
     organism,
+    release,
     reset,
     stage,
     summary,
+    timeline,
+    validate,
+    validation,
   };
 }

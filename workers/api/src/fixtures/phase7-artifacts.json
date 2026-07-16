@@ -1,0 +1,46 @@
+{
+  "validation": {
+    "id": "validation-global-task-discovery-v1",
+    "mutationId": "mutation-global-task-discovery-v1",
+    "status": "passed",
+    "source": "recorded_repository_run",
+    "commit": "a25ed09",
+    "checks": [
+      {
+        "name": "TypeScript workspace check",
+        "status": "passed",
+        "durationMs": 4309,
+        "output": "> darwin@0.1.0 typecheck\n> npm run typecheck --workspaces --if-present\n\n\n> @darwin/shared@0.1.0 typecheck\n> tsc --noEmit\n\n\n> @darwin/api@0.1.0 typecheck\n> tsc --noEmit\n\n\n> @darwin/web@0.1.0 typecheck\n> tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"
+      },
+      {
+        "name": "Unit and UX component tests",
+        "status": "passed",
+        "durationMs": 4686,
+        "output": "> darwin@0.1.0 test\n> npm run test --workspaces --if-present\n\n\n> @darwin/shared@0.1.0 test\n> vitest run\n\n\n RUN  v3.2.7 <repository>/packages/shared\n\n ✓ src/contracts.test.ts (2 tests) 3ms\n\n Test Files  1 passed (1)\n      Tests  2 passed (2)\n   Start at  16:08:28\n   Duration  298ms (transform 39ms, setup 0ms, collect 53ms, tests 3ms, environment 0ms, prepare 90ms)\n\n\n> @darwin/api@0.1.0 test\n> vitest run\n\n\n RUN  v3.2.7 <repository>/workers/api\n\n ✓ src/evolution/evolution.test.ts (7 tests) 29ms\n ✓ src/simulation/simulate.test.ts (4 tests) 168ms\n ✓ src/index.test.ts (8 tests) 197ms\n\n Test Files  3 passed (3)\n      Tests  19 passed (19)\n   Start at  16:08:29\n   Duration  579ms (transform 192ms, setup 0ms, collect 411ms, tests 394ms, environment 0ms, prepare 280ms)\n\n\n> @darwin/web@0.1.0 test\n> vitest run\n\n\n RUN  v3.2.7 <repository>/apps/web\n\n ✓ src/projectflow/ProjectFlow.test.tsx (2 tests) 199ms\n ✓ src/App.test.tsx (2 tests) 631ms\n   ✓ Darwin control room > approves, validates, releases, records, and resets the mutation  439ms\n\n Test Files  2 passed (2)\n      Tests  4 passed (4)\n   Start at  16:08:30\n   Duration  2.02s (transform 200ms, setup 343ms, collect 375ms, tests 831ms, environment 904ms, prepare 174ms)"
+      },
+      {
+        "name": "Production build",
+        "status": "passed",
+        "durationMs": 6043,
+        "output": "> darwin@0.1.0 build\n> npm run build -w @darwin/shared && npm run build -w @darwin/api && npm run build -w @darwin/web\n\n\n> @darwin/shared@0.1.0 build\n> tsc -p tsconfig.build.json\n\n\n> @darwin/api@0.1.0 build\n> wrangler deploy --dry-run --outdir dist\n\n\n ⛅️ wrangler 4.111.0\n────────────────────\nTotal Upload: 181.85 KiB / gzip: 33.29 KiB\nYour Worker has access to the following bindings:\nBinding                                 Resource                  \nenv.DARWIN_AI_MODE (\"mock\")             Environment Variable      \nenv.OPENAI_MODEL (\"gpt-5.6\")            Environment Variable      \nenv.OPENAI_TIMEOUT_MS (\"12000\")         Environment Variable      \nenv.DARWIN_DEMO_SEED (\"1859\")           Environment Variable      \nenv.DARWIN_EVENT_COUNT (\"10000\")        Environment Variable      \n\n--dry-run: exiting now.\n\n> @darwin/web@0.1.0 build\n> tsc -b && vite build\n\nvite v7.3.6 building client environment for production...\ntransforming...\n✓ 1598 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.62 kB │ gzip:  0.37 kB\ndist/assets/index-DrMsj9Fk.css   48.67 kB │ gzip: 10.75 kB\ndist/assets/index-C_Dhq62v.js   315.85 kB │ gzip: 91.21 kB\n✓ built in 2.01s"
+      }
+    ],
+    "fitness": {
+      "score": 87.4,
+      "completionRate": 94.5,
+      "navigationEfficiency": 71.4,
+      "inverseErrorRate": 98.2,
+      "featureDiscovery": 94.8,
+      "inverseTaskDuration": 75.1
+    },
+    "recordedAt": "2026-07-16T15:08:38.922Z"
+  },
+  "diff": {
+    "mutationId": "mutation-global-task-discovery-v1",
+    "source": "repository_source_comparison",
+    "baseRef": "apps/web/src/projectflow/genomes/baseline.ts",
+    "targetRef": "apps/web/src/projectflow/genomes/evolved.ts",
+    "patch": "diff --git a/apps/web/src/projectflow/genomes/baseline.ts b/apps/web/src/projectflow/genomes/evolved.ts\nindex 765faac..bb5ec97 100644\n--- a/apps/web/src/projectflow/genomes/baseline.ts\n+++ b/apps/web/src/projectflow/genomes/evolved.ts\n@@ -1,17 +1,16 @@\n import type { ProjectFlowGenome } from './types';\n \n-export const baselineGenome: ProjectFlowGenome = {\n-  version: 'v1.0',\n-  initialRoute: 'dashboard',\n-  taskDestination: 'tasks',\n-  globalSearch: false,\n-  globalQuickCreate: false,\n-  showIndirectTaskPath: true,\n+export const evolvedGenome: ProjectFlowGenome = {\n+  version: 'v1.1',\n+  initialRoute: 'my-work',\n+  taskDestination: 'my-work',\n+  globalSearch: true,\n+  globalQuickCreate: true,\n+  showIndirectTaskPath: false,\n   navigation: [\n-    { route: 'dashboard', label: 'Dashboard', icon: 'home' },\n+    { route: 'my-work', label: 'My Work', icon: 'my-work', count: 4 },\n     { route: 'projects', label: 'Projects', icon: 'projects', count: 4 },\n-    { route: 'tasks', label: 'Tasks', icon: 'tasks', count: 26 },\n-    { route: 'reports', label: 'Reports', icon: 'reports' },\n+    { route: 'insights', label: 'Insights', icon: 'insights' },\n     { route: 'settings', label: 'Settings', icon: 'settings' },\n   ],\n };",
+    "generatedAt": "2026-07-16T15:08:38.922Z"
+  }
+}

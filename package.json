@@ -13,6 +13,7 @@
     "bootstrap": "node scripts/bootstrap.mjs",
     "dev": "concurrently -n api,web -c green,cyan \"npm run dev -w @darwin/api\" \"npm run dev -w @darwin/web\"",
     "simulate": "npm run simulate -w @darwin/api --",
+    "validate:record": "tsx scripts/record-validation.ts",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write \"apps/**/*.{ts,tsx,css,html,json}\" \"workers/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,js}\"",
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,json}\" \"workers/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,js}\"",

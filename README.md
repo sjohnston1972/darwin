@@ -33,8 +33,11 @@ npm run dev
 npm run simulate
 npm run test
 npm run build
+npm run validate:record
 npm run deploy
 ```
+
+`npm run validate:record` runs the repository typecheck, tests, and production build, replays deterministic fitness, and regenerates the checked-in validation and ProjectFlow genome-diff artifact used by the hosted demo. The UI labels this evidence as a recorded repository run; the Worker never claims to execute shell commands in production.
 
 ## Evolution analyzer
 
