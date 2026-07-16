@@ -1,0 +1,15 @@
+name = "darwin-api"
+main = "workers/api/src/index.ts"
+compatibility_date = "2026-07-01"
+
+[vars]
+DARWIN_AI_MODE = "mock"
+OPENAI_MODEL = "gpt-5.6"
+DARWIN_DEMO_SEED = "1859"
+DARWIN_EVENT_COUNT = "10000"
+
+# Create and bind after initial deployment:
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "darwin"
+# database_id = "REPLACE_ME"
