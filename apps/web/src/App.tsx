@@ -598,7 +598,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.5.0</p>
+            <p className="font-mono">DARWIN CORE 0.6.0</p>
           </footer>
         </div>
       </main>
@@ -618,6 +618,14 @@ const stageLabel = (stage: DemoStage) => {
     error: 'Evolution cycle interrupted',
   };
   return labels[stage];
+};
+
+const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
+  if (analysis.mode === 'live') return `${analysis.model} live`;
+  if (analysis.mode === 'fallback') {
+    return `Mock fallback · ${analysis.fallbackReason?.replaceAll('_', ' ') ?? 'unavailable'}`;
+  }
+  return 'Deterministic mock';
 };
 
 function ObservationPanel({
@@ -820,8 +828,12 @@ function MutationWorkspace({
             One controlled mutation proposed
           </h2>
         </div>
-        <div className="analysis-mode">
-          <FlaskConical size={14} /> {analysis.mode} analyzer
+        <div
+          className={`analysis-mode mode-${analysis.mode}`}
+          title={`Analysis model: ${analysis.model}`}
+        >
+          <FlaskConical size={14} />
+          <span>{analysisModeLabel(analysis)}</span>
         </div>
       </div>
 

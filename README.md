@@ -36,6 +36,21 @@ npm run build
 npm run deploy
 ```
 
+## Evolution analyzer
+
+Deterministic mock analysis is the default and requires no API key. To run the optional live GPT-5.6 analyzer locally, create `workers/api/.dev.vars`:
+
+```dotenv
+DARWIN_AI_MODE=live
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=gpt-5.6
+OPENAI_TIMEOUT_MS=12000
+DARWIN_DEMO_SEED=1859
+DARWIN_EVENT_COUNT=10000
+```
+
+Restart `npm run dev` after changing analyzer configuration. The control room labels every result as live, deterministic mock, or mock fallback. Live failures fall back automatically so the demo remains operable.
+
 ## Target deployment
 
 - Web: Cloudflare Pages

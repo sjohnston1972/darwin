@@ -216,6 +216,49 @@ Known issues:
 Next phase:
 - Phase 6 — GPT-5.6 integration.
 
+### Phase 6 — GPT-5.6 integration
+Date: 2026-07-16
+
+Completed:
+- Added `OpenAIEvolutionAnalyzer` behind the existing `EvolutionAnalyzer` interface with a Worker-native Responses API client.
+- Added strict JSON-schema structured output for the shared `MutationProposal` contract and a second Zod validation boundary.
+- Restricted live proposals to low risk, proposed status, and the two allow-listed ProjectFlow mutation files.
+- Sent only aggregate telemetry, ranked findings, fitness and mutation policy to the model; raw telemetry events remain local.
+- Added configurable model and timeout handling through `OPENAI_MODEL` and `OPENAI_TIMEOUT_MS`.
+- Kept deterministic mock mode as the default and added automatic fallback for missing keys, timeouts, API errors and invalid responses.
+- Added metadata-only analysis logging for model, response/request IDs, duration, outcome and fallback reason without prompts, responses or secrets.
+- Extended shared analysis responses with `mock`, `live`, and `fallback` modes, model identity, and typed fallback reasons.
+- Updated the control room to display deterministic mock, live GPT-5.6, or mock fallback state.
+- Documented local live-mode setup in `README.md` and aligned the versioned evolution prompt with the runtime safety boundary.
+- Updated API health and dashboard version labels to `0.6.0`.
+
+Verification commands:
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+```
+
+Results:
+- Mock mode remained the zero-configuration default and completed the full control-room flow without an API key.
+- A simulated GPT-5.6 Responses API result passed strict JSON-schema parsing, allow-list enforcement, Zod validation and the complete API response schema.
+- Timeout, HTTP failure and missing-key cases returned deterministic mock proposals with typed fallback reasons.
+- Logging tests confirmed API keys and proposal content are absent from analysis metadata.
+- `npm run test`: passed; 6 test files and 25 tests across all workspaces.
+- `npm run typecheck`, `npm run lint`, and `npm run format:check`: passed.
+- `npm run build`: passed; the Worker bundle was 171.58 KiB (30.91 KiB gzip) and the web production bundle completed successfully.
+- The live local Worker returned API version `0.6.0`, mock mode, deterministic model identity, exactly 10,000 events and baseline fitness 66.6.
+
+Known issues:
+- A real billable GPT-5.6 request requires an operator-provided `OPENAI_API_KEY`; automated verification uses a schema-accurate Responses API fixture.
+- Validation output, the repository diff viewer, and the persistent fossil-record timeline remain scheduled for Phase 7.
+- Demo state remains in Worker memory until the D1 persistence phase.
+
+Next phase:
+- Phase 7 — Validation and fossil record.
+
 ## Entry template
 
 ### Phase N — Name

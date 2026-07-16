@@ -116,6 +116,13 @@ interface EvolutionAnalyzer {
 
 The API chooses mock or OpenAI implementation based on environment variables.
 
+- `DARWIN_AI_MODE=mock` is the default and never makes an external request.
+- `DARWIN_AI_MODE=live` with `OPENAI_API_KEY` calls the OpenAI Responses API using `OPENAI_MODEL` and strict JSON-schema output.
+- Live input contains aggregate telemetry, ranked findings, fitness and the mutation allow-list; raw events and secrets are never included.
+- Live output is validated by the shared Zod schema and checked against the file allow-list before entering the approval workflow.
+- Missing credentials, timeouts, API errors and invalid responses fall back to the deterministic mock analyzer and expose the fallback reason to the UI.
+- Logs contain model, response/request IDs, duration and outcome only. Prompt content, response content and credentials are not logged.
+
 ## Mutation implementation
 For MVP reliability, implement two complementary paths:
 

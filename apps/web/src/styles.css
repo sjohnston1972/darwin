@@ -323,6 +323,16 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
+.analysis-mode.mode-live {
+  border-color: #718f4c;
+  color: #b9f36b;
+}
+
+.analysis-mode.mode-fallback {
+  border-color: #715f3f;
+  color: #e7b85b;
+}
+
 .stream-dot {
   width: 6px;
   height: 6px;

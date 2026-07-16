@@ -67,6 +67,7 @@ const proposal = {
 } as const;
 const analysis = {
   mode: 'mock',
+  model: 'deterministic-mock',
   fitness: {
     baseline: {
       score: 66.6,
@@ -117,7 +118,7 @@ const installApiMock = () => {
       return jsonResponse({
         status: 'ok',
         service: 'darwin-api',
-        version: '0.5.0',
+        version: '0.6.0',
         timestamp,
       });
     }
@@ -193,6 +194,7 @@ describe('Darwin control room', () => {
         name: 'One controlled mutation proposed',
       }),
     ).toBeInTheDocument();
+    expect(screen.getByText('Deterministic mock')).toBeInTheDocument();
     expect(
       screen.getByText('Assigned tasks are difficult to locate'),
     ).toBeInTheDocument();

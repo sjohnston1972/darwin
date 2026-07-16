@@ -6,12 +6,16 @@ import {
   OrganismStateSchema,
   SimulationSummarySchema,
 } from '@darwin/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { handleRequest, resetSimulationStore } from './index';
 
 describe('Darwin API', () => {
   beforeEach(() => resetSimulationStore());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   it('returns a schema-valid health response', async () => {
     const response = await handleRequest(
@@ -98,8 +102,68 @@ describe('Darwin API', () => {
     expect(analysis.fitness.baseline.score).toBeLessThan(
       analysis.fitness.evolved.score,
     );
+    expect(analysis).toMatchObject({
+      mode: 'mock',
+      model: 'deterministic-mock',
+    });
     expect(analysis.findings[0]?.id).toBe('finding-task-discovery');
     expect(analysis.proposal.id).toBe('mutation-global-task-discovery-v1');
+  });
+
+  it('returns a schema-valid live analysis when GPT-5.6 mode succeeds', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    await handleRequest(
+      new Request('http://localhost/api/simulations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+      }),
+    );
+    const mockResponse = await handleRequest(
+      new Request('http://localhost/api/evolution/analyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
+      }),
+    );
+    const mockAnalysis = EvolutionAnalysisResponseSchema.parse(
+      await mockResponse.json(),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 'resp_api_live',
+            output_text: JSON.stringify(mockAnalysis.proposal),
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const response = await handleRequest(
+      new Request('http://localhost/api/evolution/analyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
+      }),
+      {
+        DARWIN_AI_MODE: 'live',
+        OPENAI_API_KEY: 'sk-test-secret',
+        OPENAI_MODEL: 'gpt-5.6',
+      },
+    );
+    const analysis = EvolutionAnalysisResponseSchema.parse(
+      await response.json(),
+    );
+
+    expect(analysis).toMatchObject({
+      mode: 'live',
+      model: 'gpt-5.6',
+      proposal: { status: 'proposed' },
+    });
+    expect(JSON.stringify(analysis)).not.toContain('sk-test-secret');
   });
 
   it('requires one explicit mutation decision and reset restores the baseline', async () => {

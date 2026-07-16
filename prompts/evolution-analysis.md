@@ -20,8 +20,14 @@ Your task is to analyse aggregated application telemetry and propose exactly one
 4. Select one mutation based on expected impact, confidence, cost and risk.
 5. Define how the mutation will be validated.
 
+## Supplied input
+- aggregated telemetry summary, never raw user interactions
+- ranked selection-pressure findings and evidence
+- deterministic baseline/evolved fitness comparison
+- controlled mutation policy with an explicit file allow-list
+
 ## Output
-Return JSON only, matching the provided schema. Include:
+Return structured output matching the supplied strict JSON schema. Include:
 - id
 - name
 - observation
@@ -34,4 +40,6 @@ Return JSON only, matching the provided schema. Include:
 - affectedFiles
 - status
 
-Do not include Markdown or chain-of-thought.
+`risk` must be `low`, `status` must be `proposed`, and every affected file must be in the supplied allow-list.
+
+Do not include Markdown or chain-of-thought. The API validates the proposal again before it can enter the approval workflow.

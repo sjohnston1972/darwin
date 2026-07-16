@@ -14,8 +14,8 @@ import {
 import { simulate } from './simulation';
 import {
   EvolutionAnalysisError,
-  MockEvolutionAnalyzer,
   compareFitness,
+  executeEvolutionAnalysis,
   rankFrictionFindings,
 } from './evolution';
 
@@ -23,7 +23,9 @@ export interface Env {
   DARWIN_AI_MODE: string;
   DARWIN_DEMO_SEED: string;
   DARWIN_EVENT_COUNT: string;
+  OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
+  OPENAI_TIMEOUT_MS: string;
 }
 
 const corsHeaders = {
@@ -75,7 +77,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.5.0',
+      version: '0.6.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -186,18 +188,28 @@ export const handleRequest = async (
     const findings = rankFrictionFindings(baseline);
 
     try {
-      const proposal = await new MockEvolutionAnalyzer().analyse({
-        summary: baseline.summary,
-        findings,
-        fitness,
-      });
+      const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
+      const timeoutMs = Number.isFinite(configuredTimeout)
+        ? Math.min(30_000, Math.max(1_000, configuredTimeout))
+        : 12_000;
+      const analysis = await executeEvolutionAnalysis(
+        { summary: baseline.summary, findings, fitness },
+        {
+          requestedMode: env?.DARWIN_AI_MODE,
+          apiKey: env?.OPENAI_API_KEY,
+          model: env?.OPENAI_MODEL,
+          timeoutMs,
+        },
+      );
       const response = EvolutionAnalysisResponseSchema.parse({
-        mode: 'mock',
+        mode: analysis.mode,
+        model: analysis.model,
+        fallbackReason: analysis.fallbackReason,
         fitness,
         findings,
-        proposal,
+        proposal: analysis.proposal,
       });
-      mutationStore.set(proposal.id, proposal);
+      mutationStore.set(analysis.proposal.id, analysis.proposal);
       return json(response);
     } catch (error) {
       if (error instanceof EvolutionAnalysisError) {

@@ -145,8 +145,19 @@ export const EvolutionAnalysisRequestSchema = z.object({
   simulationId: z.string().min(1),
 });
 
+export const AnalysisModeSchema = z.enum(['mock', 'live', 'fallback']);
+
+export const AnalysisFallbackReasonSchema = z.enum([
+  'missing_api_key',
+  'timeout',
+  'api_error',
+  'invalid_response',
+]);
+
 export const EvolutionAnalysisResponseSchema = z.object({
-  mode: z.literal('mock'),
+  mode: AnalysisModeSchema,
+  model: z.string().min(1),
+  fallbackReason: AnalysisFallbackReasonSchema.optional(),
   fitness: FitnessComparisonSchema,
   findings: z.array(FrictionFindingSchema).min(1),
   proposal: MutationProposalSchema,
@@ -221,6 +232,10 @@ export type MutationProposal = z.infer<typeof MutationProposalSchema>;
 export type FitnessComparison = z.infer<typeof FitnessComparisonSchema>;
 export type EvolutionAnalysisRequest = z.infer<
   typeof EvolutionAnalysisRequestSchema
+>;
+export type AnalysisMode = z.infer<typeof AnalysisModeSchema>;
+export type AnalysisFallbackReason = z.infer<
+  typeof AnalysisFallbackReasonSchema
 >;
 export type EvolutionAnalysisResponse = z.infer<
   typeof EvolutionAnalysisResponseSchema
