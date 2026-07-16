@@ -1,6 +1,8 @@
 import {
+  CodexImplementationManifestSchema,
   DemoResetResponseSchema,
   EvidencePackSchema,
+  EvidenceAnalysisSchema,
   EvolutionAnalysisResponseSchema,
   EvolutionTimelineResponseSchema,
   HealthResponseSchema,
@@ -199,6 +201,113 @@ describe('Darwin API', () => {
     );
     const latest = EvidencePackSchema.parse(await latestResponse.json());
     expect(latest.evidenceHash).toBe(generated.evidenceHash);
+  });
+
+  it('caches evidence analysis and creates a bounded Codex manifest', async () => {
+    const attemptId = 'attempt-analysis-test';
+    const taskId = 'find-assigned-task';
+    const event = (
+      sequence: number,
+      eventType: string,
+      details: Record<string, unknown> = {},
+    ) => ({
+      ...studyEvent,
+      eventId: `00000000-0000-4000-8000-${(sequence + 201)
+        .toString()
+        .padStart(12, '0')}`,
+      occurredAt: `2026-07-16T12:01:${sequence
+        .toString()
+        .padStart(2, '0')}.000Z`,
+      sequence,
+      eventType,
+      ...details,
+    });
+    const events = [
+      event(0, 'task_started', { taskAttemptId: attemptId, taskId }),
+      event(1, 'element_clicked', {
+        targetId: 'nav-projects',
+        taskAttemptId: attemptId,
+        taskId,
+      }),
+      event(2, 'route_changed', {
+        route: '/study/projects',
+        properties: { fromRoute: '/study/dashboard' },
+      }),
+      event(3, 'element_clicked', {
+        route: '/study/projects',
+        targetId: 'project-open-apollo',
+        taskAttemptId: attemptId,
+        taskId,
+      }),
+      event(4, 'route_changed', {
+        route: '/study/projects/apollo',
+        properties: { fromRoute: '/study/projects' },
+      }),
+      event(5, 'element_clicked', {
+        route: '/study/projects/apollo',
+        targetId: 'project-tasks-open',
+        taskAttemptId: attemptId,
+        taskId,
+      }),
+      event(6, 'route_changed', {
+        route: '/study/projects/apollo/tasks',
+        properties: { fromRoute: '/study/projects/apollo' },
+      }),
+      event(7, 'element_clicked', {
+        route: '/study/projects/apollo/tasks',
+        targetId: 'task-open-apl-241',
+        taskAttemptId: attemptId,
+        taskId,
+      }),
+      event(8, 'task_completed', {
+        route: '/study/projects/apollo/tasks',
+        taskAttemptId: attemptId,
+        taskId,
+        durationMs: 8_000,
+        outcome: 'success',
+      }),
+    ];
+    await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({ events }),
+      }),
+    );
+    await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence',
+        { method: 'POST' },
+      ),
+    );
+
+    const analysisPath =
+      'http://localhost/api/studies/projectflow-baseline-study/analyse-evidence';
+    const firstResponse = await handleRequest(
+      new Request(analysisPath, { method: 'POST' }),
+    );
+    const first = EvidenceAnalysisSchema.parse(await firstResponse.json());
+    const secondResponse = await handleRequest(
+      new Request(analysisPath, { method: 'POST' }),
+    );
+    const second = EvidenceAnalysisSchema.parse(await secondResponse.json());
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(200);
+    expect(second).toEqual(first);
+    expect(first.selectedMutation.evidenceIds).toContain('EV-001');
+
+    const manifestResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/evidence-analyses/${first.analysisId}/codex-manifest`,
+        { method: 'POST' },
+      ),
+      { DARWIN_REPOSITORY_COMMIT: 'c75e37d' },
+    );
+    const manifest = CodexImplementationManifestSchema.parse(
+      await manifestResponse.json(),
+    );
+    expect(manifest.repositoryCommit).toBe('c75e37d');
+    expect(JSON.stringify(manifest)).not.toContain('participantId');
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

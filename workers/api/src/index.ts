@@ -1,5 +1,7 @@
 import {
+  CodexImplementationManifestSchema,
   DemoResetResponseSchema,
+  EvidenceAnalysisSchema,
   EvidencePackSchema,
   EvolutionTimelineResponseSchema,
   EvolutionAnalysisRequestSchema,
@@ -36,6 +38,12 @@ import {
 } from './evolution';
 import { getTelemetryRepository } from './persistence/telemetry-repository';
 import { buildEvidencePack } from './evidence';
+import {
+  EvidenceReasoningError,
+  analyseEvidence,
+  analysisCacheKey,
+  buildCodexManifest,
+} from './reasoning';
 
 export interface Env {
   DB?: D1Database;
@@ -45,6 +53,7 @@ export interface Env {
   OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
   OPENAI_TIMEOUT_MS: string;
+  DARWIN_REPOSITORY_COMMIT: string;
 }
 
 const corsHeaders = {
@@ -108,7 +117,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.10.0',
+      version: '0.11.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -265,6 +274,103 @@ export const handleRequest = async (
       );
     }
     return json(EvidencePackSchema.parse(pack));
+  }
+
+  const analyseEvidenceMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/analyse-evidence$/,
+  );
+  if (request.method === 'POST' && analyseEvidenceMatch) {
+    const studyId = decodeURIComponent(analyseEvidenceMatch[1]!);
+    const pack = await telemetryRepository.getLatestEvidence(studyId);
+    if (!pack || !pack.frictionSignals.length) {
+      return json(
+        {
+          error: 'insufficient_evidence',
+          message: 'A friction-bearing evidence pack is required.',
+        },
+        { status: 409 },
+      );
+    }
+    const model = env?.OPENAI_MODEL || 'gpt-5.6';
+    const cacheKey = await analysisCacheKey(pack.evidenceHash, model);
+    const cached =
+      await telemetryRepository.getEvidenceAnalysisByCacheKey(cacheKey);
+    if (cached) return json(EvidenceAnalysisSchema.parse(cached));
+
+    try {
+      const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
+      const analysis = await analyseEvidence(pack, {
+        requestedMode: env?.DARWIN_AI_MODE,
+        apiKey: env?.OPENAI_API_KEY,
+        model,
+        timeoutMs: Number.isFinite(configuredTimeout)
+          ? Math.min(30_000, Math.max(1_000, configuredTimeout))
+          : 12_000,
+      });
+      await telemetryRepository.saveEvidenceAnalysis(studyId, analysis);
+      return json(EvidenceAnalysisSchema.parse(analysis), { status: 201 });
+    } catch (error) {
+      if (error instanceof EvidenceReasoningError) {
+        return json(
+          { error: 'analysis_failed', message: error.message },
+          { status: 422 },
+        );
+      }
+      throw error;
+    }
+  }
+
+  const latestEvidenceAnalysisMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/evidence-analysis\/latest$/,
+  );
+  if (request.method === 'GET' && latestEvidenceAnalysisMatch) {
+    const studyId = decodeURIComponent(latestEvidenceAnalysisMatch[1]!);
+    const analysis =
+      await telemetryRepository.getLatestEvidenceAnalysis(studyId);
+    if (!analysis) {
+      return json(
+        { error: 'not_found', message: 'No evidence analysis exists.' },
+        { status: 404 },
+      );
+    }
+    return json(EvidenceAnalysisSchema.parse(analysis));
+  }
+
+  const codexManifestMatch = pathname.match(
+    /^\/api\/evidence-analyses\/([^/]+)\/codex-manifest$/,
+  );
+  if (codexManifestMatch) {
+    const analysisId = decodeURIComponent(codexManifestMatch[1]!);
+    const existing = await telemetryRepository.getCodexManifest(analysisId);
+    if (request.method === 'GET') {
+      if (!existing) {
+        return json(
+          { error: 'not_found', message: 'Codex manifest was not found.' },
+          { status: 404 },
+        );
+      }
+      return json(CodexImplementationManifestSchema.parse(existing));
+    }
+    if (request.method === 'POST') {
+      if (existing)
+        return json(CodexImplementationManifestSchema.parse(existing));
+      const analysis =
+        await telemetryRepository.getEvidenceAnalysis(analysisId);
+      if (!analysis) {
+        return json(
+          { error: 'not_found', message: 'Evidence analysis was not found.' },
+          { status: 404 },
+        );
+      }
+      const manifest = await buildCodexManifest(
+        analysis,
+        env?.DARWIN_REPOSITORY_COMMIT || 'working-tree',
+      );
+      await telemetryRepository.saveCodexManifest(manifest);
+      return json(CodexImplementationManifestSchema.parse(manifest), {
+        status: 201,
+      });
+    }
   }
 
   const studySessionMatch = pathname.match(

@@ -12,10 +12,12 @@ import {
   Activity,
   AlertTriangle,
   Box,
+  BrainCircuit,
   Check,
   CheckCircle2,
   ChevronRight,
   CircleDashed,
+  ClipboardCheck,
   Code2,
   Database,
   FileCheck2,
@@ -628,7 +630,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.10.0</p>
+            <p className="font-mono">DARWIN CORE 0.11.0</p>
           </footer>
         </div>
       </main>
@@ -828,6 +830,126 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
               <p className="no-signals">
                 No detector threshold was crossed by the current real sample.
               </p>
+            )}
+          </div>
+          <div className="reasoning-workspace">
+            <div className="reasoning-heading">
+              <div>
+                <span className="section-label">Bounded model reasoning</span>
+                <strong>Evidence-backed mutation analysis</strong>
+                <p>
+                  One structured call per evidence hash. Unknown citations and
+                  protected scope are rejected.
+                </p>
+              </div>
+              <button
+                className="primary-action evidence-action"
+                type="button"
+                disabled={
+                  !telemetry.evidence.frictionSignals.length ||
+                  telemetry.analysing
+                }
+                onClick={() => void telemetry.analyseEvidence()}
+              >
+                {telemetry.analysing ? (
+                  <CircleDashed className="is-spinning" size={15} />
+                ) : (
+                  <BrainCircuit size={15} />
+                )}
+                {telemetry.analysing
+                  ? 'Reasoning over evidence'
+                  : telemetry.analysis
+                    ? 'Re-run cached analysis'
+                    : 'Generate mutation'}
+              </button>
+            </div>
+            {telemetry.analysis && (
+              <div className="analysis-result">
+                <div className="analysis-audit-line">
+                  <span>{telemetry.analysis.mode}</span>
+                  <code>{telemetry.analysis.model}</code>
+                  <code>prompt {telemetry.analysis.promptVersion}</code>
+                  <code>{telemetry.analysis.cacheKey.slice(0, 16)}...</code>
+                </div>
+                <div className="selected-mutation">
+                  <div className="mutation-rank">SELECTED</div>
+                  <div>
+                    <h3>{telemetry.analysis.selectedMutation.title}</h3>
+                    <p>{telemetry.analysis.selectedMutation.hypothesis}</p>
+                    <div className="mutation-citations">
+                      {telemetry.analysis.selectedMutation.evidenceIds.map(
+                        (id) => (
+                          <span key={id}>{id}</span>
+                        ),
+                      )}
+                      <span>
+                        {Math.round(
+                          telemetry.analysis.selectedMutation.confidence * 100,
+                        )}
+                        % confidence
+                      </span>
+                      <span>
+                        {
+                          telemetry.analysis.selectedMutation.predictedImpact
+                            .metric
+                        }{' '}
+                        {
+                          telemetry.analysis.selectedMutation.predictedImpact
+                            .direction
+                        }
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {telemetry.analysis.alternatives.length > 0 && (
+                  <div className="mutation-alternatives">
+                    <span>Alternatives considered</span>
+                    {telemetry.analysis.alternatives.map((candidate) => (
+                      <div key={candidate.id}>
+                        <strong>{candidate.title}</strong>
+                        <code>{candidate.evidenceIds.join(', ')}</code>
+                        <span>{Math.round(candidate.confidence * 100)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="codex-handoff">
+                  <div>
+                    <ClipboardCheck size={17} />
+                    <div>
+                      <strong>Controlled Codex handoff</strong>
+                      <span>
+                        Selected brief, allow-list, evidence citations and
+                        validation commands only.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    disabled={telemetry.preparingManifest}
+                    onClick={() => void telemetry.prepareCodexManifest()}
+                  >
+                    {telemetry.preparingManifest ? (
+                      <CircleDashed className="is-spinning" size={14} />
+                    ) : (
+                      <Code2 size={14} />
+                    )}
+                    {telemetry.manifest ? 'Manifest ready' : 'Prepare manifest'}
+                  </button>
+                </div>
+                {telemetry.manifest && (
+                  <div className="manifest-audit">
+                    <span>MANIFEST {telemetry.manifest.manifestId}</span>
+                    <code>{telemetry.manifest.manifestHash}</code>
+                    <span>
+                      {telemetry.manifest.allowedPaths.length} allowed ·{' '}
+                      {telemetry.manifest.protectedPaths.length} protected ·{' '}
+                      {telemetry.manifest.validationCommands.length} checks
+                    </span>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

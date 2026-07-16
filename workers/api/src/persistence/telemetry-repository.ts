@@ -1,4 +1,6 @@
 import type {
+  CodexImplementationManifest,
+  EvidenceAnalysis,
   EvidencePack,
   ProjectFlowWorkspace,
   StoredTelemetryEvent,
@@ -32,12 +34,30 @@ export interface TelemetryRepository {
   ): Promise<void>;
   saveEvidence(pack: EvidencePack): Promise<void>;
   getLatestEvidence(studyId: string): Promise<EvidencePack | null>;
+  saveEvidenceAnalysis(
+    studyId: string,
+    analysis: EvidenceAnalysis,
+  ): Promise<void>;
+  getEvidenceAnalysisByCacheKey(
+    cacheKey: string,
+  ): Promise<EvidenceAnalysis | null>;
+  getEvidenceAnalysis(analysisId: string): Promise<EvidenceAnalysis | null>;
+  getLatestEvidenceAnalysis(studyId: string): Promise<EvidenceAnalysis | null>;
+  saveCodexManifest(manifest: CodexImplementationManifest): Promise<void>;
+  getCodexManifest(
+    analysisId: string,
+  ): Promise<CodexImplementationManifest | null>;
   reset(): Promise<void>;
 }
 
 const eventStore = new Map<string, StoredTelemetryEvent>();
 const workspaceStore = new Map<string, ProjectFlowWorkspace>();
 const evidenceStore = new Map<string, EvidencePack>();
+const evidenceAnalysisStore = new Map<
+  string,
+  { studyId: string; analysis: EvidenceAnalysis }
+>();
+const manifestStore = new Map<string, CodexImplementationManifest>();
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -101,10 +121,47 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return evidenceStore.get(studyId) ?? null;
   }
 
+  async saveEvidenceAnalysis(studyId: string, analysis: EvidenceAnalysis) {
+    evidenceAnalysisStore.set(analysis.cacheKey, { studyId, analysis });
+  }
+
+  async getEvidenceAnalysisByCacheKey(cacheKey: string) {
+    return evidenceAnalysisStore.get(cacheKey)?.analysis ?? null;
+  }
+
+  async getEvidenceAnalysis(analysisId: string) {
+    return (
+      [...evidenceAnalysisStore.values()].find(
+        (entry) => entry.analysis.analysisId === analysisId,
+      )?.analysis ?? null
+    );
+  }
+
+  async getLatestEvidenceAnalysis(studyId: string) {
+    return (
+      [...evidenceAnalysisStore.values()]
+        .filter((entry) => entry.studyId === studyId)
+        .sort((left, right) =>
+          left.analysis.createdAt.localeCompare(right.analysis.createdAt),
+        )
+        .at(-1)?.analysis ?? null
+    );
+  }
+
+  async saveCodexManifest(manifest: CodexImplementationManifest) {
+    manifestStore.set(manifest.analysisId, manifest);
+  }
+
+  async getCodexManifest(analysisId: string) {
+    return manifestStore.get(analysisId) ?? null;
+  }
+
   async reset() {
     eventStore.clear();
     workspaceStore.clear();
     evidenceStore.clear();
+    evidenceAnalysisStore.clear();
+    manifestStore.clear();
   }
 }
 
@@ -270,11 +327,108 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return row ? (JSON.parse(row.evidence_pack_json) as EvidencePack) : null;
   }
 
+  async saveEvidenceAnalysis(studyId: string, analysis: EvidenceAnalysis) {
+    await this.database
+      .prepare(
+        `INSERT INTO evidence_analyses (
+          analysis_id, study_id, evidence_id, evidence_hash, cache_key,
+          prompt_version, model, mode, created_at, analysis_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+          analysis_json = excluded.analysis_json`,
+      )
+      .bind(
+        analysis.analysisId,
+        studyId,
+        analysis.evidenceId,
+        analysis.evidenceHash,
+        analysis.cacheKey,
+        analysis.promptVersion,
+        analysis.model,
+        analysis.mode,
+        analysis.createdAt,
+        JSON.stringify(analysis),
+      )
+      .run();
+  }
+
+  async getEvidenceAnalysisByCacheKey(cacheKey: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT analysis_json FROM evidence_analyses WHERE cache_key = ?`,
+      )
+      .bind(cacheKey)
+      .first<{ analysis_json: string }>();
+    return row ? (JSON.parse(row.analysis_json) as EvidenceAnalysis) : null;
+  }
+
+  async getEvidenceAnalysis(analysisId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT analysis_json FROM evidence_analyses WHERE analysis_id = ?`,
+      )
+      .bind(analysisId)
+      .first<{ analysis_json: string }>();
+    return row ? (JSON.parse(row.analysis_json) as EvidenceAnalysis) : null;
+  }
+
+  async getLatestEvidenceAnalysis(studyId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT analysis_json
+         FROM evidence_analyses
+         WHERE study_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .bind(studyId)
+      .first<{ analysis_json: string }>();
+    return row ? (JSON.parse(row.analysis_json) as EvidenceAnalysis) : null;
+  }
+
+  async saveCodexManifest(manifest: CodexImplementationManifest) {
+    await this.database
+      .prepare(
+        `INSERT INTO codex_manifests (
+          manifest_id, analysis_id, mutation_id, evidence_hash,
+          manifest_hash, repository_commit, created_at, manifest_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(analysis_id) DO UPDATE SET
+          manifest_hash = excluded.manifest_hash,
+          manifest_json = excluded.manifest_json`,
+      )
+      .bind(
+        manifest.manifestId,
+        manifest.analysisId,
+        manifest.mutationId,
+        manifest.evidenceHash,
+        manifest.manifestHash,
+        manifest.repositoryCommit,
+        manifest.createdAt,
+        JSON.stringify(manifest),
+      )
+      .run();
+  }
+
+  async getCodexManifest(analysisId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT manifest_json FROM codex_manifests WHERE analysis_id = ?`,
+      )
+      .bind(analysisId)
+      .first<{ manifest_json: string }>();
+    return row
+      ? (JSON.parse(row.manifest_json) as CodexImplementationManifest)
+      : null;
+  }
+
   async reset() {
     await this.database.batch([
       this.database.prepare('DELETE FROM telemetry_events'),
       this.database.prepare('DELETE FROM participant_workspaces'),
       this.database.prepare('DELETE FROM analysis_runs'),
+      this.database.prepare('DELETE FROM evidence_analyses'),
+      this.database.prepare('DELETE FROM codex_manifests'),
     ]);
   }
 }

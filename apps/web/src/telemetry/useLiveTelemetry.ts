@@ -1,6 +1,10 @@
 import {
+  CodexImplementationManifestSchema,
+  EvidenceAnalysisSchema,
   EvidencePackSchema,
   StudyEventsResponseSchema,
+  type CodexImplementationManifest,
+  type EvidenceAnalysis,
   type EvidencePack,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
@@ -11,18 +15,30 @@ const studyId = 'projectflow-baseline-study';
 
 export interface LiveTelemetryState {
   count: number;
+  analysis: EvidenceAnalysis | null;
+  analyseEvidence: () => Promise<void>;
+  analysing: boolean;
   evidence: EvidencePack | null;
   events: StoredTelemetryEvent[];
   generateEvidence: () => Promise<void>;
   generating: boolean;
+  manifest: CodexImplementationManifest | null;
+  prepareCodexManifest: () => Promise<void>;
+  preparingManifest: boolean;
   status: 'loading' | 'live' | 'offline';
 }
 
 export function useLiveTelemetry(): LiveTelemetryState {
   const [events, setEvents] = useState<StoredTelemetryEvent[]>([]);
   const [count, setCount] = useState(0);
+  const [analysis, setAnalysis] = useState<EvidenceAnalysis | null>(null);
+  const [analysing, setAnalysing] = useState(false);
   const [evidence, setEvidence] = useState<EvidencePack | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [manifest, setManifest] = useState<CodexImplementationManifest | null>(
+    null,
+  );
+  const [preparingManifest, setPreparingManifest] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
 
   useEffect(() => {
@@ -51,6 +67,24 @@ export function useLiveTelemetry(): LiveTelemetryState {
           setEvidence(EvidencePackSchema.parse(await response.json()));
       })
       .catch(() => undefined);
+    void fetch(`${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = EvidenceAnalysisSchema.parse(await response.json());
+        if (!active) return;
+        setAnalysis(result);
+        return fetch(
+          `${apiBaseUrl}/api/evidence-analyses/${result.analysisId}/codex-manifest`,
+        );
+      })
+      .then(async (response) => {
+        if (!response?.ok) return;
+        if (active)
+          setManifest(
+            CodexImplementationManifestSchema.parse(await response.json()),
+          );
+      })
+      .catch(() => undefined);
     const interval = window.setInterval(() => void load(), 2_000);
     return () => {
       active = false;
@@ -67,17 +101,57 @@ export function useLiveTelemetry(): LiveTelemetryState {
       );
       if (!response.ok) throw new Error('Evidence generation failed.');
       setEvidence(EvidencePackSchema.parse(await response.json()));
+      setAnalysis(null);
+      setManifest(null);
     } finally {
       setGenerating(false);
     }
   };
 
+  const analyseEvidence = async () => {
+    setAnalysing(true);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/studies/${studyId}/analyse-evidence`,
+        { method: 'POST' },
+      );
+      if (!response.ok) throw new Error('Evidence analysis failed.');
+      setAnalysis(EvidenceAnalysisSchema.parse(await response.json()));
+      setManifest(null);
+    } finally {
+      setAnalysing(false);
+    }
+  };
+
+  const prepareCodexManifest = async () => {
+    if (!analysis) return;
+    setPreparingManifest(true);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/evidence-analyses/${analysis.analysisId}/codex-manifest`,
+        { method: 'POST' },
+      );
+      if (!response.ok) throw new Error('Codex manifest generation failed.');
+      setManifest(
+        CodexImplementationManifestSchema.parse(await response.json()),
+      );
+    } finally {
+      setPreparingManifest(false);
+    }
+  };
+
   return {
+    analysis,
+    analyseEvidence,
+    analysing,
     count,
     evidence,
     events,
     generateEvidence,
     generating,
+    manifest,
+    prepareCodexManifest,
+    preparingManifest,
     status,
   };
 }

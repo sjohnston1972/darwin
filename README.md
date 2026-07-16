@@ -67,6 +67,14 @@ The pack reconstructs task attempts, applies versioned friction rules, links eac
 signal to supporting event IDs, and stores a canonical SHA-256 hash. No language
 model participates in this parsing stage.
 
+Evidence-backed reasoning is a separate, cached stage. Darwin sends the compact
+evidence pack to GPT-5.6 at most once for each evidence-hash, model and prompt
+version tuple, then validates every citation and requested mutation scope. The
+default deterministic analyzer follows the identical contract. A selected
+mutation can be exported as a hashed Codex implementation manifest containing
+only the brief, evidence IDs, path policy and validation commands; raw telemetry
+is never part of the Codex handoff.
+
 ## Evolution analyzer
 
 Deterministic mock analysis is the default and requires no API key. To run the optional live GPT-5.6 analyzer locally, create `workers/api/.dev.vars`:
@@ -76,6 +84,7 @@ DARWIN_AI_MODE=live
 OPENAI_API_KEY=your_api_key
 OPENAI_MODEL=gpt-5.6
 OPENAI_TIMEOUT_MS=12000
+DARWIN_REPOSITORY_COMMIT=local-development
 DARWIN_DEMO_SEED=1859
 DARWIN_EVENT_COUNT=10000
 ```
@@ -105,6 +114,7 @@ darwin.clydeford.net
 - `docs/BUILD_PLAN.md` — phased checklist
 - `docs/DEMO_SCRIPT.md` — three-minute demo choreography
 - `prompts/evolution-analysis.md` — GPT-5.6 system prompt
+- `prompts/evidence-analysis-v1.md` — evidence-citing GPT-5.6 prompt v1.0.0
 - `prompts/mutation-implementation.md` — Codex mutation brief template
 - `.env.example` — local configuration
 - `wrangler.toml.example` — Cloudflare configuration starter

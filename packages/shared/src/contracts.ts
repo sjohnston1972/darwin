@@ -343,6 +343,60 @@ export const EvidencePackSchema = z.object({
   }),
 });
 
+export const EvidenceMutationCandidateSchema = z.object({
+  id: StudyIdentifierSchema,
+  title: z.string().min(1),
+  problem: z.string().min(1),
+  evidenceIds: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  hypothesis: z.string().min(1),
+  change: z.string().min(1),
+  predictedImpact: z.object({
+    metric: z.string().min(1),
+    direction: z.enum(['increase', 'decrease']),
+    rationale: z.string().min(1),
+  }),
+  confidence: z.number().min(0).max(1),
+  scope: z.array(z.string().min(1)).min(1),
+  acceptanceCriteria: z.array(z.string().min(1)).min(1),
+  codexBrief: z.string().min(1),
+});
+
+export const EvidenceAnalysisSchema = z.object({
+  analysisId: StudyIdentifierSchema,
+  evidenceId: StudyIdentifierSchema,
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  cacheKey: z.string().regex(/^[a-f0-9]{64}$/),
+  promptVersion: z.literal('1.0.0'),
+  mode: z.enum(['mock', 'live', 'fallback']),
+  model: z.string().min(1),
+  createdAt: z.string().datetime(),
+  selectedMutation: EvidenceMutationCandidateSchema,
+  alternatives: z.array(EvidenceMutationCandidateSchema).max(2),
+  unsupportedIdeasRejected: z.array(
+    z.object({
+      idea: z.string().min(1),
+      reason: z.string().min(1),
+    }),
+  ),
+});
+
+export const CodexImplementationManifestSchema = z.object({
+  manifestId: StudyIdentifierSchema,
+  manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  analysisId: StudyIdentifierSchema,
+  mutationId: StudyIdentifierSchema,
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  promptVersion: z.literal('1.0.0'),
+  repositoryCommit: z.string().min(1),
+  createdAt: z.string().datetime(),
+  brief: z.string().min(1),
+  evidenceCitations: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  allowedPaths: z.array(z.string().min(1)).min(1),
+  protectedPaths: z.array(z.string().min(1)).min(1),
+  acceptanceCriteria: z.array(z.string().min(1)).min(1),
+  validationCommands: z.array(z.string().min(1)).min(1),
+});
+
 export const FitnessBreakdownSchema = z.object({
   score: z.number().min(0).max(100),
   completionRate: z.number().min(0).max(100),
@@ -564,6 +618,13 @@ export type EvidenceTraceEvent = z.infer<typeof EvidenceTraceEventSchema>;
 export type EvidenceSignal = z.infer<typeof EvidenceSignalSchema>;
 export type EvidenceTaskSummary = z.infer<typeof EvidenceTaskSummarySchema>;
 export type EvidencePack = z.infer<typeof EvidencePackSchema>;
+export type EvidenceMutationCandidate = z.infer<
+  typeof EvidenceMutationCandidateSchema
+>;
+export type EvidenceAnalysis = z.infer<typeof EvidenceAnalysisSchema>;
+export type CodexImplementationManifest = z.infer<
+  typeof CodexImplementationManifestSchema
+>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;

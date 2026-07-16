@@ -421,6 +421,41 @@ Known issues:
 Next phase:
 - Phase 11 — Evidence-backed reasoning and Codex audit.
 
+### Phase 11 — Evidence-backed reasoning and Codex audit
+Date: 2026-07-16
+
+Completed:
+- Added shared schemas for evidence-citing mutation candidates, cached analysis runs and controlled Codex implementation manifests.
+- Added a versioned evidence-analysis prompt and a structured GPT-5.6 Responses adapter that receives aggregate evidence rather than participant or session records.
+- Limited each analysis to one selected mutation and no more than two alternatives, with explicit evidence IDs, scope, confidence, predicted direction and acceptance criteria.
+- Added cross-reference validation that rejects unknown evidence IDs, protected areas and scopes outside the evidence pack's mutable application map.
+- Added a deterministic default analyzer and live-call fallback using the same validated output contract.
+- Cached model results by evidence hash, model and prompt version in both process memory and D1-compatible persistence.
+- Added a hashed Codex manifest containing only the selected brief, citations, allowed paths, protected paths and actual validation commands.
+- Added Worker routes and a control-room reasoning workspace showing model mode, cache identity, citations, alternatives and manifest audit metadata.
+- Updated API and control-room version labels to `0.11.0`.
+
+Verification commands:
+```bash
+npm run format
+npm run typecheck
+npm run test -w @darwin/api
+npm run test:e2e:projectflow
+```
+
+Results:
+- All 28 Worker tests passed, including protected-scope rejection, unknown-citation rejection, single-call structured output, analysis caching and raw-telemetry-free manifest checks.
+- The Chrome study flow passed on desktop and mobile and delivered 19 measured events across two sessions.
+- The live local Worker generated one `EV-001` friction signal, selected `promote-task-discovery`, and created a manifest with three allowed paths, three protected path patterns and three validation commands.
+- Desktop and 390x844 screenshots showed the analysis and manifest workspace without clipping or overlap.
+
+Known issues:
+- Live GPT-5.6 mode requires `OPENAI_API_KEY`; offline and judging environments remain fully demoable with the explicitly labelled deterministic analyzer.
+- `DARWIN_REPOSITORY_COMMIT` defaults to `working-tree` locally and is set to the deployed revision during Phase 13 deployment.
+
+Next phase:
+- Phase 12 — Outcome validation and demo choreography.
+
 ## Entry template
 
 ### Phase N — Name
