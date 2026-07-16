@@ -63,6 +63,15 @@ export const StudyTelemetrySourceSchema = z.enum([
 ]);
 
 export const ViewportClassSchema = z.enum(['mobile', 'tablet', 'desktop']);
+export const PointerTypeSchema = z.enum(['mouse', 'touch', 'pen', 'unknown']);
+
+export const InteractionSignalTypeSchema = z.enum([
+  'rage_click',
+  'false_affordance',
+  'unexpected_double_click',
+  'element_indecision',
+  'cursor_thrashing',
+]);
 
 const StudyEventBaseSchema = z
   .object({
@@ -98,6 +107,98 @@ export const ElementClickedEventSchema = StudyEventBaseSchema.extend({
   targetId: SemanticTargetSchema,
   taskAttemptId: StudyIdentifierSchema.optional(),
   taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      pointerType: PointerTypeSchema,
+      interactive: z.boolean(),
+      clickCount: z.number().int().min(1).max(3),
+      xRatio: z.number().min(0).max(1),
+      yRatio: z.number().min(0).max(1),
+      hoverToClickMs: z.number().int().nonnegative().max(600_000).nullable(),
+    })
+    .strict()
+    .optional(),
+});
+
+export const HoverStartedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('hover_started'),
+  targetId: SemanticTargetSchema,
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z.object({ pointerType: PointerTypeSchema }).strict(),
+});
+
+export const HoverEndedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('hover_ended'),
+  targetId: SemanticTargetSchema,
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      pointerType: PointerTypeSchema,
+      durationMs: z.number().int().nonnegative().max(600_000),
+      clicked: z.boolean(),
+      immediateExit: z.boolean(),
+      hoverToClickMs: z.number().int().nonnegative().max(600_000).nullable(),
+    })
+    .strict(),
+});
+
+export const PointerTransitionEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('pointer_transition'),
+  targetId: SemanticTargetSchema,
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      pointerType: PointerTypeSchema,
+      fromTargetId: SemanticTargetSchema.optional(),
+      elapsedMs: z.number().int().nonnegative().max(600_000),
+    })
+    .strict(),
+});
+
+export const InteractionSignalEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('interaction_signal'),
+  targetId: SemanticTargetSchema.optional(),
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      signal: InteractionSignalTypeSchema,
+      pointerType: PointerTypeSchema,
+      count: z.number().int().positive().max(100),
+      windowMs: z.number().int().nonnegative().max(600_000),
+      relatedTargetIds: z.array(SemanticTargetSchema).max(4).optional(),
+    })
+    .strict(),
+});
+
+export const DragAttemptedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('drag_attempted'),
+  targetId: SemanticTargetSchema.optional(),
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      pointerType: PointerTypeSchema,
+      draggable: z.boolean(),
+      distancePx: z.number().int().nonnegative().max(10_000),
+    })
+    .strict(),
+});
+
+export const TouchCancelledEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('touch_cancelled'),
+  targetId: SemanticTargetSchema.optional(),
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      pointerType: z.literal('touch'),
+      durationMs: z.number().int().nonnegative().max(600_000),
+    })
+    .strict(),
 });
 
 export const RouteChangedEventSchema = StudyEventBaseSchema.extend({
@@ -173,6 +274,12 @@ export const StudyTelemetryEventSchema = z.discriminatedUnion('eventType', [
   SessionEndedEventSchema,
   PageViewEventSchema,
   ElementClickedEventSchema,
+  HoverStartedEventSchema,
+  HoverEndedEventSchema,
+  PointerTransitionEventSchema,
+  InteractionSignalEventSchema,
+  DragAttemptedEventSchema,
+  TouchCancelledEventSchema,
   RouteChangedEventSchema,
   ValidationErrorEventSchema,
   SearchPerformedEventSchema,
@@ -200,6 +307,12 @@ export const StoredTelemetryEventSchema = z.discriminatedUnion('eventType', [
   SessionEndedEventSchema.extend(storedAt),
   PageViewEventSchema.extend(storedAt),
   ElementClickedEventSchema.extend(storedAt),
+  HoverStartedEventSchema.extend(storedAt),
+  HoverEndedEventSchema.extend(storedAt),
+  PointerTransitionEventSchema.extend(storedAt),
+  InteractionSignalEventSchema.extend(storedAt),
+  DragAttemptedEventSchema.extend(storedAt),
+  TouchCancelledEventSchema.extend(storedAt),
   RouteChangedEventSchema.extend(storedAt),
   ValidationErrorEventSchema.extend(storedAt),
   SearchPerformedEventSchema.extend(storedAt),
@@ -281,6 +394,12 @@ export const FrictionRuleSchema = z.enum([
   'excess_path_length',
   'validation_friction',
   'search_dependency',
+  'rage_click',
+  'false_affordance',
+  'hover_hesitation',
+  'cursor_indecision',
+  'drag_expectation',
+  'touch_conflict',
 ]);
 
 export const EvidenceTraceEventSchema = z.object({
@@ -294,7 +413,7 @@ export const EvidenceTraceEventSchema = z.object({
 export const EvidenceSignalSchema = z.object({
   evidenceId: z.string().regex(/^EV-\d{3}$/),
   ruleId: FrictionRuleSchema,
-  ruleVersion: z.literal('1.0.0'),
+  ruleVersion: z.enum(['1.0.0', '1.1.0']),
   severity: z.enum(['low', 'medium', 'high']),
   taskId: StudyIdentifierSchema.optional(),
   summary: z.string().min(1),
@@ -323,7 +442,7 @@ export const EvidencePackSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   generatedAt: z.string().datetime(),
-  parserVersion: z.literal('1.0.0'),
+  parserVersion: z.enum(['1.0.0', '1.1.0']),
   evidenceClass: EvidenceClassSchema,
   study: z.object({
     studyId: StudyIdentifierSchema,

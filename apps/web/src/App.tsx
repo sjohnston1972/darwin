@@ -28,6 +28,7 @@ import {
   LayoutDashboard,
   Maximize2,
   Menu,
+  MousePointer2,
   Network,
   Radar,
   Rocket,
@@ -632,7 +633,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.13.0</p>
+            <p className="font-mono">DARWIN CORE 0.14.0</p>
           </footer>
         </div>
       </main>
@@ -677,6 +678,14 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
   const participants = new Set(
     telemetry.events.map((event) => event.participantId),
   ).size;
+  const behaviorSignals = telemetry.events.filter((event) =>
+    [
+      'hover_ended',
+      'interaction_signal',
+      'drag_attempted',
+      'touch_cancelled',
+    ].includes(event.eventType),
+  ).length;
 
   return (
     <section className="mt-8 surface-panel live-evidence" id="real-evidence">
@@ -745,6 +754,11 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
           <Users size={16} />
           <span>Participants</span>
           <strong>{participants}</strong>
+        </div>
+        <div>
+          <MousePointer2 size={16} />
+          <span>Behavior signals</span>
+          <strong>{behaviorSignals}</strong>
         </div>
       </div>
 
@@ -1033,6 +1047,7 @@ function EventTraceRow({ event }: { event: StoredTelemetryEvent }) {
         {event.eventType.replaceAll('_', ' ')}
       </span>
       <code>{target}</code>
+      <span className="event-detail">{describeTelemetryEvent(event)}</span>
       <span>{shortId(event.participantId)}</span>
       <time dateTime={event.receivedAt}>
         {new Date(event.receivedAt).toLocaleTimeString([], {
@@ -1044,6 +1059,34 @@ function EventTraceRow({ event }: { event: StoredTelemetryEvent }) {
     </div>
   );
 }
+
+function describeTelemetryEvent(event: StoredTelemetryEvent) {
+  switch (event.eventType) {
+    case 'element_clicked':
+      return event.properties
+        ? `${event.properties.pointerType} · ${Math.round(event.properties.xRatio * 100)}% x / ${Math.round(event.properties.yRatio * 100)}% y${event.properties.interactive ? '' : ' · non-interactive'}`
+        : 'semantic click';
+    case 'hover_started':
+      return `${event.properties.pointerType} entered target`;
+    case 'hover_ended':
+      return `${formatTelemetryDuration(event.properties.durationMs)} · ${event.properties.clicked ? `clicked after ${formatTelemetryDuration(event.properties.hoverToClickMs ?? 0)}` : event.properties.immediateExit ? 'immediate exit' : 'no click'}`;
+    case 'pointer_transition':
+      return `${event.properties.fromTargetId ?? 'entry'} → target · ${formatTelemetryDuration(event.properties.elapsedMs)}`;
+    case 'interaction_signal':
+      return `${event.properties.signal.replaceAll('_', ' ')} · ${event.properties.count} / ${formatTelemetryDuration(event.properties.windowMs)}`;
+    case 'drag_attempted':
+      return `${event.properties.distancePx}px · ${event.properties.draggable ? 'supported' : 'unsupported drag'}`;
+    case 'touch_cancelled':
+      return `touch cancelled after ${formatTelemetryDuration(event.properties.durationMs)}`;
+    default:
+      return 'ordered study event';
+  }
+}
+
+const formatTelemetryDuration = (milliseconds: number) =>
+  milliseconds >= 1_000
+    ? `${(milliseconds / 1_000).toFixed(1)}s`
+    : `${milliseconds}ms`;
 
 const shortId = (value: string) => {
   const suffix = value.split('-').at(-1) ?? value;

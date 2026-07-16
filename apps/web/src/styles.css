@@ -359,7 +359,7 @@ a:focus-visible {
 
 .evidence-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 20px;
   border-block: 1px solid var(--line);
 }
@@ -436,7 +436,9 @@ a:focus-visible {
 
 .event-trace-row {
   display: grid;
-  grid-template-columns: 30px 130px minmax(140px, 1fr) 90px 76px;
+  grid-template-columns:
+    30px 130px minmax(120px, 0.8fr) minmax(180px, 1.2fr)
+    76px 76px;
   align-items: center;
   gap: 10px;
   min-height: 38px;
@@ -463,6 +465,14 @@ a:focus-visible {
 .event-trace-row code {
   overflow: hidden;
   color: #c8d2d6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-detail {
+  overflow: hidden;
+  color: #9cabb1;
+  font-family: var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2091,7 +2101,7 @@ a:focus-visible {
   }
 
   .event-trace-row {
-    min-width: 660px;
+    min-width: 860px;
   }
   .organism-heading {
     align-items: flex-start;

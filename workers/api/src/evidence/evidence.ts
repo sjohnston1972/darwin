@@ -9,8 +9,8 @@ import {
   type TaskAttempt,
 } from '@darwin/shared';
 
-const parserVersion = '1.0.0' as const;
-const ruleVersion = '1.0.0' as const;
+const parserVersion = '1.1.0' as const;
+const ruleVersion = '1.1.0' as const;
 const optimalInteractions: Record<string, number> = {
   'create-project': 3,
   'create-assigned-task': 5,
@@ -256,20 +256,156 @@ function detectFriction(
     }
   }
 
+  for (const event of events) {
+    const attemptId =
+      'taskAttemptId' in event && event.taskAttemptId
+        ? [event.taskAttemptId]
+        : [];
+    const taskId = 'taskId' in event && event.taskId ? event.taskId : undefined;
+    if (event.eventType === 'interaction_signal') {
+      const target = event.targetId ?? 'the current surface';
+      const definitions: Record<
+        typeof event.properties.signal,
+        {
+          ruleId: FrictionRule;
+          severity: EvidenceSignal['severity'];
+          summary: string;
+        }
+      > = {
+        rage_click: {
+          ruleId: 'rage_click',
+          severity: 'high',
+          summary: `${target} received ${event.properties.count} rapid clicks within ${event.properties.windowMs}ms, indicating poor response or user frustration.`,
+        },
+        false_affordance: {
+          ruleId: 'false_affordance',
+          severity: 'medium',
+          summary: `${target} was clicked despite not being interactive, indicating a possible false affordance.`,
+        },
+        unexpected_double_click: {
+          ruleId: 'false_affordance',
+          severity: 'low',
+          summary: `${target} received a double-click although it exposes a single-click interaction model.`,
+        },
+        element_indecision: {
+          ruleId: 'cursor_indecision',
+          severity: 'medium',
+          summary: `The pointer moved repeatedly between ${event.properties.relatedTargetIds?.join(' and ') ?? target} within ${event.properties.windowMs}ms.`,
+        },
+        cursor_thrashing: {
+          ruleId: 'cursor_indecision',
+          severity: 'medium',
+          summary: `${event.properties.count} rapid pointer direction changes occurred within ${event.properties.windowMs}ms near ${target}.`,
+        },
+      };
+      const definition = definitions[event.properties.signal];
+      candidates.push({
+        ...definition,
+        ...(taskId ? { taskId } : {}),
+        attempts: attemptId,
+        events: [event],
+      });
+    }
+    if (
+      event.eventType === 'hover_ended' &&
+      !event.properties.clicked &&
+      event.properties.durationMs >= 700
+    ) {
+      candidates.push({
+        ruleId: 'hover_hesitation',
+        severity: event.properties.durationMs >= 2_000 ? 'medium' : 'low',
+        ...(taskId ? { taskId } : {}),
+        summary: `${event.targetId} was considered for ${event.properties.durationMs}ms and left without a click.`,
+        attempts: attemptId,
+        events: [event],
+      });
+    }
+    if (event.eventType === 'drag_attempted' && !event.properties.draggable) {
+      candidates.push({
+        ruleId: 'drag_expectation',
+        severity: 'medium',
+        ...(taskId ? { taskId } : {}),
+        summary: `${event.targetId ?? 'A surface'} was dragged ${event.properties.distancePx}px despite not supporting drag-and-drop.`,
+        attempts: attemptId,
+        events: [event],
+      });
+    }
+    if (event.eventType === 'touch_cancelled') {
+      candidates.push({
+        ruleId: 'touch_conflict',
+        severity: 'medium',
+        ...(taskId ? { taskId } : {}),
+        summary: `A touch interaction on ${event.targetId ?? 'the current surface'} was cancelled after ${event.properties.durationMs}ms, indicating a gesture or scroll conflict.`,
+        attempts: attemptId,
+        events: [event],
+      });
+    }
+  }
+
   const order: FrictionRule[] = [
     'task_abandonment',
+    'rage_click',
     'excess_path_length',
     'navigation_loop',
     'validation_friction',
     'repeated_target',
+    'false_affordance',
+    'hover_hesitation',
+    'cursor_indecision',
+    'drag_expectation',
+    'touch_conflict',
     'search_dependency',
   ];
-  return candidates.sort(
+  return compactBehaviorCandidates(candidates).sort(
     (left, right) =>
       order.indexOf(left.ruleId) - order.indexOf(right.ruleId) ||
       (left.taskId ?? '').localeCompare(right.taskId ?? ''),
   );
 }
+
+const behaviorRules = new Set<FrictionRule>([
+  'rage_click',
+  'false_affordance',
+  'hover_hesitation',
+  'cursor_indecision',
+  'drag_expectation',
+  'touch_conflict',
+]);
+
+function compactBehaviorCandidates(candidates: SignalCandidate[]) {
+  const compacted: SignalCandidate[] = [];
+  const grouped = new Map<string, SignalCandidate>();
+  for (const candidate of candidates) {
+    if (!behaviorRules.has(candidate.ruleId)) {
+      compacted.push(candidate);
+      continue;
+    }
+    const representative = candidate.events[0];
+    const key = [
+      candidate.ruleId,
+      candidate.taskId ?? 'session',
+      representative ? (targetOf(representative) ?? representative.route) : '',
+    ].join(':');
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { ...candidate });
+      continue;
+    }
+    existing.events = [...existing.events, ...candidate.events].slice(0, 12);
+    existing.attempts = [
+      ...new Set([...existing.attempts, ...candidate.attempts]),
+    ];
+    if (severityRank(candidate.severity) > severityRank(existing.severity)) {
+      existing.severity = candidate.severity;
+    }
+    const count = existing.events.length;
+    existing.summary = `${existing.summary.split(' Observed ')[0]} Observed ${count} times in this bounded evidence group.`;
+  }
+  return [...compacted, ...grouped.values()];
+}
+
+const severityRank = (severity: EvidenceSignal['severity']) =>
+  ({ low: 0, medium: 1, high: 2 })[severity];
 
 function signalFromCandidate(
   candidate: SignalCandidate,

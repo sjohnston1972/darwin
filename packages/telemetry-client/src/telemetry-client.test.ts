@@ -2,15 +2,119 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { StudyTelemetryEventSchema } from '@darwin/shared';
+import {
+  StudyTelemetryEventSchema,
+  type StudyTelemetryEvent,
+} from '@darwin/shared';
 
 import { createTelemetryClient } from './telemetry-client';
 
 describe('DarwinTelemetryClient', () => {
   afterEach(() => {
+    vi.useRealTimers();
     localStorage.clear();
     document.body.replaceChildren();
     vi.restoreAllMocks();
+  });
+
+  it('derives rich pointer evidence without capturing visible content', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T12:00:00.000Z'));
+    const captured: StudyTelemetryEvent[] = [];
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-rich',
+      initialRoute: '/study',
+      onEvent: (event) => captured.push(event),
+    });
+    client.init();
+
+    const surface = document.createElement('section');
+    surface.dataset.darwinId = 'metric-open-tasks';
+    surface.textContent = 'Confidential open task count';
+    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue({
+      x: 100,
+      y: 200,
+      left: 100,
+      top: 200,
+      right: 300,
+      bottom: 300,
+      width: 200,
+      height: 100,
+      toJSON: () => ({}),
+    });
+    document.body.append(surface);
+
+    surface.dispatchEvent(
+      pointerEvent('pointerover', { clientX: 120, clientY: 220 }),
+    );
+    vi.advanceTimersByTime(850);
+    surface.dispatchEvent(
+      pointerEvent('click', { clientX: 250, clientY: 250, detail: 1 }),
+    );
+    surface.dispatchEvent(
+      pointerEvent('pointerout', {
+        clientX: 250,
+        clientY: 250,
+        relatedTarget: document.body,
+      }),
+    );
+    surface.dispatchEvent(pointerEvent('click', { detail: 1 }));
+    surface.dispatchEvent(pointerEvent('click', { detail: 1 }));
+    surface.dispatchEvent(pointerEvent('click', { detail: 2 }));
+    surface.dispatchEvent(
+      pointerEvent('pointerdown', { clientX: 10, clientY: 10 }),
+    );
+    surface.dispatchEvent(
+      pointerEvent('pointermove', { clientX: 35, clientY: 10 }),
+    );
+
+    expect(captured).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: 'hover_started' }),
+        expect.objectContaining({
+          eventType: 'hover_ended',
+          properties: expect.objectContaining({
+            durationMs: 850,
+            clicked: true,
+            hoverToClickMs: 850,
+          }),
+        }),
+        expect.objectContaining({
+          eventType: 'element_clicked',
+          properties: expect.objectContaining({
+            interactive: false,
+            xRatio: 0.75,
+            yRatio: 0.5,
+          }),
+        }),
+        expect.objectContaining({
+          eventType: 'interaction_signal',
+          properties: expect.objectContaining({ signal: 'false_affordance' }),
+        }),
+        expect.objectContaining({
+          eventType: 'interaction_signal',
+          properties: expect.objectContaining({ signal: 'rage_click' }),
+        }),
+        expect.objectContaining({
+          eventType: 'interaction_signal',
+          properties: expect.objectContaining({
+            signal: 'unexpected_double_click',
+          }),
+        }),
+        expect.objectContaining({
+          eventType: 'drag_attempted',
+          properties: expect.objectContaining({
+            draggable: false,
+            distancePx: 25,
+          }),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(captured)).not.toContain('Confidential');
+
+    client.destroy();
   });
 
   it('captures semantic controls and unambiguous task attempts', () => {
@@ -91,3 +195,9 @@ describe('DarwinTelemetryClient', () => {
     client.destroy();
   });
 });
+
+const pointerEvent = (type: string, init: MouseEventInit = {}) => {
+  const event = new MouseEvent(type, { bubbles: true, ...init });
+  Object.defineProperty(event, 'pointerType', { value: 'mouse' });
+  return event;
+};

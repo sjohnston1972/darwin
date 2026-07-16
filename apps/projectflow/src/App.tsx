@@ -543,8 +543,7 @@ export function App() {
         <StudyPanel
           activeTask={activeStudyTask}
           completedTasks={completedTasks}
-          eventCount={events.length}
-          lastEvent={events.at(-1)}
+          events={events}
           participantId={participantId}
           satisfiedTasks={satisfiedTasks}
           onCouldNotComplete={() => finishStudyTask('failed')}
@@ -1129,11 +1128,78 @@ function SettingsView() {
   );
 }
 
+function presentTelemetryEvent(event: StudyTelemetryEvent) {
+  const target = 'targetId' in event ? event.targetId : undefined;
+  const at = target ?? event.route;
+  switch (event.eventType) {
+    case 'hover_started':
+      return {
+        label: 'Hover started',
+        detail: `${at} · ${event.properties.pointerType}`,
+        signal: false,
+      };
+    case 'hover_ended': {
+      const outcome = event.properties.clicked
+        ? `clicked after ${formatDuration(event.properties.hoverToClickMs ?? 0)}`
+        : event.properties.immediateExit
+          ? 'immediate exit'
+          : 'left without click';
+      return {
+        label: 'Hover ended',
+        detail: `${at} · ${formatDuration(event.properties.durationMs)} · ${outcome}`,
+        signal: !event.properties.clicked && event.properties.durationMs >= 700,
+      };
+    }
+    case 'element_clicked':
+      return {
+        label: 'Element clicked',
+        detail: event.properties
+          ? `${at} · ${event.properties.pointerType} · ${Math.round(event.properties.xRatio * 100)}% x / ${Math.round(event.properties.yRatio * 100)}% y`
+          : at,
+        signal: event.properties?.interactive === false,
+      };
+    case 'pointer_transition':
+      return {
+        label: 'Pointer transition',
+        detail: `${event.properties.fromTargetId ?? 'entry'} → ${at} · ${formatDuration(event.properties.elapsedMs)}`,
+        signal: false,
+      };
+    case 'interaction_signal':
+      return {
+        label: event.properties.signal.replaceAll('_', ' '),
+        detail: `${at} · ${event.properties.count} observations / ${formatDuration(event.properties.windowMs)}`,
+        signal: true,
+      };
+    case 'drag_attempted':
+      return {
+        label: 'Drag intent',
+        detail: `${at} · ${event.properties.distancePx}px · ${event.properties.draggable ? 'draggable' : 'unsupported'}`,
+        signal: !event.properties.draggable,
+      };
+    case 'touch_cancelled':
+      return {
+        label: 'Touch cancelled',
+        detail: `${at} · after ${formatDuration(event.properties.durationMs)}`,
+        signal: true,
+      };
+    default:
+      return {
+        label: event.eventType.replaceAll('_', ' '),
+        detail: at,
+        signal: false,
+      };
+  }
+}
+
+const formatDuration = (milliseconds: number) =>
+  milliseconds >= 1_000
+    ? `${(milliseconds / 1_000).toFixed(1)}s`
+    : `${milliseconds}ms`;
+
 function StudyPanel({
   activeTask,
   completedTasks,
-  eventCount,
-  lastEvent,
+  events,
   participantId,
   satisfiedTasks,
   onCouldNotComplete,
@@ -1145,8 +1211,7 @@ function StudyPanel({
 }: {
   activeTask: StudyTaskId | null;
   completedTasks: Set<StudyTaskId>;
-  eventCount: number;
-  lastEvent?: StudyTelemetryEvent;
+  events: StudyTelemetryEvent[];
   participantId: string;
   satisfiedTasks: Set<StudyTaskId>;
   onCouldNotComplete: () => void;
@@ -1157,6 +1222,25 @@ function StudyPanel({
   version: string;
 }) {
   const [feedback, setFeedback] = useState('');
+  const behavioralSignals = events.filter((event) =>
+    [
+      'hover_ended',
+      'interaction_signal',
+      'drag_attempted',
+      'touch_cancelled',
+    ].includes(event.eventType),
+  ).length;
+  const pointerTypes = [
+    ...new Set(
+      events.flatMap((event) =>
+        'properties' in event &&
+        event.properties &&
+        'pointerType' in event.properties
+          ? [event.properties.pointerType]
+          : [],
+      ),
+    ),
+  ];
   return (
     <aside className="study-panel" aria-label="ProjectFlow usability study">
       <header>
@@ -1231,15 +1315,47 @@ function StudyPanel({
         })}
       </div>
       <div className="event-monitor">
-        <div>
-          <span>Session evidence captured</span>
-          <strong>{eventCount} events</strong>
+        <div className="event-monitor-heading">
+          <div>
+            <span className="capture-pulse" />
+            <span>Live semantic telemetry</span>
+          </div>
+          <strong>{events.length} events</strong>
         </div>
-        <code>
-          {lastEvent
-            ? `${lastEvent.sequence.toString().padStart(2, '0')} - ${lastEvent.eventType}`
-            : 'Waiting for activity'}
-        </code>
+        <div className="event-monitor-stats">
+          <div>
+            <strong>{behavioralSignals}</strong>
+            <span>behavior signals</span>
+          </div>
+          <div>
+            <strong>{pointerTypes.join(' + ') || 'none'}</strong>
+            <span>pointer input</span>
+          </div>
+        </div>
+        <div className="live-event-stream" aria-live="polite">
+          {events.length ? (
+            events
+              .slice(-6)
+              .reverse()
+              .map((event) => {
+                const presentation = presentTelemetryEvent(event);
+                return (
+                  <div
+                    className={`live-event-row ${presentation.signal ? 'is-signal' : ''}`}
+                    key={event.eventId}
+                  >
+                    <code>{event.sequence.toString().padStart(2, '0')}</code>
+                    <div>
+                      <strong>{presentation.label}</strong>
+                      <span>{presentation.detail}</span>
+                    </div>
+                  </div>
+                );
+              })
+          ) : (
+            <div className="event-stream-empty">Waiting for activity</div>
+          )}
+        </div>
       </div>
       <form
         className="feedback"
@@ -1339,7 +1455,10 @@ function Metric({
   value: number | string;
 }) {
   return (
-    <section className={`metric metric-${tone}`}>
+    <section
+      className={`metric metric-${tone}`}
+      data-darwin-id={`metric-${label.toLowerCase().replaceAll(' ', '-')}`}
+    >
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{meta}</small>

@@ -48,11 +48,24 @@ captures only:
 - session start and end;
 - page views and route changes;
 - clicks on elements carrying `data-darwin-id`;
+- hover start, end, duration, click outcome and hover-to-click latency for
+  semantic targets;
+- normalized click position within the target and pointer type;
+- semantic pointer transitions, without recording a raw cursor trail;
+- derived rapid-click, false-affordance, unexpected-double-click, target
+  indecision and cursor-thrashing signals;
+- drag intent with bounded distance and whether the target supports dragging;
+- touch cancellation duration and semantic target;
 - validation error codes without form values;
 - search result count and query length without query text;
 - task attempt start, success, failure and abandonment;
 - feedback length, never feedback text;
 - application version and viewport class.
+
+Raw screen coordinates, CSS selectors, DOM paths, visible text and per-move
+cursor samples are outside the collection boundary. Click positions are stored
+as `xRatio` and `yRatio` values from 0 to 1 within a semantic target. Cursor
+thrashing is reduced in the browser to a direction-change count and time window.
 
 Every event carries:
 
@@ -86,6 +99,23 @@ The initial detectors are:
 - `excess_path_length`: interactions exceed the declared optimum by 50%;
 - `validation_friction`: at least two errors in one attempt;
 - `search_dependency`: search occurs in most successful attempts.
+- `rage_click`: the client observes at least three clicks on one semantic target
+  within one second;
+- `false_affordance`: a semantic but non-interactive surface is clicked, or a
+  single-click control receives an unexpected double-click;
+- `hover_hesitation`: a target is hovered for at least 700 ms without a click;
+- `cursor_indecision`: the pointer alternates between two targets four times in
+  two seconds, or reverses direction at least six times in one second;
+- `drag_expectation`: pointer movement exceeds 12 px after press on a target
+  that does not support dragging;
+- `touch_conflict`: the browser cancels an active touch interaction.
+
+The client emits the observable measurements and bounded derived signals. The
+versioned TypeScript evidence engine, not GPT-5.6, decides which measurements
+cross a selection-pressure threshold and turns them into citable evidence.
+Repeated behavioral findings are compacted by rule, task and semantic target;
+each group retains at most 12 representative source events. This keeps the live
+session trace rich while keeping the single model call small and auditable.
 
 ## Evidence pack and reasoning
 

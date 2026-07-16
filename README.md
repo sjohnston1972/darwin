@@ -59,12 +59,16 @@ Real ProjectFlow study activity is Darwin's primary evidence source. The
 standalone application has functional project and task state, three fixed study
 tasks, anonymous participant IDs and stable `data-darwin-id` control identities.
 
-`packages/telemetry-client` records only routes, semantic control IDs, validation
-codes, search counts and explicit study outcomes. It does not record form values,
-search text, arbitrary page text or feedback content. Events carry participant,
-session, task-attempt, application-version and source provenance. The browser
-delivers bounded batches to the Worker, which deduplicates and stores them through
-a D1-compatible repository with an in-memory local fallback.
+`packages/telemetry-client` records routes, semantic control IDs, validation
+codes, search counts, explicit study outcomes and privacy-safe pointer evidence.
+Pointer evidence includes hover duration and outcome, hover-to-click latency,
+normalized click position, pointer type, semantic target transitions, rapid
+clicks, false affordances, direction-change aggregates, drag intent and touch
+cancellation. It never stores raw cursor trails, absolute page coordinates, form
+values, search text, arbitrary page text or feedback content. Events carry
+participant, session, task-attempt, application-version and source provenance.
+The browser delivers bounded batches to the Worker, which deduplicates and stores
+them through a D1-compatible repository with an in-memory local fallback.
 
 The existing 10,000-event generator is a separately labelled synthetic scale
 replay. See `docs/REAL_TELEMETRY_PLAN.md` for the evidence and reasoning boundary.

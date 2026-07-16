@@ -536,6 +536,45 @@ Known issues:
 Next phase:
 - Build Week submission and judge rehearsal; implementation phases are complete.
 
+### Phase 14 — Rich session evidence
+Date: 2026-07-16
+
+Completed:
+- Added strict shared contracts for hover lifecycles, hover-to-click latency,
+  normalized click position, pointer type, semantic target transitions,
+  interaction signals, drag intent and touch cancellation.
+- Expanded the first-party telemetry client with bounded temporal detectors for
+  rage clicks, false affordances, unexpected double-clicks, target indecision
+  and cursor thrashing without storing raw coordinates, text or cursor trails.
+- Added parser `1.1.0` rules for rage clicks, false affordances, hover
+  hesitation, cursor indecision, drag expectation and touch conflicts.
+- Rebuilt the ProjectFlow session monitor as a live rich event stream and added
+  event details plus behavior-signal counts to Darwin's persisted trace.
+- Updated API and control-room version labels to `0.14.0`.
+
+Verification commands:
+```bash
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- All focused contract, client, API and UI tests passed.
+- Desktop and 390x844 browser probes displayed normalized click positions,
+  hover outcomes, rage clicks, false affordances and double-click signals with
+  no console errors or layout overlap.
+- The local Worker persisted the rich events and the control room rendered them
+  in ordered session traces.
+
+Known issues:
+- Pointer evidence is intentionally semantic and aggregate; it is not a session
+  replay or pixel-level cursor heatmap.
+
+Next phase:
+- Deploy `0.14.0`, run the production smoke check and rehearse the judge flow.
+
 ## Entry template
 
 ### Phase N — Name

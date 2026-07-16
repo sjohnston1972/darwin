@@ -130,4 +130,74 @@ describe('real telemetry evidence engine', () => {
     });
     expect(first.frictionSignals[0]?.supportingEventIds).toContain(id(1));
   });
+
+  it('turns derived pointer behavior into compact citable evidence', async () => {
+    const richEvents: StoredTelemetryEvent[] = [
+      ...events,
+      {
+        ...base(10, '/study/projects/apollo/tasks'),
+        eventType: 'hover_ended',
+        targetId: 'task-create-open',
+        taskAttemptId: attemptId,
+        taskId,
+        properties: {
+          pointerType: 'mouse',
+          durationMs: 1_450,
+          clicked: false,
+          immediateExit: false,
+          hoverToClickMs: null,
+        },
+      },
+      {
+        ...base(11, '/study/projects/apollo/tasks'),
+        eventType: 'interaction_signal',
+        targetId: 'task-create-open',
+        taskAttemptId: attemptId,
+        taskId,
+        properties: {
+          signal: 'rage_click',
+          pointerType: 'mouse',
+          count: 4,
+          windowMs: 620,
+        },
+      },
+      {
+        ...base(12, '/study/projects/apollo/tasks'),
+        eventType: 'interaction_signal',
+        targetId: 'task-create-open',
+        taskAttemptId: attemptId,
+        taskId,
+        properties: {
+          signal: 'rage_click',
+          pointerType: 'mouse',
+          count: 3,
+          windowMs: 540,
+        },
+      },
+    ];
+
+    const pack = await buildEvidencePack(
+      'projectflow-baseline-study',
+      richEvents,
+      '2026-07-16T12:02:00.000Z',
+    );
+
+    expect(pack.parserVersion).toBe('1.1.0');
+    expect(pack.frictionSignals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ruleId: 'rage_click',
+          ruleVersion: '1.1.0',
+          supportingEventIds: [id(12), id(13)],
+        }),
+        expect.objectContaining({
+          ruleId: 'hover_hesitation',
+          supportingEventIds: [id(11)],
+        }),
+      ]),
+    );
+    expect(
+      pack.frictionSignals.filter((signal) => signal.ruleId === 'rage_click'),
+    ).toHaveLength(1);
+  });
 });

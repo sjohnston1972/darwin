@@ -22,15 +22,18 @@ test('compares baseline and evolved automated cohorts honestly', async ({
 
   await expect(task).toHaveClass(/is-complete/);
   await expect(page.getByText(/events/)).toBeVisible();
-  const eventCount = async (studyId: string) => {
+  const completedAttemptCount = async (studyId: string) => {
     const response = await request.get(
       `http://127.0.0.1:8787/api/studies/${studyId}/events?limit=100`,
     );
-    const body = (await response.json()) as { count: number };
-    return body.count;
+    const body = (await response.json()) as {
+      events: Array<{ eventType: string }>;
+    };
+    return body.events.filter((event) => event.eventType === 'task_completed')
+      .length;
   };
   await expect
-    .poll(() => eventCount('projectflow-baseline-automated-study'), {
+    .poll(() => completedAttemptCount('projectflow-baseline-automated-study'), {
       timeout: 10_000,
     })
     .toBeGreaterThan(0);
@@ -49,7 +52,7 @@ test('compares baseline and evolved automated cohorts honestly', async ({
   await evolvedTask.getByRole('button', { name: 'Done' }).click();
   await expect(evolvedTask).toHaveClass(/is-complete/);
   await expect
-    .poll(() => eventCount('projectflow-evolved-automated-study'), {
+    .poll(() => completedAttemptCount('projectflow-evolved-automated-study'), {
       timeout: 10_000,
     })
     .toBeGreaterThan(0);

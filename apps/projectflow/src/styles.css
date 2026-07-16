@@ -1097,26 +1097,124 @@ button {
   border-radius: 6px;
 }
 
-.event-monitor > div {
+.event-monitor-heading {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   color: #8e9ca4;
   font-size: 8px;
   text-transform: uppercase;
 }
 
-.event-monitor strong {
+.event-monitor-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.capture-pulse {
+  width: 6px;
+  height: 6px;
+  background: #70d4ab;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgb(112 212 171 / 12%);
+}
+
+.event-monitor-heading strong {
   color: #70d4ab;
 }
 
-.event-monitor code {
-  display: block;
-  margin-top: 9px;
+.event-monitor-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 11px;
+  border-block: 1px solid #26333b;
+}
+
+.event-monitor-stats > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 7px;
+}
+
+.event-monitor-stats > div + div {
+  border-left: 1px solid #26333b;
+}
+
+.event-monitor-stats strong {
   overflow: hidden;
-  color: #c2ccd1;
+  color: #dce4e7;
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.event-monitor-stats span {
+  color: #708087;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.live-event-stream {
+  display: grid;
+  max-height: 188px;
+  margin-top: 7px;
+  overflow: auto;
+}
+
+.live-event-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 7px;
+  min-height: 38px;
+  align-items: center;
+  border-bottom: 1px solid rgb(112 128 135 / 14%);
+}
+
+.live-event-row > code {
+  color: #53666f;
+  font-size: 8px;
+}
+
+.live-event-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.live-event-row strong {
+  overflow: hidden;
+  color: #bdc9ce;
+  font-size: 8px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.live-event-row span {
+  overflow: hidden;
+  color: #75868e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-event-row.is-signal {
+  box-shadow: inset 2px 0 #e7b85b;
+  padding-left: 6px;
+}
+
+.live-event-row.is-signal strong {
+  color: #e7c785;
+}
+
+.event-stream-empty {
+  padding: 13px 0 5px;
+  color: #65767e;
+  font-size: 8px;
 }
 
 .feedback {

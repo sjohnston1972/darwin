@@ -118,8 +118,11 @@ The evolved route graph should produce more direct paths and lower duration/erro
 
 Real events are grouped by explicit `taskAttemptId`, ordered by session sequence
 and terminated only by success, failure, session end or the documented timeout.
-The parser runs six versioned rules: navigation loop, repeated target, task
-abandonment, excess path length, validation friction and search dependency.
+Parser `1.1.0` runs versioned workflow rules for navigation loops, repeated
+targets, abandonment, excess path length, validation friction and search
+dependency. It also converts bounded pointer observations into rage-click,
+false-affordance, hover-hesitation, cursor-indecision, drag-expectation and
+touch-conflict evidence.
 
 Every signal stores its rule version, affected attempt IDs, supporting event IDs
 and a bounded trace. Canonical JSON excludes generation time from its digest, so
