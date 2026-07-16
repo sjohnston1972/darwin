@@ -27,13 +27,11 @@ Return JSON only, matching the provided schema. Include:
 - observation
 - evidence
 - hypothesis
-- proposedChange
 - implementationSummary
-- affectedComponents
 - predictedFitnessGain
 - confidence
-- riskLevel
-- validationPlan
-- rollbackPlan
+- risk
+- affectedFiles
+- status
 
 Do not include Markdown or chain-of-thought.

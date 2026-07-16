@@ -6,7 +6,8 @@ Codex: append one entry per completed phase.
 - Phase 1 foundation complete.
 - Phase 2 ProjectFlow organism complete.
 - Phase 3 telemetry and simulation complete.
-- Phase 4 not started.
+- Phase 4 fitness and analysis complete.
+- Phase 5 not started.
 
 ### Phase 1 — Foundation
 Date: 2026-07-16
@@ -131,6 +132,48 @@ Known issues:
 
 Next phase:
 - Phase 4 — Fitness and analysis.
+
+### Phase 4 — Fitness and analysis
+Date: 2026-07-16
+
+Completed:
+- Added shared schemas for fitness comparisons, evolution analysis requests, and complete analysis responses.
+- Implemented the product-specified weighted fitness model: completion 35%, navigation efficiency 25%, inverse error rate 15%, feature discovery 15%, and inverse task duration 10%.
+- Documented navigation and duration normalisation constants in `docs/ARCHITECTURE.md`.
+- Derived fitness components from raw workflow events and simulation aggregates rather than fixture scores.
+- Added evidence-based friction ranking for assigned-task discovery, task creation, dashboard overhead, and report discovery.
+- Added the `EvolutionAnalyzer` interface and deterministic `MockEvolutionAnalyzer`.
+- Added strict mutation proposal validation with a typed `EvolutionAnalysisError` for malformed output.
+- Aligned the versioned evolution-analysis prompt with the shared `MutationProposal` schema.
+- Added `POST /api/evolution/analyse`, which replays baseline and evolved variants for the same seed and returns fitness, ranked findings, and exactly one proposal.
+- Updated API health version to `0.4.0`.
+
+Verification commands:
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+```
+
+Results:
+- Baseline seed `1859` fitness: 66.6.
+- Evolved seed `1859` fitness: 87.4, a derived gain of 20.8 points.
+- `Assigned tasks are difficult to locate` ranked first with impact 100 and confidence 0.86.
+- Mock analysis returned one schema-valid `Promote global task discovery` proposal with the calculated fitness gain.
+- Malformed mutation output raised a safe typed validation error.
+- Live Worker simulation-to-analysis flow returned the same fitness, ranking, proposal, and mock-mode metadata as unit tests.
+- `npm run typecheck`, `npm run lint`, and `npm run format:check`: passed.
+- `npm run test`: passed; 6 test files and 18 tests across all workspaces.
+- `npm run build`: passed for shared TypeScript, Wrangler dry-run, and Vite production output.
+
+Known issues:
+- The deterministic mock analyzer remains the only active analyzer; the optional OpenAI adapter is scheduled for Phase 6.
+- Analysis results are exposed through the API but not yet orchestrated by the control-room UI; that workflow is scheduled for Phase 5.
+
+Next phase:
+- Phase 5 — Darwin control room.
 
 ## Entry template
 

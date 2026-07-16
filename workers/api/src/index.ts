@@ -1,10 +1,18 @@
 import {
+  EvolutionAnalysisRequestSchema,
+  EvolutionAnalysisResponseSchema,
   SimulationRequestSchema,
   type HealthResponse,
   type SimulationResult,
 } from '@darwin/shared';
 
 import { simulate } from './simulation';
+import {
+  EvolutionAnalysisError,
+  MockEvolutionAnalyzer,
+  compareFitness,
+  rankFrictionFindings,
+} from './evolution';
 
 export interface Env {
   DARWIN_AI_MODE: string;
@@ -47,7 +55,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.3.0',
+      version: '0.4.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -93,6 +101,78 @@ export const handleRequest = async (
         headers: { Location: `/api/simulations/${result.run.id}` },
       },
     );
+  }
+
+  if (request.method === 'POST' && pathname === '/api/evolution/analyse') {
+    let input: unknown;
+    try {
+      input = await request.json();
+    } catch {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Request body must be valid JSON.',
+        },
+        { status: 400 },
+      );
+    }
+
+    const parsed = EvolutionAnalysisRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Evolution analysis input failed validation.',
+          issues: parsed.error.issues,
+        },
+        { status: 400 },
+      );
+    }
+
+    const source = simulationStore.get(parsed.data.simulationId);
+    if (!source) {
+      return json(
+        { error: 'not_found', message: 'Simulation run was not found.' },
+        { status: 404 },
+      );
+    }
+
+    const baseline =
+      source.run.variant === 'baseline'
+        ? source
+        : simulate({ seed: source.run.seed, variant: 'baseline' });
+    const evolved =
+      source.run.variant === 'evolved'
+        ? source
+        : simulate({ seed: source.run.seed, variant: 'evolved' });
+    simulationStore.set(baseline.run.id, baseline);
+    simulationStore.set(evolved.run.id, evolved);
+
+    const fitness = compareFitness(baseline, evolved);
+    const findings = rankFrictionFindings(baseline);
+
+    try {
+      const proposal = await new MockEvolutionAnalyzer().analyse({
+        summary: baseline.summary,
+        findings,
+        fitness,
+      });
+      const response = EvolutionAnalysisResponseSchema.parse({
+        mode: 'mock',
+        fitness,
+        findings,
+        proposal,
+      });
+      return json(response);
+    } catch (error) {
+      if (error instanceof EvolutionAnalysisError) {
+        return json(
+          { error: 'analysis_failed', message: error.message },
+          { status: 422 },
+        );
+      }
+      throw error;
+    }
   }
 
   const summaryMatch = pathname.match(/^\/api\/simulations\/([^/]+)\/summary$/);

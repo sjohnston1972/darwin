@@ -130,6 +130,23 @@ export const MutationProposalSchema = z.object({
   status: z.enum(['proposed', 'approved', 'rejected', 'validated', 'released']),
 });
 
+export const FitnessComparisonSchema = z.object({
+  baseline: FitnessBreakdownSchema,
+  evolved: FitnessBreakdownSchema,
+  delta: z.number(),
+});
+
+export const EvolutionAnalysisRequestSchema = z.object({
+  simulationId: z.string().min(1),
+});
+
+export const EvolutionAnalysisResponseSchema = z.object({
+  mode: z.literal('mock'),
+  fitness: FitnessComparisonSchema,
+  findings: z.array(FrictionFindingSchema).min(1),
+  proposal: MutationProposalSchema,
+});
+
 export const ValidationResultSchema = z.object({
   id: z.string().min(1),
   mutationId: z.string().min(1),
@@ -175,6 +192,13 @@ export type SimulationSummary = z.infer<typeof SimulationSummarySchema>;
 export type SimulationResult = z.infer<typeof SimulationResultSchema>;
 export type FrictionFinding = z.infer<typeof FrictionFindingSchema>;
 export type MutationProposal = z.infer<typeof MutationProposalSchema>;
+export type FitnessComparison = z.infer<typeof FitnessComparisonSchema>;
+export type EvolutionAnalysisRequest = z.infer<
+  typeof EvolutionAnalysisRequestSchema
+>;
+export type EvolutionAnalysisResponse = z.infer<
+  typeof EvolutionAnalysisResponseSchema
+>;
 export type ValidationResult = z.infer<typeof ValidationResultSchema>;
 export type FitnessBreakdown = z.infer<typeof FitnessBreakdownSchema>;
 export type EvolutionRecord = z.infer<typeof EvolutionRecordSchema>;

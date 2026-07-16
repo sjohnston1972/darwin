@@ -92,6 +92,16 @@ fitness =
 
 Document baseline constants and thresholds. Avoid arbitrary unexplained numbers.
 
+Implemented normalisation:
+
+- `completion_rate`: observed completed workflows divided by completed plus abandoned workflows.
+- `navigation_efficiency`: starts at the ideal one-page direct path and applies a diminishing reciprocal penalty of `0.35` for each additional page view plus `1.2` for each backtrack. A reversal is intentionally weighted more heavily than a forward navigation step.
+- `inverse_error_rate`: percentage of workflow sessions without a validation error.
+- `feature_discovery`: completion rate for discovery-sensitive goals: finding assigned tasks, creating a task and reviewing reports.
+- `inverse_task_duration`: reciprocal duration score using 90 seconds as the reference point; a 90-second median scores 50, faster workflows approach 100 and slower workflows decline smoothly.
+
+All component scores are clamped to 0–100 and rounded to one decimal place before being exposed. The weighted total uses the product-specified 35/25/15/15/10 proportions.
+
 ## AI boundary
 The browser never calls OpenAI directly.
 

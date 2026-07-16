@@ -1,4 +1,8 @@
-import { HealthResponseSchema, SimulationSummarySchema } from '@darwin/shared';
+import {
+  EvolutionAnalysisResponseSchema,
+  HealthResponseSchema,
+  SimulationSummarySchema,
+} from '@darwin/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { handleRequest, resetSimulationStore } from './index';
@@ -66,5 +70,32 @@ describe('Darwin API', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: 'invalid_request',
     });
+  });
+
+  it('analyses a simulation into fitness, ranked findings, and one proposal', async () => {
+    await handleRequest(
+      new Request('http://localhost/api/simulations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+      }),
+    );
+    const response = await handleRequest(
+      new Request('http://localhost/api/evolution/analyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
+      }),
+    );
+    const analysis = EvolutionAnalysisResponseSchema.parse(
+      await response.json(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(analysis.fitness.baseline.score).toBeLessThan(
+      analysis.fitness.evolved.score,
+    );
+    expect(analysis.findings[0]?.id).toBe('finding-task-discovery');
+    expect(analysis.proposal.id).toBe('mutation-global-task-discovery-v1');
   });
 });
