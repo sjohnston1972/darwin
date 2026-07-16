@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --port 8787",
+    "simulate": "tsx src/simulation/cli.ts",
     "build": "wrangler deploy --dry-run --outdir dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -14,6 +15,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250712.0",
+    "@types/node": "^24.0.10",
+    "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
     "wrangler": "^4.26.0"

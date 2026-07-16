@@ -7,21 +7,37 @@ export const PersonaSchema = z.enum([
   'administrator',
 ]);
 
+export const OrganismVariantSchema = z.enum(['baseline', 'evolved']);
+
+export const WorkflowGoalSchema = z.enum([
+  'find_assigned_tasks',
+  'create_task',
+  'update_task',
+  'review_project_health',
+  'review_reports',
+  'manage_members',
+  'configure_workspace',
+]);
+
+export const TelemetryEventTypeSchema = z.enum([
+  'page_view',
+  'click',
+  'search',
+  'workflow_started',
+  'workflow_completed',
+  'workflow_abandoned',
+  'validation_error',
+  'backtrack',
+]);
+
 export const TelemetryEventSchema = z.object({
   id: z.string().min(1),
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   persona: PersonaSchema,
-  type: z.enum([
-    'page_view',
-    'click',
-    'search',
-    'workflow_started',
-    'workflow_completed',
-    'workflow_abandoned',
-    'validation_error',
-    'backtrack',
-  ]),
+  variant: OrganismVariantSchema,
+  goal: WorkflowGoalSchema,
+  type: TelemetryEventTypeSchema,
   route: z.string().min(1),
   target: z.string().optional(),
   timestamp: z.string().datetime(),
@@ -40,10 +56,55 @@ export const FitnessBreakdownSchema = z.object({
 export const SimulationRunSchema = z.object({
   id: z.string().min(1),
   seed: z.number().int(),
-  variant: z.enum(['baseline', 'evolved']),
+  variant: OrganismVariantSchema,
   eventCount: z.number().int().nonnegative(),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime().optional(),
+});
+
+export const SimulationRequestSchema = z.object({
+  seed: z.number().int().default(1859),
+  variant: OrganismVariantSchema.default('baseline'),
+});
+
+export const SimulationMetricsSchema = z.object({
+  sessions: z.number().int().positive(),
+  workflowCompletionRate: z.number().min(0).max(1),
+  workflowAbandonmentRate: z.number().min(0).max(1),
+  averagePageViewsPerWorkflow: z.number().nonnegative(),
+  averageBacktracksPerWorkflow: z.number().nonnegative(),
+  searchUsageRate: z.number().min(0).max(1),
+  validationErrorRate: z.number().min(0).max(1),
+  medianWorkflowDurationMs: z.number().nonnegative(),
+});
+
+export const FrictionSignalSchema = z.object({
+  key: z.enum([
+    'workflow_abandonment',
+    'navigation_overhead',
+    'backtracking',
+    'search_dependency',
+    'validation_errors',
+  ]),
+  value: z.number().nonnegative(),
+  unit: z.enum(['rate', 'events_per_workflow', 'page_views', 'count']),
+});
+
+export const SimulationSummarySchema = z.object({
+  run: SimulationRunSchema,
+  fingerprint: z.string().regex(/^[a-f0-9]{8}$/),
+  personaCounts: z.record(z.number().int().nonnegative()),
+  eventTypeCounts: z.record(z.number().int().nonnegative()),
+  goalCounts: z.record(z.number().int().nonnegative()),
+  routeCounts: z.record(z.number().int().nonnegative()),
+  metrics: SimulationMetricsSchema,
+  frictionSignals: z.array(FrictionSignalSchema),
+});
+
+export const SimulationResultSchema = z.object({
+  run: SimulationRunSchema,
+  events: z.array(TelemetryEventSchema),
+  summary: SimulationSummarySchema,
 });
 
 export const FrictionFindingSchema = z.object({
@@ -102,8 +163,16 @@ export const HealthResponseSchema = z.object({
 });
 
 export type Persona = z.infer<typeof PersonaSchema>;
+export type OrganismVariant = z.infer<typeof OrganismVariantSchema>;
+export type WorkflowGoal = z.infer<typeof WorkflowGoalSchema>;
+export type TelemetryEventType = z.infer<typeof TelemetryEventTypeSchema>;
 export type TelemetryEvent = z.infer<typeof TelemetryEventSchema>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
+export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
+export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;
+export type FrictionSignal = z.infer<typeof FrictionSignalSchema>;
+export type SimulationSummary = z.infer<typeof SimulationSummarySchema>;
+export type SimulationResult = z.infer<typeof SimulationResultSchema>;
 export type FrictionFinding = z.infer<typeof FrictionFindingSchema>;
 export type MutationProposal = z.infer<typeof MutationProposalSchema>;
 export type ValidationResult = z.infer<typeof ValidationResultSchema>;

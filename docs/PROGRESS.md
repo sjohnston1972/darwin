@@ -5,7 +5,8 @@ Codex: append one entry per completed phase.
 ## Current state
 - Phase 1 foundation complete.
 - Phase 2 ProjectFlow organism complete.
-- Phase 3 not started.
+- Phase 3 telemetry and simulation complete.
+- Phase 4 not started.
 
 ### Phase 1 — Foundation
 Date: 2026-07-16
@@ -82,6 +83,54 @@ Known issues:
 
 Next phase:
 - Phase 3 — Telemetry and simulation.
+
+### Phase 3 — Telemetry and simulation
+Date: 2026-07-16
+
+Completed:
+- Extended shared Zod contracts with organism variants, workflow goals, telemetry event types, simulation requests, raw metrics, friction signals, summaries, and results.
+- Added a deterministic seeded PRNG and four weighted persona definitions: project manager, developer, executive, and administrator.
+- Added probabilistic but deterministic goal selection and baseline/evolved route graphs.
+- Generated complete workflow sequences containing page views, clicks, searches, starts, completions, abandonments, validation errors, and backtracks.
+- Guaranteed exactly 10,000 timestamped events across a deterministic six-month observation window.
+- Aggregated persona, event type, goal, route, completion, abandonment, navigation, backtrack, search, validation, and duration metrics from raw events.
+- Added deterministic event-stream fingerprints for replay verification.
+- Implemented `npm run simulate` with `--seed`, `--variant`, and `--json` options.
+- Added `POST /api/simulations`, `GET /api/simulations/:id`, and `GET /api/simulations/:id/summary` with local in-memory run storage.
+- Added schema-safe malformed request handling and updated Worker CORS methods.
+
+Verification commands:
+```bash
+npm install
+npm run simulate
+npm run simulate -- --seed=1859 --variant=evolved
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+```
+
+Results:
+- `npm install`: passed; 384 packages audited with 0 vulnerabilities.
+- Baseline seed `1859`: exactly 10,000 events, 845 workflow sessions, fingerprint `448efd59`.
+- Repeated baseline seed `1859`: identical summary and full event stream.
+- Different seed `2026`: different route sample and event fingerprint.
+- Evolved seed `1859`: exactly 10,000 events, 1,912 workflow sessions, fingerprint `959d7a64`.
+- Derived completion increased from 79.3% baseline to 94.5% evolved.
+- Derived page views fell from 5.18 to 2.04 per workflow; backtracks fell from 0.59 to 0.03; median duration fell from 76.3s to 29.9s.
+- Live Worker API created and retrieved `sim-baseline-1859` with the same event count, fingerprint, session count, and completion rate as the CLI.
+- `npm run typecheck`: passed across shared, API, and both web TypeScript projects.
+- `npm run test`: passed; 5 test files and 13 tests.
+- `npm run lint` and `npm run format:check`: passed.
+- `npm run build`: passed; Wrangler dry-run Worker bundle and Vite production bundle generated.
+
+Known issues:
+- Simulation runs are intentionally held in memory and reset when the local Worker restarts; D1 persistence remains scheduled for Phase 8.
+- Observation animation and control-room simulation controls remain scheduled for Phase 5.
+
+Next phase:
+- Phase 4 — Fitness and analysis.
 
 ## Entry template
 
