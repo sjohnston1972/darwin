@@ -151,6 +151,29 @@ const recordedValidation = {
   fitness: analysis.fitness.evolved,
   recordedAt: timestamp,
 } as const;
+const evidencePack = {
+  evidenceId: 'evidence-reset-test',
+  evidenceHash: 'a'.repeat(64),
+  generatedAt: timestamp,
+  parserVersion: '1.1.0',
+  evidenceClass: 'measured',
+  study: {
+    studyId: 'projectflow-baseline-study',
+    appVersion: '1.0.0',
+    sourceEventCount: 2,
+    participants: 1,
+    sessions: 1,
+    attempts: 0,
+  },
+  taskAttempts: [],
+  tasks: [],
+  frictionSignals: [],
+  applicationMap: {
+    routes: ['/study/dashboard'],
+    mutableAreas: ['navigation'],
+    protectedAreas: ['telemetry-history'],
+  },
+} as const;
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
@@ -165,6 +188,9 @@ const installApiMock = () => {
         events: [],
         count: 0,
       });
+    }
+    if (url.includes('/evidence/latest?optional=true')) {
+      return jsonResponse(evidencePack);
     }
     if (url.endsWith('/api/health')) {
       return jsonResponse({
@@ -269,6 +295,10 @@ describe('Darwin control room', () => {
     const fetchMock = installApiMock();
     render(<App />);
 
+    expect(
+      await screen.findByText('Evidence pack evidence-reset-test'),
+    ).toBeInTheDocument();
+
     fireEvent.click(
       screen.getByRole('button', { name: 'Observe 10,000 interactions' }),
     );
@@ -336,6 +366,9 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('button', { name: 'Observe 10,000 interactions' }),
     ).toBeEnabled();
+    expect(
+      screen.queryByText('Evidence pack evidence-reset-test'),
+    ).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/demo/reset'),
       expect.objectContaining({ method: 'POST' }),

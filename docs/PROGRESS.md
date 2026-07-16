@@ -575,6 +575,49 @@ Known issues:
 Next phase:
 - Deploy `0.14.0`, run the production smoke check and rehearse the judge flow.
 
+### Phase 15 — Study-runner polish and clean reset
+Date: 2026-07-16
+
+Completed:
+- Promoted the primary `Find your assigned task` workflow to study task 01.
+- Added a persistent study-task band that stays visible at desktop, laptop and
+  mobile widths, with the exact task name, instruction, evidence count and
+  state-aware action.
+- Replaced low-visibility text links with full task-labelled start buttons and
+  exposed `Done` throughout the active task, enabling it when the target is
+  observed.
+- Kept the full study runner available below the application at narrow widths
+  while making the critical controls usable without scrolling to it.
+- Fixed `Reset evolution demo` so a successful API reset also clears the
+  in-memory evidence pack, analysis, Codex manifest, outcome, events and counts.
+- Added API and UI regression coverage for evidence deletion and reset-state
+  synchronization.
+- Updated API and control-room version labels to `0.15.0`.
+
+Verification commands:
+```bash
+npm run format
+npm run lint
+npm run format:check
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- The study task completed through its persistent controls at 1366x768,
+  900x768 and 390x844 with no horizontal overflow or console errors.
+- A loaded evidence pack disappeared immediately after reset and raw events,
+  sessions, participants and behavior signals all returned to zero.
+
+Known issues:
+- Reset is intentionally destructive for the shared demo dataset; captured
+  judge evidence should be exported or recorded before resetting.
+
+Next phase:
+- Deploy `0.15.0` and perform the final narrated judge rehearsal.
+
 ## Entry template
 
 ### Phase N — Name

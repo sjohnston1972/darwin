@@ -303,6 +303,106 @@ button {
   cursor: pointer;
 }
 
+.study-task-dock {
+  position: sticky;
+  top: 58px;
+  z-index: 19;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 78px;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 24px;
+  background: rgb(239 249 245 / 97%);
+  border-bottom: 1px solid #bcdccc;
+  box-shadow: 0 5px 16px rgb(31 74 57 / 6%);
+  backdrop-filter: blur(12px);
+}
+
+.study-task-dock-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.study-task-dock-copy > span {
+  color: #39705c;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.study-task-dock-copy strong {
+  overflow: hidden;
+  color: #18352a;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-task-dock-copy p {
+  margin: 0;
+  overflow: hidden;
+  color: #61756c;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-task-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dock-start,
+.dock-done,
+.dock-evidence {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.dock-start,
+.dock-done {
+  padding: 0 13px;
+  color: #fff;
+  background: #285d49;
+  border: 1px solid #214c3d;
+}
+
+.dock-start:hover,
+.dock-done:hover:not(:disabled) {
+  background: #214f3e;
+}
+
+.dock-done:disabled {
+  color: #6c8279;
+  background: #dce9e3;
+  border-color: #c4d9cf;
+  cursor: not-allowed;
+}
+
+.dock-evidence {
+  min-width: 50px;
+  padding: 0 9px;
+  color: #315f4e;
+  background: #fff;
+  border: 1px solid #bcd6ca;
+}
+
+.dock-evidence span {
+  min-width: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+}
+
 .mobile-menu {
   display: none;
   margin-right: 10px;
@@ -1053,20 +1153,58 @@ button {
 
 .start-task {
   display: inline-flex;
+  width: 100%;
+  min-height: 32px;
   align-items: center;
-  gap: 5px;
-  padding: 0;
-  color: #78dab1;
-  background: transparent;
-  border: 0;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  color: #dff8ed;
+  text-align: left;
+  background: #285742;
+  border: 1px solid #376b55;
+  border-radius: 4px;
   font-size: 9px;
   font-weight: 700;
   cursor: pointer;
 }
 
+.start-task:hover {
+  background: #31664f;
+}
+
+.start-task span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .start-task:disabled {
-  color: #607079;
+  color: #6f8179;
+  background: #1b2b27;
+  border-color: #2a3c36;
   cursor: not-allowed;
+}
+
+.study-task-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 6px;
+  padding-top: 7px;
+  border-top: 1px solid #2b3d45;
+}
+
+.study-task-state span {
+  color: #72d5ac;
+  font-size: 8px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.study-task-state small {
+  color: #7f9098;
+  font-size: 8px;
 }
 
 .study-actions {
@@ -1389,6 +1527,10 @@ button {
     border-left: 0;
   }
 
+  .study-task-dock {
+    top: 58px;
+  }
+
   .study-tasks {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1418,6 +1560,23 @@ button {
   .topbar {
     min-height: 54px;
     padding: 0 14px;
+  }
+
+  .study-task-dock {
+    top: 54px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px 14px;
+  }
+
+  .study-task-dock-actions {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .dock-start,
+  .dock-done {
+    width: 100%;
   }
 
   .content {

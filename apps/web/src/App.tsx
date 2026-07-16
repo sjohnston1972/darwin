@@ -76,6 +76,9 @@ function App() {
   );
   const demo = useEvolutionDemo();
   const liveTelemetry = useLiveTelemetry();
+  const resetDemo = async () => {
+    if (await demo.reset()) liveTelemetry.resetState();
+  };
   const observed = demo.eventCount.toLocaleString('en-US');
   const measuredFitness = demo.analysis
     ? demo.organism.variant === 'evolved'
@@ -295,7 +298,7 @@ function App() {
             <button
               className="icon-button ml-2"
               type="button"
-              onClick={() => void demo.reset()}
+              onClick={() => void resetDemo()}
               disabled={demo.stage === 'resetting'}
               aria-label="Reset evolution demo"
               title="Reset evolution demo"
@@ -633,7 +636,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.14.0</p>
+            <p className="font-mono">DARWIN CORE 0.15.0</p>
           </footer>
         </div>
       </main>

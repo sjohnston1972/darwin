@@ -77,23 +77,23 @@ export const initialTasks: Task[] = [
 
 export const studyTasks = [
   {
-    id: 'create-project',
+    id: 'find-assigned-task',
     number: '01',
+    title: 'Find your assigned task',
+    instruction: 'Find and open "Confirm launch checklist".',
+  },
+  {
+    id: 'create-project',
+    number: '02',
     title: 'Create a project',
     instruction: 'Create a project named Polaris Launch.',
   },
   {
     id: 'create-assigned-task',
-    number: '02',
+    number: '03',
     title: 'Create and assign a task',
     instruction:
       'In Apollo Release, create "Draft rollback plan" and assign it to yourself.',
-  },
-  {
-    id: 'find-assigned-task',
-    number: '03',
-    title: 'Find your assigned task',
-    instruction: 'Find and open "Confirm launch checklist".',
   },
 ] as const;
 

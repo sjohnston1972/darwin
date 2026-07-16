@@ -40,12 +40,19 @@ describe('standalone ProjectFlow', () => {
     ).not.toBeInTheDocument();
 
     const taskCard = screen
-      .getByText('Find your assigned task')
-      .closest('article');
+      .getAllByText('Find your assigned task')
+      .map((element) => element.closest('article'))
+      .find(Boolean);
     expect(taskCard).not.toBeNull();
-    fireEvent.click(
-      within(taskCard!).getByRole('button', { name: /Start task/ }),
-    );
+    const primaryStarts = screen.getAllByRole('button', {
+      name: 'Start task: Find your assigned task',
+    });
+    expect(primaryStarts).toHaveLength(2);
+    fireEvent.click(primaryStarts[0]!);
+    expect(screen.getAllByRole('button', { name: 'Done' })).toHaveLength(2);
+    expect(
+      within(taskCard!).getByRole('button', { name: 'Done' }),
+    ).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: /Projects/ }));
     fireEvent.click(screen.getByRole('button', { name: /Apollo Release/ }));
@@ -69,8 +76,9 @@ describe('standalone ProjectFlow', () => {
     expect(screen.getByText('ProjectFlow evolved - v1.1.0')).toBeVisible();
     expect(screen.getByLabelText('Search all tasks')).toBeVisible();
     const taskCard = screen
-      .getByText('Find your assigned task')
-      .closest('article');
+      .getAllByText('Find your assigned task')
+      .map((element) => element.closest('article'))
+      .find(Boolean);
     fireEvent.click(
       within(taskCard!).getByRole('button', { name: /Start task/ }),
     );

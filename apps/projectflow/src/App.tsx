@@ -484,6 +484,22 @@ export function App() {
           </div>
         </header>
 
+        {studyMode && (
+          <StudyTaskDock
+            activeTask={activeStudyTask}
+            completedTasks={completedTasks}
+            eventCount={events.length}
+            satisfiedTasks={satisfiedTasks}
+            onDone={() => finishStudyTask('success')}
+            onShowEvidence={() =>
+              document
+                .querySelector('.event-monitor')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+            onStart={startStudyTask}
+          />
+        )}
+
         <main className="content">
           {route === 'dashboard' && (
             <Dashboard
@@ -1128,6 +1144,85 @@ function SettingsView() {
   );
 }
 
+function StudyTaskDock({
+  activeTask,
+  completedTasks,
+  eventCount,
+  satisfiedTasks,
+  onDone,
+  onShowEvidence,
+  onStart,
+}: {
+  activeTask: StudyTaskId | null;
+  completedTasks: Set<StudyTaskId>;
+  eventCount: number;
+  satisfiedTasks: Set<StudyTaskId>;
+  onDone: () => void;
+  onShowEvidence: () => void;
+  onStart: (id: StudyTaskId) => void;
+}) {
+  const task = activeTask
+    ? studyTasks.find((candidate) => candidate.id === activeTask)
+    : studyTasks.find((candidate) => !completedTasks.has(candidate.id));
+  const satisfied = task ? satisfiedTasks.has(task.id) : false;
+
+  return (
+    <section className="study-task-dock" aria-label="Current study task">
+      <div className="study-task-dock-copy">
+        <span>
+          {activeTask
+            ? 'Study task in progress'
+            : task
+              ? `Study task ${task.number} of ${studyTasks.length}`
+              : 'Study complete'}
+        </span>
+        <strong>{task?.title ?? 'All study tasks completed'}</strong>
+        <p>
+          {task?.instruction ?? 'This session is ready for evidence review.'}
+        </p>
+      </div>
+      <div className="study-task-dock-actions">
+        <button
+          className="dock-evidence"
+          type="button"
+          title="View session evidence"
+          aria-label={`View session evidence, ${eventCount} events captured`}
+          onClick={onShowEvidence}
+        >
+          <BarChart3 size={15} />
+          <span>{eventCount}</span>
+        </button>
+        {task && !activeTask && (
+          <button
+            className="dock-start"
+            type="button"
+            data-darwin-id={`study-dock-start-${task.id}`}
+            onClick={() => onStart(task.id)}
+          >
+            Start task: {task.title}
+            <ChevronRight size={15} />
+          </button>
+        )}
+        {task && activeTask && (
+          <button
+            className="dock-done"
+            type="button"
+            data-darwin-id="study-dock-done"
+            disabled={!satisfied}
+            title={
+              satisfied ? 'Complete this study task' : 'Open the target first'
+            }
+            onClick={onDone}
+          >
+            {satisfied ? <Check size={15} /> : <Clock3 size={15} />}
+            Done
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function presentTelemetryEvent(event: StudyTelemetryEvent) {
   const target = 'targetId' in event ? event.targetId : undefined;
   const at = target ?? event.route;
@@ -1277,24 +1372,34 @@ function StudyPanel({
                 <strong>{task.title}</strong>
                 <p>{task.instruction}</p>
                 {active ? (
-                  <div className="study-actions">
-                    <button
-                      type="button"
-                      className="button-secondary"
-                      data-darwin-id="study-task-failed"
-                      onClick={onCouldNotComplete}
-                    >
-                      Could not complete
-                    </button>
-                    <button
-                      type="button"
-                      className="button-primary"
-                      data-darwin-id="study-task-done"
-                      disabled={!satisfiedTasks.has(task.id)}
-                      onClick={onDone}
-                    >
-                      Done
-                    </button>
+                  <div>
+                    <div className="study-task-state">
+                      <span>In progress</span>
+                      <small>
+                        {satisfiedTasks.has(task.id)
+                          ? 'Target observed'
+                          : 'Waiting for target'}
+                      </small>
+                    </div>
+                    <div className="study-actions">
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        data-darwin-id="study-task-failed"
+                        onClick={onCouldNotComplete}
+                      >
+                        Could not complete
+                      </button>
+                      <button
+                        type="button"
+                        className="button-primary"
+                        data-darwin-id="study-task-done"
+                        disabled={!satisfiedTasks.has(task.id)}
+                        onClick={onDone}
+                      >
+                        Done
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   !complete && (
@@ -1305,7 +1410,8 @@ function StudyPanel({
                       disabled={activeTask !== null}
                       onClick={() => onStart(task.id)}
                     >
-                      Start task <ChevronRight size={14} />
+                      <span>Start task: {task.title}</span>
+                      <ChevronRight size={14} />
                     </button>
                   )
                 )}

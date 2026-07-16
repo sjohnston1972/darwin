@@ -10,7 +10,7 @@ import {
   type OutcomeValidation,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const studyId = 'projectflow-baseline-study';
@@ -30,6 +30,7 @@ export interface LiveTelemetryState {
   outcome: OutcomeValidation | null;
   prepareCodexManifest: () => Promise<void>;
   preparingManifest: boolean;
+  resetState: () => void;
   status: 'loading' | 'live' | 'offline';
 }
 
@@ -47,39 +48,43 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [outcome, setOutcome] = useState<OutcomeValidation | null>(null);
   const [preparingManifest, setPreparingManifest] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
+  const resetGeneration = useRef(0);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
+      const generation = resetGeneration.current;
       try {
         const response = await fetch(
           `${apiBaseUrl}/api/studies/${studyId}/events?limit=50`,
         );
         if (!response.ok) throw new Error('Live telemetry request failed.');
         const result = StudyEventsResponseSchema.parse(await response.json());
-        if (active) {
+        if (active && generation === resetGeneration.current) {
           setEvents(result.events);
           setCount(result.count);
           setStatus('live');
         }
       } catch {
-        if (active) setStatus('offline');
+        if (active && generation === resetGeneration.current)
+          setStatus('offline');
       }
     };
     void load();
+    const initialGeneration = resetGeneration.current;
     void fetch(
       `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
     )
       .then(async (response) => {
         if (response.status === 204 || !response.ok) return;
-        if (active)
+        if (active && initialGeneration === resetGeneration.current)
           setEvidence(EvidencePackSchema.parse(await response.json()));
       })
       .catch(() => undefined);
     void fetch(`${apiBaseUrl}/api/outcomes/automated-comparison`)
       .then(async (response) => {
         if (!response.ok) return;
-        if (active)
+        if (active && initialGeneration === resetGeneration.current)
           setOutcome(OutcomeValidationSchema.parse(await response.json()));
       })
       .catch(() => undefined);
@@ -89,7 +94,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       .then(async (response) => {
         if (response.status === 204 || !response.ok) return;
         const result = EvidenceAnalysisSchema.parse(await response.json());
-        if (!active) return;
+        if (!active || initialGeneration !== resetGeneration.current) return;
         setAnalysis(result);
         return fetch(
           `${apiBaseUrl}/api/evidence-analyses/${result.analysisId}/codex-manifest`,
@@ -97,7 +102,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       })
       .then(async (response) => {
         if (!response?.ok) return;
-        if (active)
+        if (active && initialGeneration === resetGeneration.current)
           setManifest(
             CodexImplementationManifestSchema.parse(await response.json()),
           );
@@ -167,6 +172,21 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
+  const resetState = () => {
+    resetGeneration.current += 1;
+    setEvents([]);
+    setCount(0);
+    setEvidence(null);
+    setAnalysis(null);
+    setManifest(null);
+    setOutcome(null);
+    setError(null);
+    setGenerating(false);
+    setAnalysing(false);
+    setPreparingManifest(false);
+    setStatus('live');
+  };
+
   return {
     analysis,
     analyseEvidence,
@@ -182,6 +202,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     outcome,
     prepareCodexManifest,
     preparingManifest,
+    resetState,
     status,
   };
 }

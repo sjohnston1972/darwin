@@ -301,6 +301,7 @@ export function useEvolutionDemo() {
       setTimeline([]);
       setOrganism(result.organism);
       setStage('idle');
+      return true;
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -308,6 +309,7 @@ export function useEvolutionDemo() {
           : 'Demo reset failed unexpectedly.',
       );
       setStage('error');
+      return false;
     }
   };
 

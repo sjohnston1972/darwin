@@ -242,6 +242,25 @@ describe('Darwin API', () => {
     );
     const latest = EvidencePackSchema.parse(await latestResponse.json());
     expect(latest.evidenceHash).toBe(generated.evidenceHash);
+
+    await handleRequest(
+      new Request('http://localhost/api/demo/reset', { method: 'POST' }),
+    );
+    const resetEvidence = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence/latest?optional=true',
+      ),
+    );
+    const resetEvents = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
+      ),
+    );
+
+    expect(resetEvidence.status).toBe(204);
+    expect(
+      StudyEventsResponseSchema.parse(await resetEvents.json()),
+    ).toMatchObject({ count: 0, events: [] });
   });
 
   it('caches evidence analysis and creates a bounded Codex manifest', async () => {
