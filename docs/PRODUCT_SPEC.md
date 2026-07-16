@@ -13,7 +13,13 @@ Product and engineering teams responsible for internal or SaaS applications with
 As a product engineer, I want Darwin to analyse application behaviour and produce an evidence-backed code improvement so that the product continuously becomes easier to use.
 
 ## 5. MVP narrative
-The user opens Darwin's control room and sees ProjectFlow v1 with a fitness score of 67. They run a seeded simulation representing six months and 10,000 interactions. Darwin identifies repeated navigation friction, proposes a mutation, creates an implementation brief, validates the evolved variant, and records fitness increasing to approximately 89.
+The user completes an awkward fixed task in the deployed ProjectFlow baseline.
+Darwin shows the resulting anonymous raw events, reconstructs the task attempt and
+links a deterministic navigation-friction signal to those records. GPT-5.6
+selects an evidence-backed mutation, Codex implements the approved brief, and
+Darwin preserves the evidence hash, real diff and validation result. A separate
+10,000-event synthetic replay demonstrates scale without being presented as
+human telemetry.
 
 ## 6. Primary screens
 
@@ -26,10 +32,11 @@ Must show:
 - interactions observed
 - evolution cycles
 - fitness score
-- primary CTA: `Observe 10,000 interactions`
+- primary CTA: `Inspect real evidence`
+- separate secondary action: `Replay 10,000 synthetic events`
 
 ### 6.2 ProjectFlow organism
-Toggleable baseline and evolved variants.
+A standalone functional study application plus a toggleable control-room preview.
 
 Baseline:
 - Dashboard
@@ -50,9 +57,10 @@ Evolved:
 
 ### 6.3 Observation stream
 Animated but truthful display of:
-- simulated time passing
-- persona activity
-- event count
+- real event receipt time and source provenance
+- participant, session and task-attempt identity
+- separately labelled synthetic replay activity
+- real, automated and synthetic event counts
 - friction signals
 - workflow abandonment
 
@@ -86,28 +94,35 @@ Timeline of versions and retained/rejected mutations.
 
 ## 7. Functional requirements
 
-### FR-1 Simulation
-Generate exactly 10,000 seeded telemetry events within seconds.
+### FR-1 Real telemetry
+Capture privacy-conscious, ordered, schema-valid events from standalone
+ProjectFlow and preserve task-attempt and source provenance.
 
-### FR-2 Aggregation
-Aggregate raw events into funnels, path loops, abandonment, search use, task duration and feature usage.
+### FR-2 Deterministic evidence
+Reconstruct attempts and derive funnels, path loops, abandonment, search use,
+task duration and feature usage without a language model.
 
-### FR-3 Analysis
-Return a schema-valid mutation proposal from mock or GPT-5.6 analysis.
+### FR-3 Scale replay
+Generate exactly 10,000 seeded synthetic events within seconds and keep them
+separate from real-study evidence.
 
-### FR-4 Approval
+### FR-4 Analysis
+Return a schema-valid mutation proposal from mock or GPT-5.6 analysis, with every
+behavioural claim citing a known evidence ID.
+
+### FR-5 Approval
 No mutation is applied without explicit approval in the UI.
 
-### FR-5 Validation
+### FR-6 Validation
 Run or load genuine build/test results and calculate evolved fitness.
 
-### FR-6 Variant switching
+### FR-7 Variant switching
 The organism must visibly change between baseline and evolved states without a redeploy during the demo.
 
-### FR-7 Timeline
+### FR-8 Timeline
 Persist evolution cycles locally or in D1.
 
-### FR-8 Offline demo mode
+### FR-9 Offline demo mode
 The entire flow works without an OpenAI key using deterministic fixtures.
 
 ## 8. Non-functional requirements
@@ -124,6 +139,8 @@ The demo succeeds when:
 - judges understand the idea in 20 seconds
 - the application visibly changes
 - the evidence-to-change chain is clear
+- judges can inspect a raw event supporting a selected finding
+- measured, automated, predicted and synthetic outcomes are unmistakable
 - GPT-5.6 and Codex have distinct roles
 - the project works without manual repair
 

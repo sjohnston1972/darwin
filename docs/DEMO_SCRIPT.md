@@ -1,51 +1,62 @@
 # Three-Minute Demo Script
 
-## 0:00–0:20 — Premise
-Show Darwin landing screen.
+## 0:00-0:20 - Premise
 
-Narration:
-“Software is designed once, then slowly becomes obsolete. Darwin is an autonomous product engineer. It observes how an application is actually used, identifies evolutionary pressure, and uses GPT-5.6 and Codex to evolve it.”
+Show Darwin and the connected ProjectFlow organism.
 
-## 0:20–0:45 — The organism
-Open ProjectFlow baseline.
+“Darwin is an autonomous product engineer. It observes how software is actually
+used, converts behaviour into inspectable evidence, and proposes one controlled
+mutation.”
 
-Narration:
-“This is ProjectFlow. It works, but assigned tasks are buried, search is hidden, and the dashboard is full of information users ignore.”
+## 0:20-0:50 - Real organism and action
 
-Perform one deliberately awkward task path.
+Open standalone ProjectFlow in study mode. Start **Find your assigned task** and
+follow the awkward baseline path through Projects. Complete the task.
 
-## 0:45–1:15 — Compressed observation
-Return to Darwin and press `Observe 10,000 interactions`.
+“This is a functional application, not a telemetry animation. The study runner
+gives Darwin ground truth for the task, outcome and duration.”
 
-Narration:
-“Darwin compresses months of product usage into a deterministic simulation. These are 10,000 interaction events, not 10,000 expensive AI agents.”
+## 0:50-1:20 - Evidence chain
 
-Show personas, event count and friction patterns.
+Return to Darwin. Show the new real event count, ordered attempt trace and one
+friction signal. Expand the signal to its detector rule and supporting event IDs.
 
-## 1:15–1:45 — GPT-5.6 reasoning
-Show selection pressure and mutation proposal.
+“The browser records semantic controls, routes and task outcomes. TypeScript and
+SQL reconstruct attempts and detect friction. No model processes events one by
+one.”
 
-Narration:
-“GPT-5.6 reasons over aggregated behaviour, the component model and the current product constraints. It proposes one evidence-backed mutation rather than redesigning blindly.”
+Briefly show the separately labelled 10,000-event synthetic scale replay.
 
-Highlight evidence and predicted fitness gain.
+## 1:20-1:50 - GPT-5.6 reasoning
 
-## 1:45–2:15 — Codex implementation
-Approve mutation.
+Open the compact evidence pack and its hash, then generate a mutation.
 
-Narration:
-“Codex turns that product hypothesis into an implementation: global task search, a My Work route, simplified navigation and tests.”
+“GPT-5.6 receives one compact evidence pack. Every behavioural claim must cite a
+known evidence ID, unsupported ideas are rejected, and predicted impact remains
+a hypothesis.”
 
-Show real diff and validation checks.
+## 1:50-2:20 - Controlled implementation
 
-## 2:15–2:40 — Evolution
-Switch to evolved ProjectFlow and repeat the task quickly.
+Approve the proposal and show the Codex implementation manifest, real repository
+diff and recorded validation commands.
 
-Narration:
-“The application has evolved. The same task is now direct, visible and faster.”
+“Codex receives the selected brief and allowed files, not thousands of raw
+events. It changes one bounded area, adds tests and stops before deployment.”
 
-## 2:40–3:00 — Fitness and vision
-Show fitness improvement and fossil record.
+## 2:20-2:45 - Evolved workflow
 
-Narration:
-“Darwin observed 10,000 user interactions and evolved the application. Every mutation is explained, tested, measurable and reversible. Coding agents can write software. Darwin decides what the software should become.”
+Release ProjectFlow v1.1 and repeat the same task through My Work or global
+search. Show the shorter automated path. If evolved human-study results exist,
+show them separately.
+
+“The workflow is shorter and validated. Automated evidence is labelled as
+automated; it is not presented as a measured user outcome.”
+
+## 2:45-3:00 - Fossil record and vision
+
+Show the fossil record with source event count, evidence hash, proposal, commit,
+diff and validation result.
+
+“Every mutation is traceable, testable and reversible. Darwin can observe real
+usage today and replay 10,000 synthetic interactions to test the same evolutionary
+loop at scale. Software that evolves.”

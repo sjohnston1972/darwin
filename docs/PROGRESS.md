@@ -294,11 +294,58 @@ Results:
 - Two Chrome flows passed at 1440×900 and 390×844; a page reload preserved ProjectFlow `v1.1` and the survived fossil record.
 
 Known issues:
-- Phase 7 timeline persistence uses the Worker in-memory fallback and survives browser reloads but not Worker restarts; D1 persistence is scheduled for Phase 8.
+- Phase 7 timeline persistence uses the Worker in-memory fallback and survives browser reloads but not Worker restarts; D1 persistence is scheduled for Phase 9 after the real-event contracts are established.
 - Hosted validation is a checked-in recorded repository run. Only the local recorder executes commands, and the UI labels the provenance explicitly.
 
 Next phase:
-- Phase 8 — Cloudflare deployment.
+- Phase 8 — Real telemetry foundation.
+
+### Phase 8 — Real telemetry foundation
+Date: 2026-07-16
+
+Completed:
+- Re-baselined the authoritative product, architecture, build plan and demo script around real human telemetry as Darwin's primary evidence source.
+- Added `docs/REAL_TELEMETRY_PLAN.md` with the collection boundary, deterministic parsing rules, evidence hashing, model boundary and honest outcome labels.
+- Kept existing simulation contracts intact and added a separate strict real-study event union with source, schema, participant, session, attempt, route and sequence provenance.
+- Added event-specific property allowlists, semantic target validation, a 50-event batch limit and contracts for ingestion receipts.
+- Added `packages/telemetry-client` with semantic click capture, explicit route/search/validation tracking, unique task attempts, terminal outcomes, bounded local outbox, batching, retry-safe delivery and Beacon support.
+- Ensured the browser client records search length/result count and feedback length, never raw search text, form values, arbitrary page text or feedback content.
+- Added standalone `apps/projectflow`, distinct from the Darwin control room, with persistent local project/task state and functional project creation, task creation, project task search and reporting.
+- Added `/study` with anonymous participant IDs, three fixed tasks, unique attempts and outcome verification before a task can be marked complete.
+- Instrumented important controls with stable `data-darwin-id` values and exposed the local ordered evidence count during the study.
+- Extended root development and production-build commands to include the telemetry client and standalone ProjectFlow workspaces.
+
+Verification commands:
+```bash
+npm install
+npm run typecheck -w @darwin/shared
+npm run typecheck -w @darwin/telemetry-client
+npm run typecheck -w @darwin/projectflow-app
+npm run test -w @darwin/shared
+npm run test -w @darwin/telemetry-client
+npm run test -w @darwin/projectflow-app
+npm run validate:record
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- All 31 unit and component tests passed across the five workspaces, including four shared-contract tests, two telemetry-client tests and two standalone ProjectFlow tests.
+- A real browser study flow navigated Dashboard → Projects → Apollo Release → Tasks, opened the assigned task and produced a verified successful attempt.
+- Desktop Chrome at 1280×720 and mobile Chrome at 390×844 passed; the standalone app remained usable and the study panel adapted below the mobile workspace.
+- No ProjectFlow form value or visible control text appeared in captured telemetry tests.
+
+Known issues:
+- Phase 8 retains real events in a bounded browser outbox; Phase 9 adds the validated Worker endpoint, D1 storage, deduplication and live Darwin trace viewer.
+- ProjectFlow participant workspaces are local in Phase 8; Phase 9 moves study workspaces and assignments behind D1 repositories.
+- The current Darwin control-room metrics are still driven by explicitly synthetic simulation until the evidence engine is connected in Phase 10.
+
+Next phase:
+- Phase 9 — D1 ingestion and live traces.
 
 ## Entry template
 

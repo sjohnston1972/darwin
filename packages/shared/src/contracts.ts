@@ -44,6 +44,155 @@ export const TelemetryEventSchema = z.object({
   durationMs: z.number().int().nonnegative().optional(),
 });
 
+const StudyIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9._:-]+$/);
+const StudyRouteSchema = z.string().min(1).max(256).startsWith('/');
+const SemanticTargetSchema = z
+  .string()
+  .min(1)
+  .max(96)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+export const StudyTelemetrySourceSchema = z.enum([
+  'real_user',
+  'automated',
+  'synthetic',
+]);
+
+export const ViewportClassSchema = z.enum(['mobile', 'tablet', 'desktop']);
+
+const StudyEventBaseSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    eventId: z.string().uuid(),
+    sessionId: StudyIdentifierSchema,
+    participantId: StudyIdentifierSchema,
+    studyId: StudyIdentifierSchema,
+    appVersion: z.string().min(1).max(32),
+    source: StudyTelemetrySourceSchema,
+    occurredAt: z.string().datetime(),
+    sequence: z.number().int().nonnegative(),
+    route: StudyRouteSchema,
+    viewport: ViewportClassSchema,
+  })
+  .strict();
+
+export const SessionStartedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('session_started'),
+});
+
+export const SessionEndedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('session_ended'),
+  durationMs: z.number().int().nonnegative(),
+});
+
+export const PageViewEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('page_view'),
+});
+
+export const ElementClickedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('element_clicked'),
+  targetId: SemanticTargetSchema,
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+});
+
+export const RouteChangedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('route_changed'),
+  properties: z
+    .object({
+      fromRoute: StudyRouteSchema,
+    })
+    .strict(),
+});
+
+export const ValidationErrorEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('validation_error'),
+  targetId: SemanticTargetSchema,
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      fieldId: SemanticTargetSchema,
+      errorCode: SemanticTargetSchema,
+    })
+    .strict(),
+});
+
+export const SearchPerformedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('search_performed'),
+  targetId: SemanticTargetSchema,
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      queryLength: z.number().int().min(0).max(512),
+      resultCount: z.number().int().nonnegative().max(10_000),
+    })
+    .strict(),
+});
+
+export const TaskStartedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('task_started'),
+  taskAttemptId: StudyIdentifierSchema,
+  taskId: StudyIdentifierSchema,
+});
+
+export const TaskCompletedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('task_completed'),
+  taskAttemptId: StudyIdentifierSchema,
+  taskId: StudyIdentifierSchema,
+  durationMs: z.number().int().nonnegative(),
+  outcome: z.literal('success'),
+});
+
+export const TaskFailedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('task_failed'),
+  taskAttemptId: StudyIdentifierSchema,
+  taskId: StudyIdentifierSchema,
+  durationMs: z.number().int().nonnegative(),
+  outcome: z.enum(['failed', 'abandoned']),
+});
+
+export const FeedbackSubmittedEventSchema = StudyEventBaseSchema.extend({
+  eventType: z.literal('feedback_submitted'),
+  taskAttemptId: StudyIdentifierSchema.optional(),
+  taskId: StudyIdentifierSchema.optional(),
+  properties: z
+    .object({
+      length: z.number().int().min(0).max(500),
+    })
+    .strict(),
+});
+
+export const StudyTelemetryEventSchema = z.discriminatedUnion('eventType', [
+  SessionStartedEventSchema,
+  SessionEndedEventSchema,
+  PageViewEventSchema,
+  ElementClickedEventSchema,
+  RouteChangedEventSchema,
+  ValidationErrorEventSchema,
+  SearchPerformedEventSchema,
+  TaskStartedEventSchema,
+  TaskCompletedEventSchema,
+  TaskFailedEventSchema,
+  FeedbackSubmittedEventSchema,
+]);
+
+export const TelemetryBatchSchema = z
+  .object({
+    events: z.array(StudyTelemetryEventSchema).min(1).max(50),
+  })
+  .strict();
+
+export const TelemetryReceiptSchema = z.object({
+  accepted: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+});
+
 export const FitnessBreakdownSchema = z.object({
   score: z.number().min(0).max(100),
   completionRate: z.number().min(0).max(100),
@@ -244,6 +393,11 @@ export type OrganismVariant = z.infer<typeof OrganismVariantSchema>;
 export type WorkflowGoal = z.infer<typeof WorkflowGoalSchema>;
 export type TelemetryEventType = z.infer<typeof TelemetryEventTypeSchema>;
 export type TelemetryEvent = z.infer<typeof TelemetryEventSchema>;
+export type StudyTelemetrySource = z.infer<typeof StudyTelemetrySourceSchema>;
+export type ViewportClass = z.infer<typeof ViewportClassSchema>;
+export type StudyTelemetryEvent = z.infer<typeof StudyTelemetryEventSchema>;
+export type TelemetryBatch = z.infer<typeof TelemetryBatchSchema>;
+export type TelemetryReceipt = z.infer<typeof TelemetryReceiptSchema>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;

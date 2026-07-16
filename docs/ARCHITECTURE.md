@@ -3,9 +3,9 @@
 ## System overview
 
 ```text
-React Web App
+Darwin Web App (`apps/web`)
 ├── Darwin Control Room
-├── ProjectFlow Baseline/Evolved Organism
+├── ProjectFlow organism preview
 ├── Observation Visualisation
 ├── Mutation Viewer
 ├── Diff + Validation Viewer
@@ -13,8 +13,9 @@ React Web App
         │
         ▼
 Cloudflare Worker API
-├── Simulation service
-├── Telemetry aggregation
+├── Real telemetry ingestion and ordered traces
+├── Deterministic evidence generation
+├── Explicitly labelled simulation service
 ├── Fitness calculator
 ├── Evolution analyzer interface
 │   ├── deterministic mock
@@ -24,14 +25,21 @@ Cloudflare Worker API
         │
         ▼
 Cloudflare D1 or local in-memory adapter
+
+Standalone ProjectFlow (`apps/projectflow`)
+├── Functional projects, tasks and reports
+├── Anonymous study runner
+└── `packages/telemetry-client` instrumentation
 ```
 
 ## Workspace layout
 
 ```text
 apps/web
+apps/projectflow
 workers/api
 packages/shared
+packages/telemetry-client
 prompts
 docs
 scripts
@@ -53,6 +61,10 @@ Create Zod schemas for:
 ```text
 GET  /api/health
 POST /api/demo/reset
+POST /api/telemetry/events
+GET  /api/studies/:id/events
+GET  /api/studies/:id/sessions/:sessionId
+POST /api/studies/:id/evidence
 POST /api/simulations
 GET  /api/simulations/:id
 GET  /api/simulations/:id/summary
@@ -68,6 +80,10 @@ POST /api/organism/state
 
 ## Deterministic simulation
 Use a seeded PRNG. Simulate sessions from four personas and predefined goals. Generate event sequences probabilistically but deterministically.
+
+Simulation is a separate `synthetic` evidence source used for scale replay. It
+does not contribute to real participant counts or measured study fitness. The
+primary evidence path is defined in `docs/REAL_TELEMETRY_PLAN.md`.
 
 The baseline route graph should induce:
 - developer users entering Projects before Tasks
@@ -144,20 +160,26 @@ Optional stretch: invoke Codex CLI in a local-only orchestration script, never f
 - The generated `phase7-artifacts.json` fixture is checked in for hosted mode. The Worker serves it as a clearly labelled recorded repository run and never exposes arbitrary command execution.
 - Mutation state advances through `proposed → approved → validated → released`. Approval does not change the active organism; only a passing validation can be released.
 - React renders diff text as escaped content and never injects artifact HTML.
-- The in-memory timeline persists across browser reloads for the local/hosted fallback and is cleared by the deterministic demo reset. D1-backed persistence is introduced in Phase 8.
+- The in-memory timeline persists across browser reloads for the local/hosted fallback and is cleared by the deterministic demo reset. D1-backed persistence is introduced in Phase 9.
 
 ## Persistence
 Use repository interfaces so D1 and in-memory implementations share behaviour.
 
 Tables:
+- studies
+- study_participants
+- study_task_attempts
 - simulation_runs
-- telemetry_events or aggregated_metrics
+- telemetry_events
+- analysis_runs
 - mutation_proposals
 - validation_results
 - evolution_records
 - organism_state
 
-For the hosted demo, storing aggregates rather than all 10,000 events is acceptable, while the UI still truthfully reports the generated count.
+All real-study raw events are retained for traceability. Generated scale events
+may be stored as aggregates, but their synthetic provenance is mandatory and the
+UI displays real, automated and synthetic counts separately.
 
 ## Security
 - OpenAI key only in Worker secrets.

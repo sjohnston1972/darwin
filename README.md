@@ -39,6 +39,28 @@ npm run deploy
 
 `npm run validate:record` runs the repository typecheck, tests, and production build, replays deterministic fitness, and regenerates the checked-in validation and ProjectFlow genome-diff artifact used by the hosted demo. The UI labels this evidence as a recorded repository run; the Worker never claims to execute shell commands in production.
 
+`npm run dev` starts three local services:
+
+- Darwin control room: `http://localhost:5173`
+- standalone ProjectFlow: `http://localhost:5174`
+- ProjectFlow study mode: `http://localhost:5174/study`
+- Worker API: `http://localhost:8787`
+
+## Real telemetry foundation
+
+Real ProjectFlow study activity is Darwin's primary evidence source. The
+standalone application has functional project and task state, three fixed study
+tasks, anonymous participant IDs and stable `data-darwin-id` control identities.
+
+`packages/telemetry-client` records only routes, semantic control IDs, validation
+codes, search counts and explicit study outcomes. It does not record form values,
+search text, arbitrary page text or feedback content. Events carry participant,
+session, task-attempt, application-version and source provenance and are retained
+in a bounded browser outbox until Phase 9 adds D1 ingestion.
+
+The existing 10,000-event generator is a separately labelled synthetic scale
+replay. See `docs/REAL_TELEMETRY_PLAN.md` for the evidence and reasoning boundary.
+
 ## Evolution analyzer
 
 Deterministic mock analysis is the default and requires no API key. To run the optional live GPT-5.6 analyzer locally, create `workers/api/.dev.vars`:
@@ -73,6 +95,7 @@ darwin.clydeford.net
 - `AGENTS.md` — authoritative Codex instructions
 - `docs/PRODUCT_SPEC.md` — product requirements
 - `docs/ARCHITECTURE.md` — technical design
+- `docs/REAL_TELEMETRY_PLAN.md` — evidence, parsing and reasoning boundary
 - `docs/BUILD_PLAN.md` — phased checklist
 - `docs/DEMO_SCRIPT.md` — three-minute demo choreography
 - `prompts/evolution-analysis.md` — GPT-5.6 system prompt
@@ -81,6 +104,8 @@ darwin.clydeford.net
 - `wrangler.toml.example` — Cloudflare configuration starter
 - `scripts/bootstrap.sh` and `scripts/bootstrap.ps1` — local setup helpers
 
-## Important constraint
+## Evidence language
 
-The starter deliberately contains specifications rather than a prebuilt product. The goal is to preserve the majority of core implementation work inside your Codex session for the required `/feedback` session ID.
+Darwin distinguishes measured human evidence, automated validation, predicted
+impact and synthetic scale replay. These categories must not be combined into a
+single interaction count or presented as equivalent outcomes.

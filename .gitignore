@@ -8,3 +8,5 @@ playwright-report/
 test-results/
 .DS_Store
 *.log
+# Local duplicate starter/reference material reviewed during Phase 8.
+real-time-telemetry/
