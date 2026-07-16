@@ -1,5 +1,6 @@
 import {
   DemoResetResponseSchema,
+  EvidencePackSchema,
   EvolutionTimelineResponseSchema,
   EvolutionAnalysisRequestSchema,
   EvolutionAnalysisResponseSchema,
@@ -34,6 +35,7 @@ import {
   rankFrictionFindings,
 } from './evolution';
 import { getTelemetryRepository } from './persistence/telemetry-repository';
+import { buildEvidencePack } from './evidence';
 
 export interface Env {
   DB?: D1Database;
@@ -106,7 +108,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.9.0',
+      version: '0.10.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -223,6 +225,46 @@ export const handleRequest = async (
         count,
       }),
     );
+  }
+
+  const studyEvidenceMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/evidence$/,
+  );
+  if (request.method === 'POST' && studyEvidenceMatch) {
+    const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
+    const events = (
+      await telemetryRepository.listEvents(studyId, 10_000)
+    ).filter((event) => event.source === 'real_user');
+    if (!events.length) {
+      return json(
+        {
+          error: 'insufficient_evidence',
+          message: 'At least one real telemetry event is required.',
+        },
+        { status: 409 },
+      );
+    }
+    const pack = await buildEvidencePack(studyId, events);
+    await telemetryRepository.saveEvidence(pack);
+    return json(EvidencePackSchema.parse(pack), { status: 201 });
+  }
+
+  const latestEvidenceMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/evidence\/latest$/,
+  );
+  if (request.method === 'GET' && latestEvidenceMatch) {
+    const studyId = decodeURIComponent(latestEvidenceMatch[1]!);
+    const pack = await telemetryRepository.getLatestEvidence(studyId);
+    if (!pack) {
+      return json(
+        {
+          error: 'not_found',
+          message: 'No evidence pack exists for this study.',
+        },
+        { status: 404 },
+      );
+    }
+    return json(EvidencePackSchema.parse(pack));
   }
 
   const studySessionMatch = pathname.match(

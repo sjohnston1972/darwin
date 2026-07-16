@@ -1,4 +1,5 @@
 import type {
+  EvidencePack,
   ProjectFlowWorkspace,
   StoredTelemetryEvent,
   StudyTelemetryEvent,
@@ -29,11 +30,14 @@ export interface TelemetryRepository {
     participantId: string,
     workspace: ProjectFlowWorkspace,
   ): Promise<void>;
+  saveEvidence(pack: EvidencePack): Promise<void>;
+  getLatestEvidence(studyId: string): Promise<EvidencePack | null>;
   reset(): Promise<void>;
 }
 
 const eventStore = new Map<string, StoredTelemetryEvent>();
 const workspaceStore = new Map<string, ProjectFlowWorkspace>();
+const evidenceStore = new Map<string, EvidencePack>();
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -89,9 +93,18 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     workspaceStore.set(workspaceKey(studyId, participantId), workspace);
   }
 
+  async saveEvidence(pack: EvidencePack) {
+    evidenceStore.set(pack.study.studyId, pack);
+  }
+
+  async getLatestEvidence(studyId: string) {
+    return evidenceStore.get(studyId) ?? null;
+  }
+
   async reset() {
     eventStore.clear();
     workspaceStore.clear();
+    evidenceStore.clear();
   }
 }
 
@@ -220,10 +233,48 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .run();
   }
 
+  async saveEvidence(pack: EvidencePack) {
+    await this.database
+      .prepare(
+        `INSERT INTO analysis_runs (
+          evidence_id, study_id, app_version, generated_at,
+          source_event_count, evidence_hash, evidence_pack_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(evidence_hash) DO UPDATE SET
+          generated_at = excluded.generated_at,
+          evidence_pack_json = excluded.evidence_pack_json`,
+      )
+      .bind(
+        pack.evidenceId,
+        pack.study.studyId,
+        pack.study.appVersion,
+        pack.generatedAt,
+        pack.study.sourceEventCount,
+        pack.evidenceHash,
+        JSON.stringify(pack),
+      )
+      .run();
+  }
+
+  async getLatestEvidence(studyId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT evidence_pack_json
+         FROM analysis_runs
+         WHERE study_id = ?
+         ORDER BY generated_at DESC
+         LIMIT 1`,
+      )
+      .bind(studyId)
+      .first<{ evidence_pack_json: string }>();
+    return row ? (JSON.parse(row.evidence_pack_json) as EvidencePack) : null;
+  }
+
   async reset() {
     await this.database.batch([
       this.database.prepare('DELETE FROM telemetry_events'),
       this.database.prepare('DELETE FROM participant_workspaces'),
+      this.database.prepare('DELETE FROM analysis_runs'),
     ]);
   }
 }

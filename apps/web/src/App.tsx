@@ -628,7 +628,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.9.0</p>
+            <p className="font-mono">DARWIN CORE 0.10.0</p>
           </footer>
         </div>
       </main>
@@ -696,6 +696,19 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
           >
             Open study <ChevronRight size={15} />
           </a>
+          <button
+            className="primary-action evidence-action"
+            type="button"
+            disabled={!telemetry.count || telemetry.generating}
+            onClick={() => void telemetry.generateEvidence()}
+          >
+            {telemetry.generating ? (
+              <CircleDashed className="is-spinning" size={15} />
+            ) : (
+              <FileCheck2 size={15} />
+            )}
+            {telemetry.generating ? 'Parsing evidence' : 'Generate evidence'}
+          </button>
         </div>
       </div>
 
@@ -755,6 +768,67 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
           <div>
             <strong>Waiting for a real ProjectFlow interaction</strong>
             <span>Start a study task to create the first ordered trace.</span>
+          </div>
+        </div>
+      )}
+      {telemetry.evidence && (
+        <div className="evidence-pack">
+          <div className="evidence-pack-header">
+            <div>
+              <span className="evidence-class">
+                {telemetry.evidence.evidenceClass}
+              </span>
+              <strong>Evidence pack {telemetry.evidence.evidenceId}</strong>
+              <code>{telemetry.evidence.evidenceHash}</code>
+            </div>
+            <dl>
+              <div>
+                <dt>Parser</dt>
+                <dd>{telemetry.evidence.parserVersion}</dd>
+              </div>
+              <div>
+                <dt>Attempts</dt>
+                <dd>{telemetry.evidence.study.attempts}</dd>
+              </div>
+              <div>
+                <dt>Signals</dt>
+                <dd>{telemetry.evidence.frictionSignals.length}</dd>
+              </div>
+            </dl>
+          </div>
+          <div className="evidence-signals">
+            {telemetry.evidence.frictionSignals.length ? (
+              telemetry.evidence.frictionSignals.map((signal) => (
+                <details key={signal.evidenceId}>
+                  <summary>
+                    <span>{signal.evidenceId}</span>
+                    <strong>{signal.ruleId.replaceAll('_', ' ')}</strong>
+                    <small>{signal.severity}</small>
+                    <ChevronRight size={15} />
+                  </summary>
+                  <p>{signal.summary}</p>
+                  <div className="signal-provenance">
+                    <span>Rule {signal.ruleVersion}</span>
+                    <span>
+                      {signal.supportingEventIds.length} source events
+                    </span>
+                    <span>{signal.affectedAttemptIds.length} attempts</span>
+                  </div>
+                  <div className="signal-trace">
+                    {signal.trace.map((event) => (
+                      <code key={event.eventId}>
+                        {event.sequence.toString().padStart(2, '0')} ·{' '}
+                        {event.eventType} · {event.targetId ?? event.route}
+                      </code>
+                    ))}
+                  </div>
+                </details>
+              ))
+            ) : (
+              <p className="no-signals">
+                No detector threshold was crossed by the current real sample.
+              </p>
+            )}
           </div>
         </div>
       )}

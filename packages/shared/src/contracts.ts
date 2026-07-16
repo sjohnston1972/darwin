@@ -251,6 +251,98 @@ export const ParticipantWorkspaceResponseSchema = z.object({
   workspace: ProjectFlowWorkspaceSchema.nullable(),
 });
 
+export const EvidenceClassSchema = z.enum([
+  'measured',
+  'automated',
+  'predicted',
+  'synthetic',
+]);
+
+export const TaskAttemptSchema = z.object({
+  attemptId: StudyIdentifierSchema,
+  taskId: StudyIdentifierSchema,
+  participantId: StudyIdentifierSchema,
+  sessionId: StudyIdentifierSchema,
+  appVersion: z.string().min(1),
+  source: StudyTelemetrySourceSchema,
+  outcome: z.enum(['success', 'failed', 'abandoned', 'open']),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime().nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+  interactionCount: z.number().int().nonnegative(),
+  routePath: z.array(StudyRouteSchema),
+  eventIds: z.array(z.string().uuid()).min(1),
+});
+
+export const FrictionRuleSchema = z.enum([
+  'navigation_loop',
+  'repeated_target',
+  'task_abandonment',
+  'excess_path_length',
+  'validation_friction',
+  'search_dependency',
+]);
+
+export const EvidenceTraceEventSchema = z.object({
+  eventId: z.string().uuid(),
+  sequence: z.number().int().nonnegative(),
+  eventType: z.string().min(1),
+  route: StudyRouteSchema,
+  targetId: SemanticTargetSchema.optional(),
+});
+
+export const EvidenceSignalSchema = z.object({
+  evidenceId: z.string().regex(/^EV-\d{3}$/),
+  ruleId: FrictionRuleSchema,
+  ruleVersion: z.literal('1.0.0'),
+  severity: z.enum(['low', 'medium', 'high']),
+  taskId: StudyIdentifierSchema.optional(),
+  summary: z.string().min(1),
+  affectedAttemptIds: z.array(StudyIdentifierSchema),
+  supportingEventIds: z.array(z.string().uuid()).min(1),
+  trace: z.array(EvidenceTraceEventSchema).min(1).max(12),
+});
+
+export const EvidenceTaskSummarySchema = z.object({
+  taskId: StudyIdentifierSchema,
+  attempts: z.number().int().nonnegative(),
+  successes: z.number().int().nonnegative(),
+  completionRate: z.number().min(0).max(1),
+  medianDurationMs: z.number().int().nonnegative().nullable(),
+  medianInteractions: z.number().nonnegative().nullable(),
+  optimalInteractions: z.number().int().positive(),
+  topPaths: z.array(
+    z.object({
+      path: z.array(StudyRouteSchema),
+      count: z.number().int().positive(),
+    }),
+  ),
+});
+
+export const EvidencePackSchema = z.object({
+  evidenceId: StudyIdentifierSchema,
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  generatedAt: z.string().datetime(),
+  parserVersion: z.literal('1.0.0'),
+  evidenceClass: EvidenceClassSchema,
+  study: z.object({
+    studyId: StudyIdentifierSchema,
+    appVersion: z.string().min(1),
+    sourceEventCount: z.number().int().nonnegative(),
+    participants: z.number().int().nonnegative(),
+    sessions: z.number().int().nonnegative(),
+    attempts: z.number().int().nonnegative(),
+  }),
+  taskAttempts: z.array(TaskAttemptSchema),
+  tasks: z.array(EvidenceTaskSummarySchema),
+  frictionSignals: z.array(EvidenceSignalSchema),
+  applicationMap: z.object({
+    routes: z.array(StudyRouteSchema),
+    mutableAreas: z.array(z.string().min(1)),
+    protectedAreas: z.array(z.string().min(1)),
+  }),
+});
+
 export const FitnessBreakdownSchema = z.object({
   score: z.number().min(0).max(100),
   completionRate: z.number().min(0).max(100),
@@ -465,6 +557,13 @@ export type ProjectFlowWorkspace = z.infer<typeof ProjectFlowWorkspaceSchema>;
 export type ParticipantWorkspaceResponse = z.infer<
   typeof ParticipantWorkspaceResponseSchema
 >;
+export type EvidenceClass = z.infer<typeof EvidenceClassSchema>;
+export type TaskAttempt = z.infer<typeof TaskAttemptSchema>;
+export type FrictionRule = z.infer<typeof FrictionRuleSchema>;
+export type EvidenceTraceEvent = z.infer<typeof EvidenceTraceEventSchema>;
+export type EvidenceSignal = z.infer<typeof EvidenceSignalSchema>;
+export type EvidenceTaskSummary = z.infer<typeof EvidenceTaskSummarySchema>;
+export type EvidencePack = z.infer<typeof EvidencePackSchema>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;

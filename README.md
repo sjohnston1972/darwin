@@ -62,6 +62,11 @@ a D1-compatible repository with an in-memory local fallback.
 The existing 10,000-event generator is a separately labelled synthetic scale
 replay. See `docs/REAL_TELEMETRY_PLAN.md` for the evidence and reasoning boundary.
 
+Darwin can now generate a deterministic evidence pack from stored real events.
+The pack reconstructs task attempts, applies versioned friction rules, links each
+signal to supporting event IDs, and stores a canonical SHA-256 hash. No language
+model participates in this parsing stage.
+
 ## Evolution analyzer
 
 Deterministic mock analysis is the default and requires no API key. To run the optional live GPT-5.6 analyzer locally, create `workers/api/.dev.vars`:

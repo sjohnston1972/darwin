@@ -1,5 +1,7 @@
 import {
+  EvidencePackSchema,
   StudyEventsResponseSchema,
+  type EvidencePack,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
 import { useEffect, useState } from 'react';
@@ -9,13 +11,18 @@ const studyId = 'projectflow-baseline-study';
 
 export interface LiveTelemetryState {
   count: number;
+  evidence: EvidencePack | null;
   events: StoredTelemetryEvent[];
+  generateEvidence: () => Promise<void>;
+  generating: boolean;
   status: 'loading' | 'live' | 'offline';
 }
 
 export function useLiveTelemetry(): LiveTelemetryState {
   const [events, setEvents] = useState<StoredTelemetryEvent[]>([]);
   const [count, setCount] = useState(0);
+  const [evidence, setEvidence] = useState<EvidencePack | null>(null);
+  const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
 
   useEffect(() => {
@@ -37,6 +44,13 @@ export function useLiveTelemetry(): LiveTelemetryState {
       }
     };
     void load();
+    void fetch(`${apiBaseUrl}/api/studies/${studyId}/evidence/latest`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        if (active)
+          setEvidence(EvidencePackSchema.parse(await response.json()));
+      })
+      .catch(() => undefined);
     const interval = window.setInterval(() => void load(), 2_000);
     return () => {
       active = false;
@@ -44,5 +58,26 @@ export function useLiveTelemetry(): LiveTelemetryState {
     };
   }, []);
 
-  return { count, events, status };
+  const generateEvidence = async () => {
+    setGenerating(true);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/studies/${studyId}/evidence`,
+        { method: 'POST' },
+      );
+      if (!response.ok) throw new Error('Evidence generation failed.');
+      setEvidence(EvidencePackSchema.parse(await response.json()));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return {
+    count,
+    evidence,
+    events,
+    generateEvidence,
+    generating,
+    status,
+  };
 }

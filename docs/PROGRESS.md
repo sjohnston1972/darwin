@@ -384,6 +384,43 @@ Known issues:
 Next phase:
 - Phase 10 — Deterministic evidence engine.
 
+### Phase 10 — Deterministic evidence engine
+Date: 2026-07-16
+
+Completed:
+- Added shared contracts for evidence classes, reconstructed attempts, detector rules, supporting traces, task summaries and hashed evidence packs.
+- Reconstructed task attempts using explicit attempt identity and ordered session sequences rather than route heuristics.
+- Added versioned navigation-loop, repeated-target, abandonment, excess-path, validation-friction and search-dependency detectors.
+- Added task completion, duration, interaction, optimal-path and top-route summaries.
+- Added canonical JSON serialization and SHA-256 hashing that remains stable across generation timestamps for identical source evidence.
+- Added `POST /api/studies/:id/evidence` and `GET /api/studies/:id/evidence/latest`.
+- Added process-memory and D1 evidence-pack persistence plus the `analysis_runs` migration.
+- Added Darwin evidence generation with measured-source labeling, parser version, full hash, detector summaries and expandable supporting traces.
+- Updated API and control-room version labels to `0.10.0`.
+
+Verification commands:
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+npm run test:e2e:projectflow
+```
+
+Results:
+- A fixed event fixture reconstructed one unambiguous successful attempt with seven interactions and a three-route path.
+- Identical source events generated the same SHA-256 hash across different generation timestamps.
+- The live browser study converted 19 real events into one attempt and one `EV-001` excess-path signal with exact supporting event IDs.
+- The evidence pack was persisted and returned through the latest-evidence API.
+
+Known issues:
+- The deterministic evidence pack is ready for reasoning, but Phase 11 still needs the evidence-citing proposal schema and cross-reference validator.
+- Small Build Week cohorts are descriptive; the UI does not claim statistical significance.
+
+Next phase:
+- Phase 11 — Evidence-backed reasoning and Codex audit.
+
 ## Entry template
 
 ### Phase N — Name

@@ -1,5 +1,6 @@
 import {
   DemoResetResponseSchema,
+  EvidencePackSchema,
   EvolutionAnalysisResponseSchema,
   EvolutionTimelineResponseSchema,
   HealthResponseSchema,
@@ -149,6 +150,55 @@ describe('Darwin API', () => {
       await loadedResponse.json(),
     );
     expect(loaded.workspace?.projects[0]?.name).toBe('Polaris Launch');
+  });
+
+  it('generates and persists a hashed evidence pack from real events', async () => {
+    const attemptId = 'attempt-api-evidence';
+    const taskId = 'find-assigned-task';
+    const start = {
+      ...studyEvent,
+      eventId: '00000000-0000-4000-8000-000000000101',
+      eventType: 'task_started',
+      taskAttemptId: attemptId,
+      taskId,
+    };
+    const completed = {
+      ...studyEvent,
+      eventId: '00000000-0000-4000-8000-000000000102',
+      sequence: 1,
+      occurredAt: '2026-07-16T12:00:10.000Z',
+      eventType: 'task_completed',
+      taskAttemptId: attemptId,
+      taskId,
+      durationMs: 10_000,
+      outcome: 'success',
+    };
+    await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({ events: [start, completed] }),
+      }),
+    );
+
+    const generatedResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence',
+        { method: 'POST' },
+      ),
+    );
+    const generated = EvidencePackSchema.parse(await generatedResponse.json());
+    expect(generatedResponse.status).toBe(201);
+    expect(generated.evidenceClass).toBe('measured');
+    expect(generated.study.attempts).toBe(1);
+    expect(generated.evidenceHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const latestResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence/latest',
+      ),
+    );
+    const latest = EvidencePackSchema.parse(await latestResponse.json());
+    expect(latest.evidenceHash).toBe(generated.evidenceHash);
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

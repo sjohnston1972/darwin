@@ -97,6 +97,18 @@ The baseline route graph should induce:
 
 The evolved route graph should produce more direct paths and lower duration/error values.
 
+## Deterministic evidence engine
+
+Real events are grouped by explicit `taskAttemptId`, ordered by session sequence
+and terminated only by success, failure, session end or the documented timeout.
+The parser runs six versioned rules: navigation loop, repeated target, task
+abandonment, excess path length, validation friction and search dependency.
+
+Every signal stores its rule version, affected attempt IDs, supporting event IDs
+and a bounded trace. Canonical JSON excludes generation time from its digest, so
+identical source records and parser code produce the same SHA-256 evidence hash.
+Evidence packs are stored in `analysis_runs` and remain independent of GPT-5.6.
+
 ## Fitness calculation
 Normalise each metric to 0–100, then calculate:
 
