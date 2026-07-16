@@ -42,8 +42,6 @@ import {
 
 const workspaceKey = 'projectflow:workspace:v1';
 const participantKey = 'projectflow:participant';
-const appVersion = '1.0.0';
-const studyId = 'projectflow-baseline-study';
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787';
 
 interface Workspace {
@@ -61,11 +59,11 @@ const loadWorkspace = (): Workspace => {
   return { projects: initialProjects, tasks: initialTasks };
 };
 
-const getParticipantId = () => {
-  const existing = localStorage.getItem(participantKey);
+const getParticipantId = (key = participantKey) => {
+  const existing = localStorage.getItem(key);
   if (existing) return existing;
   const generated = `participant-${crypto.randomUUID().slice(0, 8)}`;
-  localStorage.setItem(participantKey, generated);
+  localStorage.setItem(key, generated);
   return generated;
 };
 
@@ -78,6 +76,23 @@ const routePath = (route: AppRoute, projectId?: string) => {
 };
 
 export function App() {
+  const runtime = useMemo(() => {
+    const parameters = new URLSearchParams(window.location.search);
+    const variant =
+      parameters.get('variant') === 'evolved' ? 'evolved' : 'baseline';
+    const source =
+      parameters.get('source') === 'automated' ? 'automated' : 'real_user';
+    const studyId =
+      source === 'automated'
+        ? `projectflow-${variant}-automated-study`
+        : `projectflow-${variant}-study`;
+    return {
+      appVersion: variant === 'evolved' ? '1.1.0' : '1.0.0',
+      source,
+      studyId,
+      variant,
+    } as const;
+  }, []);
   const [{ projects, tasks }, setWorkspace] = useState(loadWorkspace);
   const [route, setRoute] = useState<AppRoute>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
@@ -85,6 +100,7 @@ export function App() {
   );
   const [projectQuery, setProjectQuery] = useState('');
   const [taskQuery, setTaskQuery] = useState('');
+  const [globalQuery, setGlobalQuery] = useState('');
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [studyMode, setStudyMode] = useState(() =>
@@ -101,7 +117,10 @@ export function App() {
   );
   const [events, setEvents] = useState<StudyTelemetryEvent[]>([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const participantId = useMemo(getParticipantId, []);
+  const participantId = useMemo(
+    () => getParticipantId(`${participantKey}:${runtime.studyId}`),
+    [runtime.studyId],
+  );
   const telemetryRef = useRef<DarwinTelemetryClient | null>(null);
 
   useEffect(() => {
@@ -109,7 +128,7 @@ export function App() {
     if (import.meta.env.MODE === 'test') return;
     const timeout = window.setTimeout(() => {
       void fetch(
-        `${apiBaseUrl}/api/studies/${studyId}/participants/${participantId}/workspace`,
+        `${apiBaseUrl}/api/studies/${runtime.studyId}/participants/${participantId}/workspace`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -122,13 +141,13 @@ export function App() {
       ).catch(() => undefined);
     }, 250);
     return () => window.clearTimeout(timeout);
-  }, [participantId, projects, tasks]);
+  }, [participantId, projects, runtime.studyId, tasks]);
 
   useEffect(() => {
     if (import.meta.env.MODE === 'test') return;
     const controller = new AbortController();
     void fetch(
-      `${apiBaseUrl}/api/studies/${studyId}/participants/${participantId}/workspace`,
+      `${apiBaseUrl}/api/studies/${runtime.studyId}/participants/${participantId}/workspace`,
       { signal: controller.signal },
     )
       .then(async (response) => {
@@ -145,13 +164,14 @@ export function App() {
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [participantId]);
+  }, [participantId, runtime.studyId]);
 
   useEffect(() => {
     const telemetry = createTelemetryClient({
-      appVersion,
-      studyId,
+      appVersion: runtime.appVersion,
+      studyId: runtime.studyId,
       participantId,
+      source: runtime.source,
       initialRoute: studyMode ? '/study/dashboard' : '/dashboard',
       endpoint:
         import.meta.env.MODE === 'test'
@@ -167,7 +187,7 @@ export function App() {
       telemetry.destroy();
       telemetryRef.current = null;
     };
-  }, [participantId, studyMode]);
+  }, [participantId, runtime, studyMode]);
 
   const selectedProject = projects.find(
     (project) => project.id === selectedProjectId,
@@ -182,6 +202,13 @@ export function App() {
     `${task.id} ${task.title} ${task.assignee}`
       .toLowerCase()
       .includes(taskQuery.toLowerCase()),
+  );
+  const myTasks = tasks.filter(
+    (task) =>
+      task.assignee === participantName &&
+      `${task.id} ${task.title}`
+        .toLowerCase()
+        .includes(globalQuery.toLowerCase()),
   );
 
   const navigate = (nextRoute: AppRoute, projectId?: string) => {
@@ -303,13 +330,25 @@ export function App() {
     );
   };
 
+  const submitGlobalSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    telemetryRef.current?.trackSearch(
+      'global-task-search',
+      globalQuery.length,
+      myTasks.length,
+    );
+    navigate('my-work');
+  };
+
   const enterStudy = () => {
     window.history.pushState({}, '', '/study');
     setStudyMode(true);
   };
 
   return (
-    <div className={`app-shell ${studyMode ? 'has-study' : ''}`}>
+    <div
+      className={`app-shell ${studyMode ? 'has-study' : ''} variant-${runtime.variant}`}
+    >
       <aside className={`sidebar ${mobileNavOpen ? 'is-open' : ''}`}>
         <button
           className="brand"
@@ -329,6 +368,16 @@ export function App() {
             label="Dashboard"
             onClick={() => navigate('dashboard')}
           />
+          {runtime.variant === 'evolved' && (
+            <NavItem
+              active={route === 'my-work'}
+              count={myTasks.length}
+              icon={ListChecks}
+              id="nav-my-work"
+              label="My Work"
+              onClick={() => navigate('my-work')}
+            />
+          )}
           <NavItem
             active={route === 'projects' || route.startsWith('project')}
             count={projects.length}
@@ -341,7 +390,7 @@ export function App() {
             active={route === 'reports'}
             icon={FileBarChart}
             id="nav-reports"
-            label="Reports"
+            label={runtime.variant === 'evolved' ? 'Insights' : 'Reports'}
             onClick={() => navigate('reports')}
           />
           <NavItem
@@ -387,7 +436,32 @@ export function App() {
             <ChevronRight size={14} />
             <strong>{routeTitle(route, selectedProject)}</strong>
           </div>
+          {runtime.variant === 'evolved' && (
+            <form className="global-search" onSubmit={submitGlobalSearch}>
+              <Search size={15} />
+              <input
+                aria-label="Search all tasks"
+                data-darwin-id="global-task-search"
+                placeholder="Search all tasks"
+                value={globalQuery}
+                onChange={(event) => setGlobalQuery(event.target.value)}
+              />
+            </form>
+          )}
           <div className="topbar-actions">
+            {runtime.variant === 'evolved' && (
+              <button
+                className="quick-task"
+                type="button"
+                data-darwin-id="global-task-create"
+                onClick={() => {
+                  setSelectedProjectId('apollo');
+                  setShowTaskForm(true);
+                }}
+              >
+                <Plus size={15} /> New task
+              </button>
+            )}
             {!studyMode && (
               <button
                 className="study-entry"
@@ -426,6 +500,16 @@ export function App() {
               onCreate={() => setShowProjectForm(true)}
               onOpen={openProject}
               onSearch={submitProjectSearch}
+            />
+          )}
+          {route === 'my-work' && (
+            <MyWork
+              tasks={myTasks}
+              onOpenTask={(task) => {
+                if (task.title === 'Confirm launch checklist') {
+                  markSatisfied('find-assigned-task');
+                }
+              }}
             />
           )}
           {route === 'project' && selectedProject && (
@@ -469,6 +553,8 @@ export function App() {
             telemetryRef.current?.feedbackSubmitted(length)
           }
           onStart={startStudyTask}
+          variant={runtime.variant}
+          version={runtime.appVersion}
         />
       )}
 
@@ -696,6 +782,45 @@ function Dashboard({
           </div>
         </section>
       </div>
+    </>
+  );
+}
+
+function MyWork({
+  tasks,
+  onOpenTask,
+}: {
+  tasks: Task[];
+  onOpenTask: (task: Task) => void;
+}) {
+  return (
+    <>
+      <PageHeading
+        eyebrow="Assigned to Alex Morgan"
+        title="My Work"
+        description="Priorities across every active project, in one place."
+      />
+      <section className="panel my-work-panel">
+        <PanelHeading title="Assigned tasks" meta={`${tasks.length} visible`} />
+        <div className="my-work-list">
+          {tasks.map((task) => (
+            <button
+              key={task.id}
+              type="button"
+              data-darwin-id={`my-work-task-${task.id.toLowerCase()}`}
+              onClick={() => onOpenTask(task)}
+            >
+              <span className="project-code">{task.id}</span>
+              <span className="list-main">
+                <strong>{task.title}</strong>
+                <small>{task.status}</small>
+              </span>
+              <span className="due-date">{task.dueDate}</span>
+              <ChevronRight size={16} />
+            </button>
+          ))}
+        </div>
+      </section>
     </>
   );
 }
@@ -1015,6 +1140,8 @@ function StudyPanel({
   onDone,
   onFeedback,
   onStart,
+  variant,
+  version,
 }: {
   activeTask: StudyTaskId | null;
   completedTasks: Set<StudyTaskId>;
@@ -1026,6 +1153,8 @@ function StudyPanel({
   onDone: () => void;
   onFeedback: (length: number) => void;
   onStart: (id: StudyTaskId) => void;
+  variant: 'baseline' | 'evolved';
+  version: string;
 }) {
   const [feedback, setFeedback] = useState('');
   return (
@@ -1039,7 +1168,9 @@ function StudyPanel({
         </strong>
       </header>
       <div className="study-intro">
-        <span>ProjectFlow baseline - v{appVersion}</span>
+        <span>
+          ProjectFlow {variant} - v{version}
+        </span>
         <h2>Complete three tasks</h2>
         <p>
           Use the application normally. Interaction content and form values are
@@ -1254,6 +1385,7 @@ function Activity({
 }
 
 function routeTitle(route: AppRoute, project?: Project) {
+  if (route === 'my-work') return 'My Work';
   if (route === 'project') return project?.name ?? 'Project';
   if (route === 'project-tasks') return `${project?.name ?? 'Project'} tasks`;
   return route[0]?.toUpperCase() + route.slice(1);

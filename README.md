@@ -44,6 +44,7 @@ npm run deploy
 - Darwin control room: `http://localhost:5173`
 - standalone ProjectFlow: `http://localhost:5174`
 - ProjectFlow study mode: `http://localhost:5174/study`
+- evolved ProjectFlow study: `http://localhost:5174/study?variant=evolved`
 - Worker API: `http://localhost:8787`
 
 ## Real telemetry foundation
@@ -74,6 +75,13 @@ default deterministic analyzer follows the identical contract. A selected
 mutation can be exported as a hashed Codex implementation manifest containing
 only the brief, evidence IDs, path policy and validation commands; raw telemetry
 is never part of the Codex handoff.
+
+The critical Playwright flow also runs the same assigned-task task against
+versioned baseline and evolved cohorts using `source=automated`. It creates two
+separate evidence packs and compares completion, duration and interaction count
+through the Worker. The control room labels fresh results as a live automated run
+and falls back to a checked-in, clearly labelled recorded automated run for a
+reliable hosted demo. Neither is presented as a human outcome.
 
 ## Evolution analyzer
 

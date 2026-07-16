@@ -12,6 +12,7 @@ import {
   MutationReleaseResponseSchema,
   MutationValidationResponseSchema,
   OrganismStateSchema,
+  OutcomeValidationSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   SimulationRequestSchema,
@@ -29,6 +30,7 @@ import {
 } from '@darwin/shared';
 
 import phase7Artifacts from './fixtures/phase7-artifacts.json';
+import phase12Outcome from './fixtures/phase12-outcome.json';
 import { simulate } from './simulation';
 import {
   EvolutionAnalysisError,
@@ -44,6 +46,7 @@ import {
   analysisCacheKey,
   buildCodexManifest,
 } from './reasoning';
+import { OutcomeValidationError, compareAutomatedOutcomes } from './outcomes';
 
 export interface Env {
   DB?: D1Database;
@@ -81,6 +84,7 @@ const recordedValidation = ValidationResultSchema.parse(
   phase7Artifacts.validation,
 );
 const recordedDiff = MutationDiffSchema.parse(phase7Artifacts.diff);
+const recordedOutcome = OutcomeValidationSchema.parse(phase12Outcome);
 
 const initialOrganismState = (): OrganismState => ({
   variant: 'baseline',
@@ -117,7 +121,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.11.0',
+      version: '0.12.0',
       timestamp: new Date().toISOString(),
     };
 
@@ -241,9 +245,16 @@ export const handleRequest = async (
   );
   if (request.method === 'POST' && studyEvidenceMatch) {
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
+    const source = url.searchParams.get('source') ?? 'real_user';
+    if (source !== 'real_user' && source !== 'automated') {
+      return json(
+        { error: 'invalid_request', message: 'Unsupported evidence source.' },
+        { status: 400 },
+      );
+    }
     const events = (
       await telemetryRepository.listEvents(studyId, 10_000)
-    ).filter((event) => event.source === 'real_user');
+    ).filter((event) => event.source === source);
     if (!events.length) {
       return json(
         {
@@ -256,6 +267,43 @@ export const handleRequest = async (
     const pack = await buildEvidencePack(studyId, events);
     await telemetryRepository.saveEvidence(pack);
     return json(EvidencePackSchema.parse(pack), { status: 201 });
+  }
+
+  if (pathname === '/api/outcomes/automated-comparison') {
+    if (request.method === 'GET') {
+      const validation = await telemetryRepository.getLatestOutcomeValidation();
+      return json(OutcomeValidationSchema.parse(validation ?? recordedOutcome));
+    }
+    if (request.method === 'POST') {
+      const baseline = await telemetryRepository.getLatestEvidence(
+        'projectflow-baseline-automated-study',
+      );
+      const evolved = await telemetryRepository.getLatestEvidence(
+        'projectflow-evolved-automated-study',
+      );
+      if (!baseline || !evolved) {
+        return json(
+          {
+            error: 'insufficient_evidence',
+            message: 'Both automated cohort evidence packs are required.',
+          },
+          { status: 409 },
+        );
+      }
+      try {
+        const validation = compareAutomatedOutcomes(baseline, evolved);
+        await telemetryRepository.saveOutcomeValidation(validation);
+        return json(OutcomeValidationSchema.parse(validation), { status: 201 });
+      } catch (error) {
+        if (error instanceof OutcomeValidationError) {
+          return json(
+            { error: 'validation_failed', message: error.message },
+            { status: 422 },
+          );
+        }
+        throw error;
+      }
+    }
   }
 
   const latestEvidenceMatch = pathname.match(

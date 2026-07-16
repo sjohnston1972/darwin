@@ -67,6 +67,11 @@ GET  /api/studies/:id/sessions/:sessionId
 GET  /api/studies/:id/participants/:participantId/workspace
 PUT  /api/studies/:id/participants/:participantId/workspace
 POST /api/studies/:id/evidence
+POST /api/studies/:id/analyse-evidence
+GET  /api/studies/:id/evidence-analysis/latest
+POST /api/evidence-analyses/:id/codex-manifest
+GET  /api/outcomes/automated-comparison
+POST /api/outcomes/automated-comparison
 POST /api/simulations
 GET  /api/simulations/:id
 GET  /api/simulations/:id/summary
@@ -108,6 +113,19 @@ Every signal stores its rule version, affected attempt IDs, supporting event IDs
 and a bounded trace. Canonical JSON excludes generation time from its digest, so
 identical source records and parser code produce the same SHA-256 evidence hash.
 Evidence packs are stored in `analysis_runs` and remain independent of GPT-5.6.
+
+## Outcome validation
+
+Baseline `v1.0.0` and evolved `v1.1.0` use separate automated study IDs. The
+critical Playwright flow performs the same `find-assigned-task` task against both
+variants with telemetry source `automated`, then generates independent evidence
+packs. The Worker refuses mixed or measured sources and compares completion,
+median interactions and median duration for matching task identities.
+
+Fresh comparisons are stored as `live_automated_run`. A checked-in result from an
+actual repository Playwright run is available as `recorded_automated_run` when a
+hosted Worker has no fresh cohorts. Both labels remain distinct from measured
+human evidence and simulated scale replay.
 
 ## Fitness calculation
 Normalise each metric to 0–100, then calculate:
@@ -186,6 +204,9 @@ Tables:
 - simulation_runs
 - telemetry_events
 - analysis_runs
+- evidence_analyses
+- codex_manifests
+- outcome_validations
 - mutation_proposals
 - validation_results
 - evolution_records

@@ -2,6 +2,7 @@ import type {
   CodexImplementationManifest,
   EvidenceAnalysis,
   EvidencePack,
+  OutcomeValidation,
   ProjectFlowWorkspace,
   StoredTelemetryEvent,
   StudyTelemetryEvent,
@@ -47,6 +48,8 @@ export interface TelemetryRepository {
   getCodexManifest(
     analysisId: string,
   ): Promise<CodexImplementationManifest | null>;
+  saveOutcomeValidation(validation: OutcomeValidation): Promise<void>;
+  getLatestOutcomeValidation(): Promise<OutcomeValidation | null>;
   reset(): Promise<void>;
 }
 
@@ -58,6 +61,7 @@ const evidenceAnalysisStore = new Map<
   { studyId: string; analysis: EvidenceAnalysis }
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
+let outcomeValidationStore: OutcomeValidation | null = null;
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -156,12 +160,21 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return manifestStore.get(analysisId) ?? null;
   }
 
+  async saveOutcomeValidation(validation: OutcomeValidation) {
+    outcomeValidationStore = validation;
+  }
+
+  async getLatestOutcomeValidation() {
+    return outcomeValidationStore;
+  }
+
   async reset() {
     eventStore.clear();
     workspaceStore.clear();
     evidenceStore.clear();
     evidenceAnalysisStore.clear();
     manifestStore.clear();
+    outcomeValidationStore = null;
   }
 }
 
@@ -422,6 +435,39 @@ export class D1TelemetryRepository implements TelemetryRepository {
       : null;
   }
 
+  async saveOutcomeValidation(validation: OutcomeValidation) {
+    await this.database
+      .prepare(
+        `INSERT INTO outcome_validations (
+          validation_id, generated_at, baseline_evidence_hash,
+          evolved_evidence_hash, validation_json
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(validation_id) DO UPDATE SET
+          generated_at = excluded.generated_at,
+          validation_json = excluded.validation_json`,
+      )
+      .bind(
+        validation.validationId,
+        validation.generatedAt,
+        validation.baseline.evidenceHash,
+        validation.evolved.evidenceHash,
+        JSON.stringify(validation),
+      )
+      .run();
+  }
+
+  async getLatestOutcomeValidation() {
+    const row = await this.database
+      .prepare(
+        `SELECT validation_json
+         FROM outcome_validations
+         ORDER BY generated_at DESC
+         LIMIT 1`,
+      )
+      .first<{ validation_json: string }>();
+    return row ? (JSON.parse(row.validation_json) as OutcomeValidation) : null;
+  }
+
   async reset() {
     await this.database.batch([
       this.database.prepare('DELETE FROM telemetry_events'),
@@ -429,6 +475,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM analysis_runs'),
       this.database.prepare('DELETE FROM evidence_analyses'),
       this.database.prepare('DELETE FROM codex_manifests'),
+      this.database.prepare('DELETE FROM outcome_validations'),
     ]);
   }
 }

@@ -397,6 +397,38 @@ export const CodexImplementationManifestSchema = z.object({
   validationCommands: z.array(z.string().min(1)).min(1),
 });
 
+export const OutcomeCohortSchema = z.object({
+  cohortId: StudyIdentifierSchema,
+  studyId: StudyIdentifierSchema,
+  variant: OrganismVariantSchema,
+  appVersion: z.string().min(1),
+  source: z.literal('automated'),
+  evidenceId: StudyIdentifierSchema,
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  taskId: StudyIdentifierSchema,
+  attempts: z.number().int().positive(),
+  successes: z.number().int().nonnegative(),
+  completionRate: z.number().min(0).max(1),
+  medianInteractions: z.number().nonnegative(),
+  medianDurationMs: z.number().int().nonnegative(),
+});
+
+export const OutcomeValidationSchema = z.object({
+  validationId: StudyIdentifierSchema,
+  evidenceClass: z.literal('automated'),
+  provenance: z.enum(['live_automated_run', 'recorded_automated_run']),
+  generatedAt: z.string().datetime(),
+  taskId: StudyIdentifierSchema,
+  baseline: OutcomeCohortSchema,
+  evolved: OutcomeCohortSchema,
+  delta: z.object({
+    interactions: z.number(),
+    durationMs: z.number().int(),
+    completionRate: z.number(),
+  }),
+  conclusion: z.string().min(1),
+});
+
 export const FitnessBreakdownSchema = z.object({
   score: z.number().min(0).max(100),
   completionRate: z.number().min(0).max(100),
@@ -625,6 +657,8 @@ export type EvidenceAnalysis = z.infer<typeof EvidenceAnalysisSchema>;
 export type CodexImplementationManifest = z.infer<
   typeof CodexImplementationManifestSchema
 >;
+export type OutcomeCohort = z.infer<typeof OutcomeCohortSchema>;
+export type OutcomeValidation = z.infer<typeof OutcomeValidationSchema>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;

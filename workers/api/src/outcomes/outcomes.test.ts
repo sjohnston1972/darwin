@@ -1,0 +1,70 @@
+import { EvidencePackSchema } from '@darwin/shared';
+import { describe, expect, it } from 'vitest';
+
+import { OutcomeValidationError, compareAutomatedOutcomes } from '.';
+
+const pack = (
+  variant: 'baseline' | 'evolved',
+  evidenceClass: 'automated' | 'measured' = 'automated',
+) =>
+  EvidencePackSchema.parse({
+    evidenceId: `evidence-${variant}`,
+    evidenceHash: (variant === 'baseline' ? 'a' : 'b').repeat(64),
+    generatedAt: '2026-07-16T12:00:00.000Z',
+    parserVersion: '1.0.0',
+    evidenceClass,
+    study: {
+      studyId: `projectflow-${variant}-study`,
+      appVersion: variant === 'baseline' ? '1.0.0' : '1.1.0',
+      sourceEventCount: 10,
+      participants: 1,
+      sessions: 1,
+      attempts: 1,
+    },
+    taskAttempts: [],
+    tasks: [
+      {
+        taskId: 'find-assigned-task',
+        attempts: 1,
+        successes: 1,
+        completionRate: 1,
+        medianDurationMs: variant === 'baseline' ? 8_000 : 3_000,
+        medianInteractions: variant === 'baseline' ? 7 : 3,
+        optimalInteractions: 3,
+        topPaths: [],
+      },
+    ],
+    frictionSignals: [],
+    applicationMap: {
+      routes: ['/study/dashboard'],
+      mutableAreas: ['navigation'],
+      protectedAreas: ['telemetry-history'],
+    },
+  });
+
+describe('automated outcome validation', () => {
+  it('compares versioned cohorts with an honest source label', () => {
+    const result = compareAutomatedOutcomes(
+      pack('baseline'),
+      pack('evolved'),
+      'find-assigned-task',
+      '2026-07-16T12:10:00.000Z',
+    );
+
+    expect(result.evidenceClass).toBe('automated');
+    expect(result.provenance).toBe('live_automated_run');
+    expect(result.delta).toEqual({
+      interactions: -4,
+      durationMs: -5_000,
+      completionRate: 0,
+    });
+    expect(result.baseline.appVersion).toBe('1.0.0');
+    expect(result.evolved.appVersion).toBe('1.1.0');
+  });
+
+  it('refuses to compare measured evidence as automation', () => {
+    expect(() =>
+      compareAutomatedOutcomes(pack('baseline', 'measured'), pack('evolved')),
+    ).toThrow(OutcomeValidationError);
+  });
+});

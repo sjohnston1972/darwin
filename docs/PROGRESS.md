@@ -456,6 +456,43 @@ Known issues:
 Next phase:
 - Phase 12 — Outcome validation and demo choreography.
 
+### Phase 12 — Outcome validation and demo choreography
+Date: 2026-07-16
+
+Completed:
+- Added a real evolved variant to standalone ProjectFlow with primary My Work navigation, global task search, Insights and global task creation.
+- Versioned standalone cohorts as baseline `v1.0.0` and evolved `v1.1.0`, with separate study IDs and participant identities.
+- Made automation provenance explicit through `source=automated`; normal study sessions remain `real_user`.
+- Added shared automated-cohort and outcome-validation contracts with evidence hashes, task identity, attempts, completion, interaction and duration metrics.
+- Added a Worker outcome comparator that rejects measured evidence and incomplete or mismatched task cohorts.
+- Added in-memory and D1-compatible outcome persistence plus the `outcome_validations` migration.
+- Reworked the critical Playwright flow to perform the same assigned-task workflow against both standalone variants and assert a lower evolved interaction count.
+- Added a checked-in result from the actual Playwright run, explicitly labelled `recorded_automated_run`, for a reliable hosted demo.
+- Added a control-room comparison showing baseline/evolved evidence hashes, 8-to-4 median interactions, completion and live/recorded provenance.
+- Added recoverable evidence, analysis and Codex-manifest UI errors and updated the three-minute choreography.
+- Updated API and control-room version labels to `0.12.0`.
+
+Verification commands:
+```bash
+npm run format
+npm run typecheck
+npm run test
+npm run test:e2e:projectflow
+```
+
+Results:
+- All 44 unit and component tests passed across the workspaces.
+- Two Chrome flows passed, including the complete baseline/evolved comparison and the 390x844 responsive study runner.
+- The actual automated cohorts each completed one assigned-task attempt at 100% completion; baseline required eight median interactions and evolved required four.
+- The control room and standalone evolved organism passed desktop and mobile screenshot inspection without clipping or overlap.
+
+Known issues:
+- Automated duration is retained for audit but is not treated as a user-performance claim because browser timing varies by host.
+- The checked-in comparison is a recorded repository run; fresh human outcome evidence requires additional participant sessions and is never inferred from automation.
+
+Next phase:
+- Phase 13 — Cloudflare deployment and submission polish.
+
 ## Entry template
 
 ### Phase N — Name

@@ -100,6 +100,7 @@ export const studyTasks = [
 export type StudyTaskId = (typeof studyTasks)[number]['id'];
 export type AppRoute =
   | 'dashboard'
+  | 'my-work'
   | 'projects'
   | 'project'
   | 'project-tasks'

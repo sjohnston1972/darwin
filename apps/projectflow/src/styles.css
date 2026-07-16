@@ -220,6 +220,50 @@ button {
   margin-left: auto;
 }
 
+.global-search {
+  display: flex;
+  align-items: center;
+  width: min(320px, 32vw);
+  min-height: 34px;
+  margin-left: auto;
+  padding: 0 10px;
+  color: #76858d;
+  background: #f4f7f8;
+  border: 1px solid #dce3e6;
+  border-radius: 5px;
+}
+
+.global-search input {
+  min-width: 0;
+  width: 100%;
+  padding: 0 8px;
+  color: #26333a;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 11px;
+}
+
+.variant-evolved .topbar-actions {
+  margin-left: 10px;
+}
+
+.quick-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  color: #fff;
+  background: #315f4e;
+  border: 1px solid #294f41;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .icon-button {
   position: relative;
   display: grid;
@@ -268,6 +312,29 @@ button {
   width: min(1180px, 100%);
   margin: 0 auto;
   padding: 38px 32px 60px;
+}
+
+.my-work-panel {
+  margin-top: 24px;
+}
+
+.my-work-list > button {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 70px 18px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 62px;
+  padding: 0 18px;
+  text-align: left;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #e7ebed;
+  cursor: pointer;
+}
+
+.my-work-list > button:hover {
+  background: #f7faf9;
 }
 
 .page-heading {
@@ -1178,6 +1245,14 @@ button {
 }
 
 @media (max-width: 900px) {
+  .global-search {
+    width: min(280px, 48vw);
+  }
+
+  .breadcrumb {
+    display: none;
+  }
+
   .app-shell,
   .app-shell.has-study {
     display: block;
@@ -1228,6 +1303,20 @@ button {
 }
 
 @media (max-width: 680px) {
+  .global-search {
+    width: auto;
+    flex: 1;
+  }
+
+  .quick-task {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+    overflow: hidden;
+    color: #fff;
+    font-size: 0;
+  }
+
   .topbar {
     min-height: 54px;
     padding: 0 14px;
@@ -1261,6 +1350,14 @@ button {
 
   .project-health-list > button {
     grid-template-columns: 34px 1fr 16px;
+  }
+
+  .my-work-list > button {
+    grid-template-columns: 50px minmax(0, 1fr) 16px;
+  }
+
+  .my-work-list .due-date {
+    display: none;
   }
 
   .project-health-list .status,

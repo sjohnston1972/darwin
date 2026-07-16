@@ -11,6 +11,7 @@ import {
   MutationReleaseResponseSchema,
   MutationValidationResponseSchema,
   OrganismStateSchema,
+  OutcomeValidationSchema,
   ParticipantWorkspaceResponseSchema,
   SimulationSummarySchema,
   StudyEventsResponseSchema,
@@ -67,6 +68,17 @@ describe('Darwin API', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: 'not_found',
     });
+  });
+
+  it('serves clearly labelled recorded automation before a live outcome run', async () => {
+    const response = await handleRequest(
+      new Request('http://localhost/api/outcomes/automated-comparison'),
+    );
+    const outcome = OutcomeValidationSchema.parse(await response.json());
+
+    expect(outcome.provenance).toBe('recorded_automated_run');
+    expect(outcome.evidenceClass).toBe('automated');
+    expect(outcome.delta.interactions).toBeLessThan(0);
   });
 
   it('ingests, deduplicates, and exposes ordered real telemetry', async () => {

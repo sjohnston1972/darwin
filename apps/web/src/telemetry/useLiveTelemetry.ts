@@ -2,10 +2,12 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  OutcomeValidationSchema,
   StudyEventsResponseSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
+  type OutcomeValidation,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
 import { useEffect, useState } from 'react';
@@ -15,14 +17,17 @@ const studyId = 'projectflow-baseline-study';
 
 export interface LiveTelemetryState {
   count: number;
+  clearError: () => void;
   analysis: EvidenceAnalysis | null;
   analyseEvidence: () => Promise<void>;
   analysing: boolean;
   evidence: EvidencePack | null;
+  error: string | null;
   events: StoredTelemetryEvent[];
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
+  outcome: OutcomeValidation | null;
   prepareCodexManifest: () => Promise<void>;
   preparingManifest: boolean;
   status: 'loading' | 'live' | 'offline';
@@ -30,6 +35,7 @@ export interface LiveTelemetryState {
 
 export function useLiveTelemetry(): LiveTelemetryState {
   const [events, setEvents] = useState<StoredTelemetryEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
   const [analysis, setAnalysis] = useState<EvidenceAnalysis | null>(null);
   const [analysing, setAnalysing] = useState(false);
@@ -38,6 +44,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [manifest, setManifest] = useState<CodexImplementationManifest | null>(
     null,
   );
+  const [outcome, setOutcome] = useState<OutcomeValidation | null>(null);
   const [preparingManifest, setPreparingManifest] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
 
@@ -67,6 +74,13 @@ export function useLiveTelemetry(): LiveTelemetryState {
           setEvidence(EvidencePackSchema.parse(await response.json()));
       })
       .catch(() => undefined);
+    void fetch(`${apiBaseUrl}/api/outcomes/automated-comparison`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        if (active)
+          setOutcome(OutcomeValidationSchema.parse(await response.json()));
+      })
+      .catch(() => undefined);
     void fetch(`${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest`)
       .then(async (response) => {
         if (!response.ok) return;
@@ -94,6 +108,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
 
   const generateEvidence = async () => {
     setGenerating(true);
+    setError(null);
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/studies/${studyId}/evidence`,
@@ -103,6 +118,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
       setEvidence(EvidencePackSchema.parse(await response.json()));
       setAnalysis(null);
       setManifest(null);
+    } catch {
+      setError('Evidence generation failed. Check the API and retry.');
     } finally {
       setGenerating(false);
     }
@@ -110,6 +127,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
 
   const analyseEvidence = async () => {
     setAnalysing(true);
+    setError(null);
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/studies/${studyId}/analyse-evidence`,
@@ -118,6 +136,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
       if (!response.ok) throw new Error('Evidence analysis failed.');
       setAnalysis(EvidenceAnalysisSchema.parse(await response.json()));
       setManifest(null);
+    } catch {
+      setError('Mutation analysis failed. The evidence pack is unchanged.');
     } finally {
       setAnalysing(false);
     }
@@ -126,6 +146,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const prepareCodexManifest = async () => {
     if (!analysis) return;
     setPreparingManifest(true);
+    setError(null);
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/evidence-analyses/${analysis.analysisId}/codex-manifest`,
@@ -135,6 +156,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
       setManifest(
         CodexImplementationManifestSchema.parse(await response.json()),
       );
+    } catch {
+      setError('Codex manifest generation failed. Retry the handoff.');
     } finally {
       setPreparingManifest(false);
     }
@@ -144,12 +167,15 @@ export function useLiveTelemetry(): LiveTelemetryState {
     analysis,
     analyseEvidence,
     analysing,
+    clearError: () => setError(null),
     count,
     evidence,
+    error,
     events,
     generateEvidence,
     generating,
     manifest,
+    outcome,
     prepareCodexManifest,
     preparingManifest,
     status,

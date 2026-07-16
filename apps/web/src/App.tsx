@@ -630,7 +630,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.11.0</p>
+            <p className="font-mono">DARWIN CORE 0.12.0</p>
           </footer>
         </div>
       </main>
@@ -713,6 +713,20 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
           </button>
         </div>
       </div>
+
+      {telemetry.error && (
+        <div className="error-band telemetry-error" role="alert">
+          <AlertTriangle size={16} />
+          <span>{telemetry.error}</span>
+          <button
+            type="button"
+            aria-label="Dismiss telemetry error"
+            onClick={telemetry.clearError}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
 
       <div className="evidence-stats" aria-label="Real study counts">
         <div>
@@ -951,6 +965,53 @@ function LiveTelemetryPanel({ telemetry }: { telemetry: LiveTelemetryState }) {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {telemetry.outcome && (
+        <div className="outcome-validation">
+          <div className="outcome-heading">
+            <div>
+              <span className="evidence-class">AUTOMATED</span>
+              <strong>Versioned outcome validation</strong>
+              <p>
+                Same task, same browser script, separate v1.0 and v1.1 cohorts.
+                This is not a measured human outcome.
+              </p>
+            </div>
+            <span className="outcome-provenance">
+              {telemetry.outcome.provenance.replaceAll('_', ' ')}
+            </span>
+          </div>
+          <div className="outcome-comparison">
+            <div>
+              <span>Baseline · v{telemetry.outcome.baseline.appVersion}</span>
+              <strong>{telemetry.outcome.baseline.medianInteractions}</strong>
+              <small>median interactions</small>
+              <code>
+                {telemetry.outcome.baseline.evidenceHash.slice(0, 12)}
+              </code>
+            </div>
+            <div className="outcome-delta">
+              <TrendingUp size={18} />
+              <strong>{telemetry.outcome.delta.interactions}</strong>
+              <span>interactions</span>
+            </div>
+            <div>
+              <span>Evolved · v{telemetry.outcome.evolved.appVersion}</span>
+              <strong>{telemetry.outcome.evolved.medianInteractions}</strong>
+              <small>median interactions</small>
+              <code>{telemetry.outcome.evolved.evidenceHash.slice(0, 12)}</code>
+            </div>
+          </div>
+          <div className="outcome-conclusion">
+            <CheckCircle2 size={16} />
+            <span>{telemetry.outcome.conclusion}</span>
+            <code>
+              {Math.round(telemetry.outcome.baseline.completionRate * 100)}% →{' '}
+              {Math.round(telemetry.outcome.evolved.completionRate * 100)}%
+              completion
+            </code>
           </div>
         </div>
       )}

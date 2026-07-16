@@ -13,6 +13,8 @@ mutation.”
 Open standalone ProjectFlow in study mode. Start **Find your assigned task** and
 follow the awkward baseline path through Projects. Complete the task.
 
+Baseline URL: `/study`. Evolved replay URL: `/study?variant=evolved`.
+
 “This is a functional application, not a telemetry animation. The study runner
 gives Darwin ground truth for the task, outcome and duration.”
 

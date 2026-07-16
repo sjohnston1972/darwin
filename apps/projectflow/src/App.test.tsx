@@ -61,4 +61,26 @@ describe('standalone ProjectFlow', () => {
     expect(taskCard).toHaveClass('is-complete');
     expect(screen.getByText(/events/)).toBeInTheDocument();
   });
+
+  it('exposes the shorter evolved My Work path', () => {
+    window.history.replaceState({}, '', '/study?variant=evolved');
+    render(<App />);
+
+    expect(screen.getByText('ProjectFlow evolved - v1.1.0')).toBeVisible();
+    expect(screen.getByLabelText('Search all tasks')).toBeVisible();
+    const taskCard = screen
+      .getByText('Find your assigned task')
+      .closest('article');
+    fireEvent.click(
+      within(taskCard!).getByRole('button', { name: /Start task/ }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /My Work/ }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /Confirm launch checklist/ }),
+    );
+
+    expect(
+      within(taskCard!).getByRole('button', { name: 'Done' }),
+    ).toBeEnabled();
+  });
 });
