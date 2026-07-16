@@ -175,6 +175,47 @@ Known issues:
 Next phase:
 - Phase 5 — Darwin control room.
 
+### Phase 5 — Darwin control room
+Date: 2026-07-16
+
+Completed:
+- Added shared schemas for simulation creation, organism state, mutation decisions, and deterministic demo reset responses.
+- Added in-memory mutation and organism state alongside the existing local simulation store.
+- Added `GET /api/organism/state`, `POST /api/mutations/:id/approve`, `POST /api/mutations/:id/reject`, and `POST /api/demo/reset`.
+- Enforced exactly one explicit human decision per proposal; repeated decisions return `409` and unknown proposals return `404`.
+- Activated the `Observe 10,000 interactions` workflow with a deterministic seed and an animated event counter driven by the real simulation response.
+- Added truthful aggregate telemetry, persona distribution, workflow completion, navigation, and backtrack displays.
+- Added ranked selection-pressure findings and a structured mutation proposal with implementation scope and predicted fitness comparison.
+- Added approve/reject controls, authoritative organism transition to ProjectFlow `v1.1`, and baseline retention after rejection.
+- Added a deterministic reset control that clears the complete local evolution cycle and restores ProjectFlow `v1.0`.
+- Updated control-room metrics, system status, organism preview, and fossil-record summary to reflect the active state.
+- Updated API health and dashboard version labels to `0.5.0`.
+
+Verification commands:
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run format:check
+npm run build
+```
+
+Results:
+- Live Worker flow generated exactly 10,000 events, ranked assigned-task discovery first, proposed one mutation, approved it, and returned ProjectFlow `v1.1` with one evolution cycle.
+- Baseline and evolved fitness remained deterministic at 66.6 and 87.4, a gain of 20.8 points.
+- Approval activated the evolved organism; rejection retained the baseline; reset removed the proposal and restored `v1.0`.
+- Unit and component coverage passed across 6 test files and 21 tests.
+- Two Chrome Playwright smoke flows passed for the complete approval path at 1440×900 and 390×844.
+- Wide and mobile screenshots confirmed readable telemetry, proposal, approval, and organism states without layout collisions.
+
+Known issues:
+- The optional GPT-5.6 analyzer remains scheduled for Phase 6; mock mode is intentionally the default.
+- Validation output, the repository diff viewer, and the persistent fossil-record timeline remain scheduled for Phase 7.
+- Demo state is held in Worker memory and is intentionally reset when the local Worker restarts; D1 persistence remains scheduled for Phase 8.
+
+Next phase:
+- Phase 6 — GPT-5.6 integration.
+
 ## Entry template
 
 ### Phase N — Name

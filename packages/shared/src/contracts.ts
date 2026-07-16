@@ -107,6 +107,11 @@ export const SimulationResultSchema = z.object({
   summary: SimulationSummarySchema,
 });
 
+export const SimulationCreateResponseSchema = z.object({
+  run: SimulationRunSchema,
+  summary: SimulationSummarySchema,
+});
+
 export const FrictionFindingSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -145,6 +150,24 @@ export const EvolutionAnalysisResponseSchema = z.object({
   fitness: FitnessComparisonSchema,
   findings: z.array(FrictionFindingSchema).min(1),
   proposal: MutationProposalSchema,
+});
+
+export const OrganismStateSchema = z.object({
+  variant: OrganismVariantSchema,
+  genomeVersion: z.string().min(1),
+  evolutionCycles: z.number().int().nonnegative(),
+  activeMutationId: z.string().min(1).nullable(),
+  updatedAt: z.string().datetime(),
+});
+
+export const MutationDecisionResponseSchema = z.object({
+  proposal: MutationProposalSchema,
+  organism: OrganismStateSchema,
+});
+
+export const DemoResetResponseSchema = z.object({
+  status: z.literal('reset'),
+  organism: OrganismStateSchema,
 });
 
 export const ValidationResultSchema = z.object({
@@ -190,6 +213,9 @@ export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;
 export type FrictionSignal = z.infer<typeof FrictionSignalSchema>;
 export type SimulationSummary = z.infer<typeof SimulationSummarySchema>;
 export type SimulationResult = z.infer<typeof SimulationResultSchema>;
+export type SimulationCreateResponse = z.infer<
+  typeof SimulationCreateResponseSchema
+>;
 export type FrictionFinding = z.infer<typeof FrictionFindingSchema>;
 export type MutationProposal = z.infer<typeof MutationProposalSchema>;
 export type FitnessComparison = z.infer<typeof FitnessComparisonSchema>;
@@ -199,6 +225,11 @@ export type EvolutionAnalysisRequest = z.infer<
 export type EvolutionAnalysisResponse = z.infer<
   typeof EvolutionAnalysisResponseSchema
 >;
+export type OrganismState = z.infer<typeof OrganismStateSchema>;
+export type MutationDecisionResponse = z.infer<
+  typeof MutationDecisionResponseSchema
+>;
+export type DemoResetResponse = z.infer<typeof DemoResetResponseSchema>;
 export type ValidationResult = z.infer<typeof ValidationResultSchema>;
 export type FitnessBreakdown = z.infer<typeof FitnessBreakdownSchema>;
 export type EvolutionRecord = z.infer<typeof EvolutionRecordSchema>;

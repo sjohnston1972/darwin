@@ -1,8 +1,13 @@
 import {
+  DemoResetResponseSchema,
   EvolutionAnalysisRequestSchema,
   EvolutionAnalysisResponseSchema,
+  MutationDecisionResponseSchema,
+  OrganismStateSchema,
   SimulationRequestSchema,
   type HealthResponse,
+  type MutationProposal,
+  type OrganismState,
   type SimulationResult,
 } from '@darwin/shared';
 
@@ -38,8 +43,23 @@ const json = (body: unknown, init: ResponseInit = {}) => {
 };
 
 const simulationStore = new Map<string, SimulationResult>();
+const mutationStore = new Map<string, MutationProposal>();
 
-export const resetSimulationStore = () => simulationStore.clear();
+const initialOrganismState = (): OrganismState => ({
+  variant: 'baseline',
+  genomeVersion: 'v1.0',
+  evolutionCycles: 0,
+  activeMutationId: null,
+  updatedAt: new Date().toISOString(),
+});
+
+let organismState = initialOrganismState();
+
+export const resetSimulationStore = () => {
+  simulationStore.clear();
+  mutationStore.clear();
+  organismState = initialOrganismState();
+};
 
 export const handleRequest = async (
   request: Request,
@@ -55,11 +75,25 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.4.0',
+      version: '0.5.0',
       timestamp: new Date().toISOString(),
     };
 
     return json(response);
+  }
+
+  if (request.method === 'POST' && pathname === '/api/demo/reset') {
+    resetSimulationStore();
+    return json(
+      DemoResetResponseSchema.parse({
+        status: 'reset',
+        organism: organismState,
+      }),
+    );
+  }
+
+  if (request.method === 'GET' && pathname === '/api/organism/state') {
+    return json(OrganismStateSchema.parse(organismState));
   }
 
   if (request.method === 'POST' && pathname === '/api/simulations') {
@@ -163,6 +197,7 @@ export const handleRequest = async (
         findings,
         proposal,
       });
+      mutationStore.set(proposal.id, proposal);
       return json(response);
     } catch (error) {
       if (error instanceof EvolutionAnalysisError) {
@@ -173,6 +208,55 @@ export const handleRequest = async (
       }
       throw error;
     }
+  }
+
+  const mutationDecisionMatch = pathname.match(
+    /^\/api\/mutations\/([^/]+)\/(approve|reject)$/,
+  );
+  if (request.method === 'POST' && mutationDecisionMatch) {
+    const id = decodeURIComponent(mutationDecisionMatch[1]!);
+    const decision = mutationDecisionMatch[2] as 'approve' | 'reject';
+    const proposal = mutationStore.get(id);
+
+    if (!proposal) {
+      return json(
+        { error: 'not_found', message: 'Mutation proposal was not found.' },
+        { status: 404 },
+      );
+    }
+
+    if (proposal.status !== 'proposed') {
+      return json(
+        {
+          error: 'invalid_state',
+          message: `Mutation proposal has already been ${proposal.status}.`,
+        },
+        { status: 409 },
+      );
+    }
+
+    const decidedProposal: MutationProposal = {
+      ...proposal,
+      status: decision === 'approve' ? 'approved' : 'rejected',
+    };
+    mutationStore.set(id, decidedProposal);
+
+    if (decision === 'approve') {
+      organismState = {
+        variant: 'evolved',
+        genomeVersion: 'v1.1',
+        evolutionCycles: 1,
+        activeMutationId: id,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    return json(
+      MutationDecisionResponseSchema.parse({
+        proposal: decidedProposal,
+        organism: organismState,
+      }),
+    );
   }
 
   const summaryMatch = pathname.match(/^\/api\/simulations\/([^/]+)\/summary$/);

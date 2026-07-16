@@ -1,6 +1,9 @@
 import {
+  DemoResetResponseSchema,
   EvolutionAnalysisResponseSchema,
   HealthResponseSchema,
+  MutationDecisionResponseSchema,
+  OrganismStateSchema,
   SimulationSummarySchema,
 } from '@darwin/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -97,5 +100,103 @@ describe('Darwin API', () => {
     );
     expect(analysis.findings[0]?.id).toBe('finding-task-discovery');
     expect(analysis.proposal.id).toBe('mutation-global-task-discovery-v1');
+  });
+
+  it('requires one explicit mutation decision and reset restores the baseline', async () => {
+    await handleRequest(
+      new Request('http://localhost/api/simulations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+      }),
+    );
+    await handleRequest(
+      new Request('http://localhost/api/evolution/analyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
+      }),
+    );
+
+    const approvalResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/approve',
+        { method: 'POST' },
+      ),
+    );
+    const approval = MutationDecisionResponseSchema.parse(
+      await approvalResponse.json(),
+    );
+
+    expect(approval.proposal.status).toBe('approved');
+    expect(approval.organism).toMatchObject({
+      variant: 'evolved',
+      genomeVersion: 'v1.1',
+      evolutionCycles: 1,
+    });
+
+    const repeatedResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/reject',
+        { method: 'POST' },
+      ),
+    );
+    expect(repeatedResponse.status).toBe(409);
+
+    const stateResponse = await handleRequest(
+      new Request('http://localhost/api/organism/state'),
+    );
+    expect(OrganismStateSchema.parse(await stateResponse.json()).variant).toBe(
+      'evolved',
+    );
+
+    const resetResponse = await handleRequest(
+      new Request('http://localhost/api/demo/reset', { method: 'POST' }),
+    );
+    const reset = DemoResetResponseSchema.parse(await resetResponse.json());
+    expect(reset.organism).toMatchObject({
+      variant: 'baseline',
+      genomeVersion: 'v1.0',
+      evolutionCycles: 0,
+    });
+
+    const missingProposalResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/approve',
+        { method: 'POST' },
+      ),
+    );
+    expect(missingProposalResponse.status).toBe(404);
+  });
+
+  it('keeps the baseline active when a mutation fails selection', async () => {
+    await handleRequest(
+      new Request('http://localhost/api/simulations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+      }),
+    );
+    await handleRequest(
+      new Request('http://localhost/api/evolution/analyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
+      }),
+    );
+
+    const response = await handleRequest(
+      new Request(
+        'http://localhost/api/mutations/mutation-global-task-discovery-v1/reject',
+        { method: 'POST' },
+      ),
+    );
+    const decision = MutationDecisionResponseSchema.parse(
+      await response.json(),
+    );
+
+    expect(decision.proposal.status).toBe('rejected');
+    expect(decision.organism.variant).toBe('baseline');
+    expect(decision.organism.evolutionCycles).toBe(0);
   });
 });

@@ -58,6 +58,7 @@ GET  /api/simulations/:id
 GET  /api/simulations/:id/summary
 POST /api/evolution/analyse
 POST /api/mutations/:id/approve
+POST /api/mutations/:id/reject
 POST /api/mutations/:id/validate
 POST /api/mutations/:id/release
 GET  /api/evolution/timeline

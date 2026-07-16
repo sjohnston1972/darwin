@@ -1,11 +1,19 @@
-import { HealthResponseSchema } from '@darwin/shared';
+import {
+  HealthResponseSchema,
+  type EvolutionAnalysisResponse,
+  type SimulationSummary,
+} from '@darwin/shared';
 import {
   Activity,
+  AlertTriangle,
   Box,
+  Check,
+  CheckCircle2,
   ChevronRight,
   CircleDashed,
   Database,
   FlaskConical,
+  Gauge,
   GitBranch,
   GitCompareArrows,
   LayoutDashboard,
@@ -13,12 +21,16 @@ import {
   Menu,
   Network,
   Radar,
+  RotateCcw,
   Server,
   ShieldCheck,
+  TrendingUp,
+  Users,
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
 import { ProjectFlow } from './projectflow/ProjectFlow';
 import type { ProjectFlowVariant } from './projectflow/data';
 
@@ -37,39 +49,62 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 function App() {
   const [health, setHealth] = useState<HealthState>('checking');
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const organismOnly =
+    new URLSearchParams(window.location.search).get('view') === 'organism';
   const [organismVariant, setOrganismVariant] = useState<ProjectFlowVariant>(
     () =>
       new URLSearchParams(window.location.search).get('variant') === 'evolved'
         ? 'evolved'
         : 'baseline',
   );
-  const organismOnly =
-    new URLSearchParams(window.location.search).get('view') === 'organism';
+  const demo = useEvolutionDemo();
+  const observed = demo.eventCount.toLocaleString('en-US');
+  const measuredFitness = demo.analysis
+    ? demo.organism.variant === 'evolved'
+      ? demo.analysis.fitness.evolved.score
+      : demo.analysis.fitness.baseline.score
+    : null;
 
   const metrics = [
     {
       label: 'Interactions observed',
-      value: '0',
-      meta: 'Awaiting observation',
-      tone: 'neutral',
+      value: observed,
+      meta:
+        demo.stage === 'observing'
+          ? 'Seed 1859 in progress'
+          : demo.eventCount === 10_000
+            ? 'Deterministic sample complete'
+            : 'Awaiting observation',
+      tone: demo.eventCount === 10_000 ? 'signal' : 'neutral',
     },
     {
       label: 'Evolution cycles',
-      value: '0',
-      meta: 'No mutations recorded',
-      tone: 'neutral',
+      value: String(demo.organism.evolutionCycles),
+      meta:
+        demo.organism.evolutionCycles > 0
+          ? 'Mutation survived approval'
+          : 'No mutations retained',
+      tone: demo.organism.evolutionCycles > 0 ? 'signal' : 'neutral',
     },
     {
       label: 'Current fitness',
-      value: '--',
-      meta: 'Baseline not measured',
-      tone: 'amber',
+      value: measuredFitness === null ? '--' : measuredFitness.toFixed(1),
+      meta:
+        demo.stage === 'approved'
+          ? `+${demo.analysis?.fitness.delta.toFixed(1) ?? '0.0'} fitness`
+          : demo.analysis
+            ? 'Baseline measured'
+            : 'Baseline not measured',
+      tone: demo.stage === 'approved' ? 'signal' : 'amber',
     },
     {
       label: 'Genome version',
-      value: organismVariant === 'baseline' ? 'v1.0' : 'v1.1',
-      meta: organismVariant === 'baseline' ? 'Baseline' : 'Candidate preview',
-      tone: 'signal',
+      value: demo.organism.genomeVersion,
+      meta:
+        demo.organism.variant === 'evolved'
+          ? 'Mutation approved'
+          : 'Baseline retained',
+      tone: demo.organism.variant === 'evolved' ? 'signal' : 'neutral',
     },
   ] as const;
 
@@ -90,6 +125,11 @@ function App() {
 
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (organismOnly) return;
+    setOrganismVariant(demo.organism.variant);
+  }, [demo.organism.variant, organismOnly]);
 
   if (organismOnly) {
     return (
@@ -232,6 +272,16 @@ function App() {
           <div className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist">
             <ShieldCheck size={15} className="text-signal" />
             <span>Controlled mode</span>
+            <button
+              className="icon-button ml-2"
+              type="button"
+              onClick={() => void demo.reset()}
+              disabled={demo.stage === 'resetting'}
+              aria-label="Reset evolution demo"
+              title="Reset evolution demo"
+            >
+              <RotateCcw size={15} />
+            </button>
           </div>
         </header>
 
@@ -259,13 +309,34 @@ function App() {
               <button
                 className="primary-action"
                 type="button"
-                disabled
-                title="The observation engine is introduced in Phase 3"
+                onClick={() => void demo.observe()}
+                disabled={!['idle', 'error'].includes(demo.stage)}
               >
-                <Radar size={17} /> Observe 10,000 interactions
+                {demo.stage === 'observing' ? (
+                  <CircleDashed className="is-spinning" size={17} />
+                ) : demo.stage === 'approved' ? (
+                  <Check size={17} />
+                ) : (
+                  <Radar size={17} />
+                )}
+                {demo.stage === 'observing'
+                  ? `Observing ${observed}`
+                  : demo.stage === 'approved'
+                    ? 'Evolution cycle complete'
+                    : demo.analysis
+                      ? 'Observation complete'
+                      : 'Observe 10,000 interactions'}
               </button>
-              <span className="flex items-center gap-2 text-xs text-mist">
-                <CircleDashed size={15} /> Observation engine pending
+              <span className={`demo-status status-${demo.stage}`}>
+                {demo.stage === 'idle' && <CircleDashed size={15} />}
+                {demo.stage === 'observing' && <Activity size={15} />}
+                {demo.stage === 'proposal' && <FlaskConical size={15} />}
+                {demo.stage === 'deciding' && <CircleDashed size={15} />}
+                {demo.stage === 'approved' && <CheckCircle2 size={15} />}
+                {demo.stage === 'rejected' && <ShieldCheck size={15} />}
+                {demo.stage === 'resetting' && <RotateCcw size={15} />}
+                {demo.stage === 'error' && <AlertTriangle size={15} />}
+                {stageLabel(demo.stage)}
               </span>
             </div>
             <div className="genome-watermark" aria-hidden="true">
@@ -295,6 +366,23 @@ function App() {
               </article>
             ))}
           </section>
+
+          {(demo.stage !== 'idle' || demo.error) && (
+            <ObservationPanel
+              eventCount={demo.eventCount}
+              summary={demo.summary}
+              stage={demo.stage}
+              error={demo.error}
+            />
+          )}
+
+          {demo.analysis && (
+            <MutationWorkspace
+              analysis={demo.analysis}
+              stage={demo.stage}
+              onDecision={(decision) => void demo.decide(decision)}
+            />
+          )}
 
           <section className="mt-8 surface-panel" id="organism">
             <div className="panel-heading organism-heading">
@@ -378,7 +466,14 @@ function App() {
                   value="2 ready"
                   ready
                 />
-                <StatusRow icon={Radar} label="Telemetry" value="Phase 3" />
+                <StatusRow
+                  icon={Radar}
+                  label="Telemetry"
+                  value={
+                    demo.eventCount === 10_000 ? '10,000 observed' : 'Ready'
+                  }
+                  ready={demo.eventCount === 10_000}
+                />
               </div>
             </aside>
 
@@ -474,12 +569,24 @@ function App() {
                     </td>
                   </tr>
                   <tr className="border-t border-line">
-                    <td className="px-6 py-5 font-mono">v1.0</td>
-                    <td className="px-6 py-5 text-mist">
-                      ProjectFlow organism connected
+                    <td className="px-6 py-5 font-mono">
+                      {demo.organism.genomeVersion}
                     </td>
-                    <td className="px-6 py-5 text-mist">Baseline</td>
-                    <td className="px-6 py-5 font-mono text-mist">--</td>
+                    <td className="px-6 py-5 text-mist">
+                      {demo.organism.variant === 'evolved'
+                        ? 'Global task discovery approved'
+                        : 'ProjectFlow organism connected'}
+                    </td>
+                    <td className="px-6 py-5 text-mist">
+                      {demo.organism.variant === 'evolved'
+                        ? 'Survived approval'
+                        : 'Baseline'}
+                    </td>
+                    <td className="px-6 py-5 font-mono text-mist">
+                      {measuredFitness === null
+                        ? '--'
+                        : measuredFitness.toFixed(1)}
+                    </td>
                     <td className="px-6 py-5 text-right">
                       <span className="status-badge">CURRENT</span>
                     </td>
@@ -491,10 +598,353 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.2.0</p>
+            <p className="font-mono">DARWIN CORE 0.5.0</p>
           </footer>
         </div>
       </main>
+    </div>
+  );
+}
+
+const stageLabel = (stage: DemoStage) => {
+  const labels: Record<DemoStage, string> = {
+    idle: 'Seed 1859 locked',
+    observing: 'Telemetry stream active',
+    proposal: 'Selection pressure detected',
+    deciding: 'Recording decision',
+    approved: 'Mutation approved · evolved active',
+    rejected: 'Failed selection · baseline retained',
+    resetting: 'Restoring baseline',
+    error: 'Evolution cycle interrupted',
+  };
+  return labels[stage];
+};
+
+function ObservationPanel({
+  eventCount,
+  summary,
+  stage,
+  error,
+}: {
+  eventCount: number;
+  summary: SimulationSummary | null;
+  stage: DemoStage;
+  error: string | null;
+}) {
+  const progress = Math.min(100, (eventCount / 10_000) * 100);
+  const eventTypes = summary
+    ? Object.entries(summary.eventTypeCounts)
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 5)
+    : [];
+  const personas = summary
+    ? Object.entries(summary.personaCounts).sort(
+        (left, right) => right[1] - left[1],
+      )
+    : [];
+
+  return (
+    <section
+      className="mt-8 surface-panel observation-panel"
+      id="observations"
+      aria-labelledby="observation-title"
+      aria-live="polite"
+    >
+      <div className="panel-heading">
+        <div>
+          <p className="section-label">Observation cycle / seed 1859</p>
+          <h2 id="observation-title" className="mt-2 text-xl font-semibold">
+            {stage === 'observing'
+              ? 'Reading selection pressure'
+              : error
+                ? 'Observation interrupted'
+                : '10,000 interactions observed'}
+          </h2>
+        </div>
+        <span className="observation-state">
+          <span
+            className={
+              stage === 'observing' ? 'stream-dot' : 'stream-dot complete'
+            }
+          />
+          {stage === 'observing' ? 'LIVE' : error ? 'HALTED' : 'COMPLETE'}
+        </span>
+      </div>
+
+      {error ? (
+        <div className="error-band">
+          <AlertTriangle size={17} />
+          <p>{error}</p>
+        </div>
+      ) : (
+        <div className="observation-layout">
+          <div className="observation-progress">
+            <div className="flex items-end justify-between gap-6">
+              <div>
+                <p className="section-label">Interactions ingested</p>
+                <p className="observation-count">
+                  {eventCount.toLocaleString('en-US')}
+                  <span>/ 10,000</span>
+                </p>
+              </div>
+              <p className="font-mono text-sm text-signal">
+                {progress.toFixed(0)}%
+              </p>
+            </div>
+            <div
+              className="progress-track"
+              role="progressbar"
+              aria-label="Telemetry observation progress"
+              aria-valuemin={0}
+              aria-valuemax={10_000}
+              aria-valuenow={eventCount}
+            >
+              <span style={{ width: `${progress}%` }} />
+            </div>
+
+            <div className="observation-stats">
+              <ObservationStat
+                icon={Users}
+                label="Sessions"
+                value={
+                  summary?.metrics.sessions.toLocaleString('en-US') ?? '---'
+                }
+              />
+              <ObservationStat
+                icon={CheckCircle2}
+                label="Completion"
+                value={
+                  summary
+                    ? `${(summary.metrics.workflowCompletionRate * 100).toFixed(1)}%`
+                    : '---'
+                }
+              />
+              <ObservationStat
+                icon={Gauge}
+                label="Page views / flow"
+                value={
+                  summary?.metrics.averagePageViewsPerWorkflow.toFixed(2) ??
+                  '---'
+                }
+              />
+              <ObservationStat
+                icon={TrendingUp}
+                label="Backtracks / flow"
+                value={
+                  summary?.metrics.averageBacktracksPerWorkflow.toFixed(2) ??
+                  '---'
+                }
+              />
+            </div>
+          </div>
+
+          <div
+            className="telemetry-stream"
+            aria-label="Telemetry aggregate stream"
+          >
+            <div className="stream-heading">
+              <span>Event aggregate</span>
+              <span>Count</span>
+            </div>
+            {eventTypes.map(([eventType, count], index) => (
+              <div className="stream-row" key={eventType}>
+                <span className="stream-index">
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <span>{eventType.replaceAll('_', ' ')}</span>
+                <strong>{count.toLocaleString('en-US')}</strong>
+              </div>
+            ))}
+            {eventTypes.length === 0 && (
+              <div className="stream-placeholder">
+                <CircleDashed size={16} /> Awaiting first batch
+              </div>
+            )}
+            {personas.length > 0 && (
+              <div className="persona-strip">
+                {personas.map(([persona, count]) => (
+                  <span key={persona}>
+                    {persona.replaceAll('_', ' ')}
+                    <strong>{count.toLocaleString('en-US')}</strong>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ObservationStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Users;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <Icon size={15} />
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function MutationWorkspace({
+  analysis,
+  stage,
+  onDecision,
+}: {
+  analysis: EvolutionAnalysisResponse;
+  stage: DemoStage;
+  onDecision: (decision: 'approve' | 'reject') => void;
+}) {
+  const proposal = analysis.proposal;
+  const pending = stage === 'proposal' || stage === 'deciding';
+
+  return (
+    <section
+      className="mt-8 surface-panel"
+      id="mutations"
+      aria-labelledby="mutation-title"
+    >
+      <div className="panel-heading mutation-heading">
+        <div>
+          <p className="section-label">Selection pressure / ranked analysis</p>
+          <h2 id="mutation-title" className="mt-2 text-xl font-semibold">
+            One controlled mutation proposed
+          </h2>
+        </div>
+        <div className="analysis-mode">
+          <FlaskConical size={14} /> {analysis.mode} analyzer
+        </div>
+      </div>
+
+      <div className="mutation-layout">
+        <div className="pressure-column">
+          <div className="column-heading">
+            <span>Selection pressure</span>
+            <span>Impact</span>
+          </div>
+          {analysis.findings.slice(0, 4).map((finding, index) => (
+            <article className="pressure-row" key={finding.id}>
+              <span className="pressure-rank">
+                {String(index + 1).padStart(2, '0')}
+              </span>
+              <div>
+                <h3>{finding.title}</h3>
+                <p>{finding.evidence[0]}</p>
+                <span>{Math.round(finding.confidence * 100)}% confidence</span>
+              </div>
+              <strong>{finding.impact}</strong>
+            </article>
+          ))}
+        </div>
+
+        <div className="proposal-column">
+          <div className="proposal-kicker">
+            <span>Mutation {proposal.id}</span>
+            <span className={`proposal-status status-${proposal.status}`}>
+              {proposal.status}
+            </span>
+          </div>
+          <h3>{proposal.name}</h3>
+          <p className="proposal-hypothesis">{proposal.hypothesis}</p>
+
+          <div className="fitness-comparison" aria-label="Fitness comparison">
+            <FitnessBar
+              label="Baseline"
+              score={analysis.fitness.baseline.score}
+            />
+            <FitnessBar
+              label="Evolved"
+              score={analysis.fitness.evolved.score}
+            />
+            <div className="fitness-delta">
+              +{analysis.fitness.delta.toFixed(1)}
+              <span>predicted fitness</span>
+            </div>
+          </div>
+
+          <div className="implementation-brief">
+            <p className="section-label">Implementation brief</p>
+            <p>{proposal.implementationSummary}</p>
+            <div>
+              {proposal.affectedFiles.map((file) => (
+                <code key={file}>{file}</code>
+              ))}
+            </div>
+          </div>
+
+          {pending ? (
+            <div className="decision-bar">
+              <p>
+                <ShieldCheck size={15} /> Human approval required
+              </p>
+              <div>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() => onDecision('reject')}
+                  disabled={stage === 'deciding'}
+                >
+                  <X size={16} /> Reject
+                </button>
+                <button
+                  className="approve-action"
+                  type="button"
+                  onClick={() => onDecision('approve')}
+                  disabled={stage === 'deciding'}
+                >
+                  {stage === 'deciding' ? (
+                    <CircleDashed className="is-spinning" size={16} />
+                  ) : (
+                    <Check size={16} />
+                  )}
+                  Approve mutation
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className={`decision-outcome outcome-${proposal.status}`}>
+              {proposal.status === 'approved' ? (
+                <CheckCircle2 size={18} />
+              ) : (
+                <ShieldCheck size={18} />
+              )}
+              <div>
+                <strong>
+                  {proposal.status === 'approved'
+                    ? 'Mutation approved'
+                    : 'Mutation failed selection'}
+                </strong>
+                <span>
+                  {proposal.status === 'approved'
+                    ? 'ProjectFlow v1.1 is now the active organism.'
+                    : 'ProjectFlow v1.0 remains active.'}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FitnessBar({ label, score }: { label: string; score: number }) {
+  return (
+    <div className="fitness-row">
+      <span>{label}</span>
+      <div>
+        <i style={{ width: `${score}%` }} />
+      </div>
+      <strong>{score.toFixed(1)}</strong>
     </div>
   );
 }
