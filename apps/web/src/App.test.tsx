@@ -556,7 +556,10 @@ describe('Darwin control room', () => {
       within(navigation).getByRole('link', { name: 'Mutations' }),
     ).toHaveAttribute('href', '/?view=mutations');
     expect(
-      within(navigation).getByRole('link', { name: 'System status' }),
+      within(navigation).queryByRole('link', { name: 'System status' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Open system status' }),
     ).toHaveAttribute('href', '/?view=status');
     expect(
       screen.queryByRole('heading', { name: 'Live study evidence' }),
@@ -750,7 +753,9 @@ describe('Darwin control room', () => {
         name: `Repository genome · ${repository.baseSha.slice(0, 12)}`,
       }),
     ).toBeVisible();
-    expect(screen.getByRole('link', { name: 'System status' })).toHaveAttribute(
+    expect(
+      screen.getByRole('link', { name: 'Open system status' }),
+    ).toHaveAttribute(
       'aria-current',
       'page',
     );

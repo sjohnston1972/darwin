@@ -91,16 +91,12 @@ const navItems = [
     icon: FlaskConical,
   },
   {
-    label: 'System status',
-    icon: Activity,
-  },
-  {
     label: 'Genome',
     icon: Dna,
   },
 ] as const;
 
-type DashboardView = (typeof navItems)[number]['label'];
+type DashboardView = (typeof navItems)[number]['label'] | 'System status';
 
 const dashboardRoutes: Record<DashboardView, string> = {
   'Control room': '/',
@@ -494,7 +490,7 @@ function App() {
                 ))}
               </section>
 
-              <section className="mt-8 grid gap-3 md:grid-cols-3">
+              <section className="mt-8 grid gap-3 md:grid-cols-2">
                 <a
                   className="surface-panel p-5"
                   href={dashboardRoutes.Observations}
@@ -515,16 +511,6 @@ function App() {
                   <p className="mt-2 text-xs leading-5 text-mist">
                     Ask GPT to reason, select candidates, and review Codex
                     output.
-                  </p>
-                </a>
-                <a
-                  className="surface-panel p-5"
-                  href={dashboardRoutes['System status']}
-                >
-                  <Server size={18} className="text-signal" />
-                  <p className="mt-5 text-sm font-semibold">System status</p>
-                  <p className="mt-2 text-xs leading-5 text-mist">
-                    Check the Darwin runtime and active ProjectFlow genome.
                   </p>
                 </a>
               </section>
@@ -1002,7 +988,18 @@ function DashboardSidebar({
                 : health.status}
             </p>
           </div>
-          <Server className="ml-auto text-mist" size={16} />
+          <a
+            className="icon-button ml-auto"
+            href={dashboardRoutes['System status']}
+            onClick={onClose}
+            aria-label="Open system status"
+            aria-current={
+              activeView === 'System status' ? 'page' : undefined
+            }
+            title="Open system status"
+          >
+            <Server size={16} />
+          </a>
         </div>
       </div>
     </aside>
