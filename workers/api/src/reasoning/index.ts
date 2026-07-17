@@ -289,6 +289,7 @@ export const analysisCacheKey = (
   evidenceHash: string,
   model: string,
   repositorySourceHash = 'legacy',
+  repositoryBaseSha = 'legacy',
 ) =>
   sha256(
     canonicalStringify({
@@ -296,6 +297,7 @@ export const analysisCacheKey = (
       evidenceHash,
       model,
       promptVersion: evidencePromptVersion,
+      repositoryBaseSha,
       repositorySourceHash,
     }),
   );
@@ -560,10 +562,13 @@ export async function analyseEvidence(
   const model = options.model || 'gpt-5.6';
   const repositorySourceHash =
     options.repositorySnapshot?.context.sourceHash ?? 'legacy';
+  const repositoryBaseSha =
+    options.repositorySnapshot?.context.baseSha ?? 'legacy';
   const cacheKey = await analysisCacheKey(
     pack.evidenceHash,
     model,
     repositorySourceHash,
+    repositoryBaseSha,
   );
   const promptCacheKey = `darwin-${evolutionReasoningContextVersion}-${repositorySourceHash.slice(0, 12)}`;
   if (options.requestedMode !== 'live' || !options.apiKey) {

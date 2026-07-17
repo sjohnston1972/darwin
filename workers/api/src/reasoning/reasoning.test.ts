@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   EvidenceReasoningError,
+  analysisCacheKey,
   analyseEvidence,
   buildCodexManifest,
   validateModelOutput,
@@ -204,6 +205,24 @@ const modelOutput = {
 };
 
 describe('evidence-backed reasoning v2', () => {
+  it('invalidates analysis cache entries when the repository SHA changes', async () => {
+    const sourceHash = 'a'.repeat(64);
+    const first = await analysisCacheKey(
+      pack.evidenceHash,
+      'gpt-5.6',
+      sourceHash,
+      'b'.repeat(40),
+    );
+    const second = await analysisCacheKey(
+      pack.evidenceHash,
+      'gpt-5.6',
+      sourceHash,
+      'c'.repeat(40),
+    );
+
+    expect(second).not.toBe(first);
+  });
+
   it('rejects invented evidence and scope while grounding target labels', () => {
     expect(() =>
       validateModelOutput(

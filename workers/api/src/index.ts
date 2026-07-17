@@ -412,6 +412,7 @@ export const handleRequest = async (
       pack.evidenceHash,
       model,
       repositorySnapshot.context.sourceHash,
+      repositorySnapshot.context.baseSha,
     );
     const cached =
       await telemetryRepository.getEvidenceAnalysisByCacheKey(cacheKey);
