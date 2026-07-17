@@ -232,10 +232,82 @@ const manifest = {
   validationCommands: ['npm test'],
 } as const;
 
+const baselineFitness = {
+  score: 61,
+  completionRate: 62,
+  navigationEfficiency: 48,
+  inverseErrorRate: 91,
+  featureDiscovery: 45,
+  inverseTaskDuration: 55,
+};
+const evolvedFitness = {
+  score: 84,
+  completionRate: 91,
+  navigationEfficiency: 78,
+  inverseErrorRate: 96,
+  featureDiscovery: 86,
+  inverseTaskDuration: 77,
+};
+const executionProposal = {
+  id: `mutation-${manifest.manifestHash.slice(0, 12)}`,
+  name: analysis.selectedMutation.title,
+  observation: analysis.evidenceAssessment.summary,
+  evidence: manifest.evidenceCitations,
+  hypothesis: analysis.selectedMutation.hypothesis,
+  implementationSummary: analysis.selectedMutation.change,
+  predictedFitnessGain: 23,
+  confidence: analysis.selectedMutation.confidence,
+  risk: 'low',
+  affectedFiles: manifest.allowedPaths,
+  status: 'approved',
+} as const;
+const executionAnalysis = {
+  mode: 'live',
+  model: 'gpt-5.6',
+  fitness: { baseline: baselineFitness, evolved: evolvedFitness, delta: 23 },
+  findings: [
+    {
+      id: 'capacity-clarity',
+      title: 'Capacity controls require interpretation',
+      description: 'Users hesitate before acting.',
+      impact: 82,
+      confidence: 0.82,
+      evidence: ['EV-001'],
+    },
+  ],
+  proposal: executionProposal,
+} as const;
+const executionDiff = {
+  mutationId: executionProposal.id,
+  source: 'repository_source_comparison',
+  baseRef: 'apps/projectflow/genomes/baseline',
+  targetRef: 'apps/projectflow/genomes/evolved',
+  patch: '@@ controlled genome @@\n-globalSearch: false\n+globalSearch: true',
+  generatedAt: timestamp,
+} as const;
+const validation = {
+  id: 'validation-measured-test',
+  mutationId: executionProposal.id,
+  status: 'passed',
+  source: 'recorded_repository_run',
+  commit: 'test-commit',
+  checks: [
+    {
+      name: 'Unit and UX component tests',
+      status: 'passed',
+      durationMs: 1200,
+      output: 'All tests passed.',
+    },
+  ],
+  fitness: evolvedFitness,
+  recordedAt: timestamp,
+} as const;
+
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
 const installApi = (latestAnalysis: unknown = null) => {
+  let liveExecution: Record<string, unknown> | null = null;
   const fetchMock = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -253,6 +325,62 @@ const installApi = (latestAnalysis: unknown = null) => {
       if (url.includes('/evidence-analysis/latest'))
         return latestAnalysis ? response(latestAnalysis) : response(null, 204);
       if (url.endsWith('/analyse-evidence')) return response(analysis, 201);
+      if (url.endsWith('/codex-manifest/execution')) {
+        if (init?.method !== 'POST' && !liveExecution)
+          return response(null, 204);
+        liveExecution ??= {
+          manifestId: manifest.manifestId,
+          stage: 'approved',
+          analysis: executionAnalysis,
+          diff: executionDiff,
+          validation: null,
+          organism: {
+            variant: 'baseline',
+            genomeVersion: 'v1.0',
+            evolutionCycles: 0,
+            activeMutationId: null,
+            updatedAt: timestamp,
+          },
+          record: null,
+        };
+        return response(liveExecution, 201);
+      }
+      if (url.endsWith(`/${executionProposal.id}/validate`)) {
+        const proposal = { ...executionProposal, status: 'validated' };
+        liveExecution = {
+          ...liveExecution,
+          stage: 'validated',
+          analysis: { ...executionAnalysis, proposal },
+          validation,
+        };
+        return response({ proposal, validation });
+      }
+      if (url.endsWith(`/${executionProposal.id}/release`)) {
+        const proposal = { ...executionProposal, status: 'released' };
+        const organism = {
+          variant: 'evolved',
+          genomeVersion: 'v1.1',
+          evolutionCycles: 1,
+          activeMutationId: executionProposal.id,
+          updatedAt: timestamp,
+        };
+        const record = {
+          id: 'record-survived-measured-test',
+          version: 'v1.1',
+          mutationId: executionProposal.id,
+          outcome: 'survived',
+          fitness: evolvedFitness,
+          recordedAt: timestamp,
+        };
+        liveExecution = {
+          ...liveExecution,
+          stage: 'released',
+          analysis: { ...executionAnalysis, proposal },
+          organism,
+          record,
+        };
+        return response({ proposal, organism, record });
+      }
       if (url.includes('/codex-manifest')) {
         const requestBody =
           typeof init?.body === 'string' ? JSON.parse(init.body) : {};
@@ -450,10 +578,30 @@ describe('Darwin control room', () => {
       screen.getAllByText('Capacity presentation is too dense').length,
     ).toBeGreaterThanOrEqual(2);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare manifest' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start controlled evolution' }),
+    );
     expect(
       await screen.findByText('MANIFEST manifest-measured-test'),
     ).toBeVisible();
+    expect(await screen.findByText('Mutation execution')).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Run recorded validation' }),
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Release evolved genome' }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Release evolved genome' }),
+    );
+    expect(
+      (await screen.findAllByText('Mutation survived selection')).length,
+    ).toBeGreaterThanOrEqual(1);
+    await waitFor(() =>
+      expect(
+        screen.getByRole('link', { name: 'Target application' }),
+      ).toHaveAttribute('href', expect.stringContaining('variant=evolved')),
+    );
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/analyse-evidence'),

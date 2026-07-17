@@ -6,6 +6,7 @@ import {
   EvolutionAnalysisResponseSchema,
   EvolutionTimelineResponseSchema,
   HealthResponseSchema,
+  ManifestExecutionResponseSchema,
   MutationDiffSchema,
   MutationDecisionResponseSchema,
   MutationReleaseResponseSchema,
@@ -155,7 +156,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.20.4');
+    expect(body.version).toBe('0.21.0');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -545,6 +546,59 @@ describe('Darwin API', () => {
     );
     expect(alternativeManifest.brief).toContain(alternatives[0]!.codexBrief);
     expect(alternativeManifest.brief).toContain(alternatives[1]!.codexBrief);
+
+    const executionPath = `http://localhost/api/evidence-analyses/${first.analysisId}/codex-manifest/execution`;
+    const executionResponse = await handleRequest(
+      new Request(executionPath, { method: 'POST' }),
+      { DARWIN_DEMO_SEED: '1859' },
+    );
+    const execution = ManifestExecutionResponseSchema.parse(
+      await executionResponse.json(),
+    );
+    expect(executionResponse.status).toBe(201);
+    expect(execution.stage).toBe('approved');
+    expect(execution.analysis.mode).toBe('live');
+    expect(execution.analysis.proposal.evidence).toEqual(
+      alternativeManifest.evidenceCitations,
+    );
+    expect(execution.diff.mutationId).toBe(execution.analysis.proposal.id);
+    expect(execution.organism.variant).toBe('baseline');
+
+    const restoredExecutionResponse = await handleRequest(
+      new Request(executionPath),
+    );
+    expect(
+      ManifestExecutionResponseSchema.parse(
+        await restoredExecutionResponse.json(),
+      ).analysis.proposal.id,
+    ).toBe(execution.analysis.proposal.id);
+
+    const validationResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/mutations/${execution.analysis.proposal.id}/validate`,
+        { method: 'POST' },
+      ),
+    );
+    const validated = MutationValidationResponseSchema.parse(
+      await validationResponse.json(),
+    );
+    expect(validated.proposal.status).toBe('validated');
+    expect(validated.validation.mutationId).toBe(
+      execution.analysis.proposal.id,
+    );
+
+    const releaseResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/mutations/${execution.analysis.proposal.id}/release`,
+        { method: 'POST' },
+      ),
+    );
+    const released = MutationReleaseResponseSchema.parse(
+      await releaseResponse.json(),
+    );
+    expect(released.proposal.status).toBe('released');
+    expect(released.organism.variant).toBe('evolved');
+    expect(released.record.mutationId).toBe(execution.analysis.proposal.id);
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

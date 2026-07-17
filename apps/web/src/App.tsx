@@ -129,8 +129,22 @@ function App() {
     useState<ProjectFlowVariant>('baseline');
   const demo = useEvolutionDemo();
   const liveTelemetry = useLiveTelemetry();
+  const activeOrganism = liveTelemetry.execution?.organism ?? demo.organism;
+  const liveExecutionStage: DemoStage = liveTelemetry.validatingExecution
+    ? 'validating'
+    : liveTelemetry.releasingExecution
+      ? 'releasing'
+      : (liveTelemetry.execution?.stage ?? 'idle');
+  const evolutionTimeline = liveTelemetry.execution?.record
+    ? [
+        ...demo.timeline.filter(
+          (record) => record.id !== liveTelemetry.execution?.record?.id,
+        ),
+        liveTelemetry.execution.record,
+      ]
+    : demo.timeline;
   const evolvedGenomeAvailable =
-    demo.organism.variant === 'evolved' && liveTelemetry.manifest !== null;
+    activeOrganism.variant === 'evolved' && liveTelemetry.manifest !== null;
   const resetDemo = async () => {
     if (await demo.reset()) liveTelemetry.resetState();
   };
@@ -282,7 +296,7 @@ function App() {
                   type="button"
                   onClick={() => setOrganismVariant('evolved')}
                 >
-                  Evolved <span>{demo.organism.genomeVersion}</span>
+                  Evolved <span>{activeOrganism.genomeVersion}</span>
                 </button>
               )}
             </div>
@@ -518,6 +532,24 @@ function App() {
             analysisConfig={health.analysis}
           />
 
+          {liveTelemetry.execution && (
+            <>
+              <MutationWorkspace
+                analysis={liveTelemetry.execution.analysis}
+                stage={liveExecutionStage}
+                onDecision={() => undefined}
+              />
+              <ValidationWorkspace
+                analysis={liveTelemetry.execution.analysis}
+                diff={liveTelemetry.execution.diff}
+                validation={liveTelemetry.execution.validation}
+                stage={liveExecutionStage}
+                onValidate={() => void liveTelemetry.validateExecution()}
+                onRelease={() => void liveTelemetry.releaseExecution()}
+              />
+            </>
+          )}
+
           {simulationLab && (demo.stage !== 'idle' || demo.error) && (
             <ObservationPanel
               eventCount={demo.eventCount}
@@ -605,8 +637,8 @@ function App() {
                 <StatusRow
                   icon={GitBranch}
                   label="Active genome"
-                  value={`${demo.organism.genomeVersion} · ${demo.organism.variant}`}
-                  ready={demo.organism.variant === 'evolved'}
+                  value={`${activeOrganism.genomeVersion} · ${activeOrganism.variant}`}
+                  ready={activeOrganism.variant === 'evolved'}
                   help="The variant and genome version currently retained by the Darwin evolution state machine."
                 />
               </div>
@@ -701,7 +733,7 @@ function App() {
                       <span className="status-badge">RETAINED</span>
                     </td>
                   </tr>
-                  {demo.timeline.length === 0 ? (
+                  {evolutionTimeline.length === 0 ? (
                     <tr className="border-t border-line">
                       <td className="px-6 py-5 font-mono">v1.0</td>
                       <td className="px-6 py-5 text-mist">
@@ -714,11 +746,11 @@ function App() {
                       </td>
                     </tr>
                   ) : (
-                    demo.timeline.map((record, index) => (
+                    evolutionTimeline.map((record, index) => (
                       <FossilRow
                         key={record.id}
                         record={record}
-                        current={index === demo.timeline.length - 1}
+                        current={index === evolutionTimeline.length - 1}
                       />
                     ))
                   )}
@@ -729,7 +761,9 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.19.1</p>
+            <p className="font-mono">
+              DARWIN CORE {health.version ?? 'OFFLINE'}
+            </p>
           </footer>
         </div>
       </main>
@@ -1389,24 +1423,51 @@ function LiveTelemetryPanel({
                     type="button"
                     disabled={
                       telemetry.preparingManifest ||
+                      telemetry.implementing ||
                       implementationCandidatesSelected.length === 0
                     }
-                    onClick={() =>
-                      void telemetry.prepareCodexManifest(
-                        implementationCandidatesSelected.map(
-                          (candidate) => candidate.id,
-                        ),
-                      )
-                    }
+                    onClick={() => {
+                      if (telemetry.execution && manifestMatchesSelection) {
+                        document
+                          .getElementById('validation')
+                          ?.scrollIntoView?.({
+                            behavior: 'smooth',
+                            block: 'start',
+                          });
+                        return;
+                      }
+                      void telemetry
+                        .startControlledEvolution(
+                          implementationCandidatesSelected.map(
+                            (candidate) => candidate.id,
+                          ),
+                        )
+                        .then(() =>
+                          window.setTimeout(
+                            () =>
+                              document
+                                .getElementById('validation')
+                                ?.scrollIntoView?.({
+                                  behavior: 'smooth',
+                                  block: 'start',
+                                }),
+                            0,
+                          ),
+                        );
+                    }}
                   >
-                    {telemetry.preparingManifest ? (
+                    {telemetry.preparingManifest || telemetry.implementing ? (
                       <CircleDashed className="is-spinning" size={14} />
                     ) : (
-                      <Code2 size={14} />
+                      <Rocket size={14} />
                     )}
-                    {manifestMatchesSelection
-                      ? 'Manifest ready'
-                      : 'Prepare manifest'}
+                    {telemetry.preparingManifest
+                      ? 'Preparing manifest'
+                      : telemetry.implementing
+                        ? 'Applying mutation'
+                        : telemetry.execution && manifestMatchesSelection
+                          ? 'View implementation'
+                          : 'Start controlled evolution'}
                   </button>
                 </div>
                 {telemetry.manifest && manifestMatchesSelection && (

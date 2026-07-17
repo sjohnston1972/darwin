@@ -888,6 +888,16 @@ export const MutationReleaseResponseSchema = z.object({
   record: EvolutionRecordSchema,
 });
 
+export const ManifestExecutionResponseSchema = z.object({
+  manifestId: StudyIdentifierSchema,
+  stage: z.enum(['approved', 'validated', 'released']),
+  analysis: EvolutionAnalysisResponseSchema,
+  diff: MutationDiffSchema,
+  validation: ValidationResultSchema.nullable(),
+  organism: OrganismStateSchema,
+  record: EvolutionRecordSchema.nullable(),
+});
+
 export const EvolutionTimelineResponseSchema = z.object({
   records: z.array(EvolutionRecordSchema),
 });
@@ -972,6 +982,9 @@ export type MutationValidationResponse = z.infer<
 >;
 export type MutationReleaseResponse = z.infer<
   typeof MutationReleaseResponseSchema
+>;
+export type ManifestExecutionResponse = z.infer<
+  typeof ManifestExecutionResponseSchema
 >;
 export type FitnessBreakdown = z.infer<typeof FitnessBreakdownSchema>;
 export type EvolutionRecord = z.infer<typeof EvolutionRecordSchema>;

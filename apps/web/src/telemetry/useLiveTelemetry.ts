@@ -2,10 +2,14 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  ManifestExecutionResponseSchema,
+  MutationReleaseResponseSchema,
+  MutationValidationResponseSchema,
   StudyEventsResponseSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
+  type ManifestExecutionResponse,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
 import { useEffect, useRef, useState } from 'react';
@@ -27,12 +31,18 @@ export interface LiveTelemetryState {
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
-  prepareCodexManifest: (mutationIds: string[]) => Promise<void>;
+  execution: ManifestExecutionResponse | null;
+  implementing: boolean;
   preparingManifest: boolean;
+  releasingExecution: boolean;
   participantCount: number;
   resetState: () => void;
   sessionCounts: Record<string, number>;
+  startControlledEvolution: (mutationIds: string[]) => Promise<void>;
   status: 'loading' | 'live' | 'offline';
+  validateExecution: () => Promise<void>;
+  validatingExecution: boolean;
+  releaseExecution: () => Promise<void>;
 }
 
 export function useLiveTelemetry(): LiveTelemetryState {
@@ -52,6 +62,12 @@ export function useLiveTelemetry(): LiveTelemetryState {
     null,
   );
   const [preparingManifest, setPreparingManifest] = useState(false);
+  const [execution, setExecution] = useState<ManifestExecutionResponse | null>(
+    null,
+  );
+  const [implementing, setImplementing] = useState(false);
+  const [validatingExecution, setValidatingExecution] = useState(false);
+  const [releasingExecution, setReleasingExecution] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
 
@@ -112,11 +128,19 @@ export function useLiveTelemetry(): LiveTelemetryState {
         `${apiBaseUrl}/api/evidence-analyses/${latestAnalysis.analysisId}/codex-manifest`,
       );
       if (!manifestResponse.ok) return;
+      const latestManifest = CodexImplementationManifestSchema.parse(
+        await manifestResponse.json(),
+      );
+      if (!active || initialGeneration !== resetGeneration.current) return;
+      setManifest(latestManifest);
+
+      const executionResponse = await fetch(
+        `${apiBaseUrl}/api/evidence-analyses/${latestAnalysis.analysisId}/codex-manifest/execution`,
+      );
+      if (executionResponse.status === 204 || !executionResponse.ok) return;
       if (active && initialGeneration === resetGeneration.current) {
-        setManifest(
-          CodexImplementationManifestSchema.parse(
-            await manifestResponse.json(),
-          ),
+        setExecution(
+          ManifestExecutionResponseSchema.parse(await executionResponse.json()),
         );
       }
     };
@@ -143,6 +167,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       setEvidence(EvidencePackSchema.parse(payload));
       setAnalysis(null);
       setManifest(null);
+      setExecution(null);
     } catch (error) {
       setError(
         error instanceof Error
@@ -168,6 +193,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       }
       setAnalysis(EvidenceAnalysisSchema.parse(payload));
       setManifest(null);
+      setExecution(null);
     } catch (error) {
       setError(
         error instanceof Error
@@ -179,12 +205,12 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
-  const prepareCodexManifest = async (mutationIds: string[]) => {
+  const startControlledEvolution = async (mutationIds: string[]) => {
     if (!analysis) return;
     setPreparingManifest(true);
     setError(null);
     try {
-      const response = await fetch(
+      const manifestResponse = await fetch(
         `${apiBaseUrl}/api/evidence-analyses/${analysis.analysisId}/codex-manifest`,
         {
           method: 'POST',
@@ -192,14 +218,110 @@ export function useLiveTelemetry(): LiveTelemetryState {
           body: JSON.stringify({ mutationIds }),
         },
       );
-      if (!response.ok) throw new Error('Codex manifest generation failed.');
-      setManifest(
-        CodexImplementationManifestSchema.parse(await response.json()),
+      const manifestPayload = (await manifestResponse.json()) as {
+        message?: string;
+      };
+      if (!manifestResponse.ok) {
+        throw new Error(
+          manifestPayload.message ?? 'Codex manifest generation failed.',
+        );
+      }
+      setManifest(CodexImplementationManifestSchema.parse(manifestPayload));
+      setPreparingManifest(false);
+      setImplementing(true);
+
+      const executionResponse = await fetch(
+        `${apiBaseUrl}/api/evidence-analyses/${analysis.analysisId}/codex-manifest/execution`,
+        { method: 'POST' },
       );
-    } catch {
-      setError('Codex manifest generation failed. Retry the handoff.');
+      const executionPayload = (await executionResponse.json()) as {
+        message?: string;
+      };
+      if (!executionResponse.ok) {
+        throw new Error(
+          executionPayload.message ?? 'Controlled implementation failed.',
+        );
+      }
+      setExecution(ManifestExecutionResponseSchema.parse(executionPayload));
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Controlled evolution failed. Retry the handoff.',
+      );
     } finally {
       setPreparingManifest(false);
+      setImplementing(false);
+    }
+  };
+
+  const validateExecution = async () => {
+    if (!execution) return;
+    setValidatingExecution(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/mutations/${execution.analysis.proposal.id}/validate`,
+        { method: 'POST' },
+      );
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'Mutation validation failed.');
+      }
+      const result = MutationValidationResponseSchema.parse(payload);
+      setExecution((current) =>
+        current
+          ? {
+              ...current,
+              stage:
+                result.proposal.status === 'validated'
+                  ? 'validated'
+                  : current.stage,
+              analysis: { ...current.analysis, proposal: result.proposal },
+              validation: result.validation,
+            }
+          : current,
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : 'Mutation validation failed.',
+      );
+    } finally {
+      setValidatingExecution(false);
+    }
+  };
+
+  const releaseExecution = async () => {
+    if (!execution) return;
+    setReleasingExecution(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/mutations/${execution.analysis.proposal.id}/release`,
+        { method: 'POST' },
+      );
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'Mutation release failed.');
+      }
+      const result = MutationReleaseResponseSchema.parse(payload);
+      setExecution((current) =>
+        current
+          ? {
+              ...current,
+              stage: 'released',
+              analysis: { ...current.analysis, proposal: result.proposal },
+              organism: result.organism,
+              record: result.record,
+            }
+          : current,
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : 'Mutation release failed.',
+      );
+    } finally {
+      setReleasingExecution(false);
     }
   };
 
@@ -213,10 +335,14 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setEvidence(null);
     setAnalysis(null);
     setManifest(null);
+    setExecution(null);
     setError(null);
     setGenerating(false);
     setAnalysing(false);
     setPreparingManifest(false);
+    setImplementing(false);
+    setValidatingExecution(false);
+    setReleasingExecution(false);
     setStatus('live');
   };
 
@@ -230,14 +356,20 @@ export function useLiveTelemetry(): LiveTelemetryState {
     evidence,
     error,
     events,
+    execution,
     generateEvidence,
     generating,
+    implementing,
     manifest,
     participantCount,
-    prepareCodexManifest,
     preparingManifest,
+    releaseExecution,
+    releasingExecution,
     resetState,
     sessionCounts,
+    startControlledEvolution,
     status,
+    validateExecution,
+    validatingExecution,
   };
 }

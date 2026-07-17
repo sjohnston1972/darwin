@@ -12,7 +12,7 @@ const requireOk = async (response: Response, label: string) => {
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
 ).json()) as { status: string; version: string };
-if (health.status !== 'ok' || health.version !== '0.20.4') {
+if (health.status !== 'ok' || health.version !== '0.21.0') {
   throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
 }
 
