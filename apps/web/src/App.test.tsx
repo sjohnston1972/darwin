@@ -106,12 +106,17 @@ const evidence = {
   },
 } as const;
 
-const makeCandidate = (id: string, title: string, total: number) => ({
+const makeCandidate = (
+  id: string,
+  title: string,
+  total: number,
+  pressureClusterId = 'capacity-clarity',
+) => ({
   id,
   title,
   problem: 'Capacity values are not clear before selection.',
   evidenceIds: ['EV-001'],
-  pressureClusterIds: ['capacity-clarity'],
+  pressureClusterIds: [pressureClusterId],
   hypothesis: 'Visible capacity details will reduce hesitation.',
   change: 'Expose allocation details on the capacity control itself.',
   predictedImpact: {
@@ -162,6 +167,28 @@ const analysis = {
         competingExplanations: ['The user may have been distracted.'],
         mutationOpportunity: 'Reveal allocation values before activation.',
       },
+      {
+        id: 'capacity-density',
+        title: 'Capacity presentation is too dense',
+        interpretation: 'The chart makes comparison unnecessarily difficult.',
+        evidenceIds: ['EV-001'],
+        affectedTargets: ['capacity-member-1'],
+        userConsequence: 'The user cannot compare allocations quickly.',
+        competingExplanations: ['The labels may simply be too small.'],
+        mutationOpportunity: 'Use a more scannable tabular presentation.',
+      },
+      {
+        id: 'capacity-preview-pressure',
+        title: 'Capacity lacks progressive disclosure',
+        interpretation: 'Useful details are hidden until navigation.',
+        evidenceIds: ['EV-001'],
+        affectedTargets: ['capacity-member-1'],
+        userConsequence: 'The user must leave the dashboard for basic context.',
+        competingExplanations: [
+          'The dashboard may not be the expected source.',
+        ],
+        mutationOpportunity: 'Add an inline capacity preview.',
+      },
     ],
     selectionRationale: 'This change directly addresses the observed target.',
   },
@@ -171,8 +198,18 @@ const analysis = {
     82,
   ),
   alternatives: [
-    makeCandidate('capacity-table', 'Replace bars with a table', 68),
-    makeCandidate('capacity-preview', 'Add a capacity preview', 64),
+    makeCandidate(
+      'capacity-table',
+      'Replace bars with a table',
+      68,
+      'capacity-density',
+    ),
+    makeCandidate(
+      'capacity-preview',
+      'Add a capacity preview',
+      64,
+      'capacity-preview-pressure',
+    ),
   ],
   unsupportedIdeasRejected: [],
 } as const;
@@ -358,15 +395,24 @@ describe('Darwin control room', () => {
     fireEvent.click(ask);
 
     expect(await screen.findByText('Reveal capacity context')).toBeVisible();
-    expect(
-      screen.getByText('Capacity controls require interpretation'),
-    ).toBeVisible();
-    expect(screen.getByText(/Alternatives considered/)).toBeVisible();
+    await waitFor(() =>
+      expect(
+        screen.getAllByText('Capacity controls require interpretation').length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+    expect(screen.getByText('Ranked pressure portfolio')).toBeVisible();
+    expect(screen.getAllByText('82%').length).toBeGreaterThan(0);
+    expect(screen.getByText('68%')).toBeVisible();
+    expect(screen.getByText('64%')).toBeVisible();
     expect(screen.getByText('Replace bars with a table')).toBeVisible();
-    expect(screen.getByText('Measured validation plan')).toBeVisible();
-    expect(screen.getByText('capacity-clarity')).toHaveAttribute(
+    expect(await screen.findByText('Measured validation plan')).toBeVisible();
+    expect(
+      screen
+        .getAllByText('capacity-clarity')
+        .find((element) => element.hasAttribute('data-explain')),
+    ).toHaveAttribute(
       'data-explain',
-      expect.stringContaining('Pressure Cluster'),
+      expect.stringContaining('grouped selection pressure'),
     );
     expect(
       screen.getAllByText('EV-001', { selector: '.evidence-chip' })[0],
@@ -375,12 +421,14 @@ describe('Darwin control room', () => {
       expect.stringContaining('Support: 1 events'),
     );
 
-    const primary = screen.getByRole('checkbox', { name: 'Implement' });
+    const primary = screen.getByRole('checkbox', {
+      name: 'Implement Reveal capacity context',
+    });
     const alternative = screen.getByRole('checkbox', {
-      name: /Replace bars with a table/,
+      name: 'Implement Replace bars with a table',
     });
     const secondAlternative = screen.getByRole('checkbox', {
-      name: /Add a capacity preview/,
+      name: 'Implement Add a capacity preview',
     });
     await waitFor(() => expect(primary).toBeChecked());
     fireEvent.click(primary);
@@ -393,6 +441,14 @@ describe('Darwin control room', () => {
     fireEvent.click(secondAlternative);
     expect(alternative).toBeChecked();
     expect(secondAlternative).toBeChecked();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Replace bars with a table/ }),
+    );
+    expect(screen.getAllByText('Measured validation plan')).toHaveLength(2);
+    expect(
+      screen.getAllByText('Capacity presentation is too dense').length,
+    ).toBeGreaterThanOrEqual(2);
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare manifest' }));
     expect(

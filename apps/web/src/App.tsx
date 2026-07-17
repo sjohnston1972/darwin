@@ -1,5 +1,7 @@
 import {
   HealthResponseSchema,
+  type EvidenceAnalysis,
+  type EvidenceMutationCandidate,
   type EvolutionAnalysisResponse,
   type EvolutionRecord,
   type FitnessBreakdown,
@@ -41,7 +43,13 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
@@ -999,6 +1007,7 @@ function LiveTelemetryPanel({
   const [implementationMutationIds, setImplementationMutationIds] = useState<
     string[]
   >([]);
+  const [expandedMutationIds, setExpandedMutationIds] = useState<string[]>([]);
   const visibleEvents = selectedSession
     ? telemetry.events.filter((event) => event.sessionId === selectedSession)
     : telemetry.events;
@@ -1007,6 +1016,9 @@ function LiveTelemetryPanel({
   const implementationCandidates = telemetry.analysis
     ? [telemetry.analysis.selectedMutation, ...telemetry.analysis.alternatives]
     : [];
+  const rankedImplementationCandidates = [...implementationCandidates].sort(
+    (left, right) => right.scorecard.total - left.scorecard.total,
+  );
   const implementationCandidatesSelected = implementationCandidates.filter(
     (candidate) => implementationMutationIds.includes(candidate.id),
   );
@@ -1034,6 +1046,9 @@ function LiveTelemetryPanel({
         : telemetry.analysis
           ? [telemetry.analysis.selectedMutation.id]
           : [],
+    );
+    setExpandedMutationIds(
+      telemetry.analysis ? [telemetry.analysis.selectedMutation.id] : [],
     );
   }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
@@ -1319,176 +1334,42 @@ function LiveTelemetryPanel({
                   </div>
                   <p>{telemetry.analysis.evidenceAssessment.summary}</p>
                 </div>
-                <div className="pressure-clusters">
-                  <span>Selection pressure clusters · PC</span>
-                  {telemetry.analysis.evidenceAssessment.pressureClusters.map(
-                    (cluster) => (
-                      <details key={cluster.id}>
-                        <summary>
-                          <div className="pressure-cluster-title">
-                            <code
-                              className="cluster-id"
-                              tabIndex={0}
-                              data-explain={`${cluster.id} means Pressure Cluster ${cluster.id.replace(/\D/g, '') || cluster.id}: a grouped interpretation that connects related evidence signals to one product problem.`}
-                            >
-                              {cluster.id}
-                            </code>
-                            <strong>{cluster.title}</strong>
-                          </div>
-                          <div className="pressure-evidence-chips">
-                            {cluster.evidenceIds.map((id) => (
-                              <EvidenceChip
-                                evidence={telemetry.evidence}
-                                id={id}
-                                key={id}
-                              />
-                            ))}
-                          </div>
-                          <ChevronRight size={15} />
-                        </summary>
-                        <p>{cluster.interpretation}</p>
-                        <dl>
-                          <div>
-                            <dt>User consequence</dt>
-                            <dd>{cluster.userConsequence}</dd>
-                          </div>
-                          <div>
-                            <dt>Competing explanations</dt>
-                            <dd>{cluster.competingExplanations.join(' · ')}</dd>
-                          </div>
-                          <div>
-                            <dt>Evolution opportunity</dt>
-                            <dd>{cluster.mutationOpportunity}</dd>
-                          </div>
-                        </dl>
-                      </details>
-                    ),
-                  )}
-                </div>
-                <div className="selected-mutation">
-                  <div className="mutation-rank">
-                    <span>GPT selected</span>
-                    <label className="mutation-choice-control">
-                      <input
-                        checked={implementationMutationIds.includes(
-                          telemetry.analysis.selectedMutation.id,
-                        )}
-                        onChange={() =>
-                          toggleImplementationMutation(
-                            telemetry.analysis!.selectedMutation.id,
-                          )
-                        }
-                        type="checkbox"
-                        value={telemetry.analysis.selectedMutation.id}
-                      />
-                      <span>Implement</span>
-                    </label>
-                  </div>
-                  <div>
-                    <h3>{telemetry.analysis.selectedMutation.title}</h3>
-                    <p>{telemetry.analysis.selectedMutation.hypothesis}</p>
-                    <div className="mutation-causal-change">
-                      <span>Evidence-led change</span>
-                      <p>{telemetry.analysis.selectedMutation.change}</p>
-                    </div>
-                    <div className="mutation-citations">
-                      {telemetry.analysis.selectedMutation.evidenceIds.map(
-                        (id) => (
-                          <EvidenceChip
-                            evidence={telemetry.evidence}
-                            id={id}
-                            key={id}
-                          />
-                        ),
-                      )}
-                      <span>
-                        score{' '}
-                        {telemetry.analysis.selectedMutation.scorecard.total}
-                        /100
-                      </span>
-                      <span>
-                        {
-                          telemetry.analysis.selectedMutation.predictedImpact
-                            .metric
-                        }{' '}
-                        {
-                          telemetry.analysis.selectedMutation.predictedImpact
-                            .direction
-                        }
-                      </span>
-                    </div>
-                    <p className="selection-rationale">
-                      <span>PC = pressure cluster</span>
-                      {telemetry.analysis.evidenceAssessment.selectionRationale}
-                    </p>
-                    <div className="mutation-scorecard">
-                      {Object.entries(
-                        telemetry.analysis.selectedMutation.scorecard,
-                      ).map(([label, score]) => (
-                        <div key={label}>
-                          <span>{label.replace(/([A-Z])/g, ' $1')}</span>
-                          <strong>{score}</strong>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="validation-plan">
-                      <span>Measured validation plan</span>
+                <div className="mutation-portfolio">
+                  <div className="mutation-portfolio-heading">
+                    <div>
+                      <span>Ranked pressure portfolio</span>
                       <strong>
-                        {
-                          telemetry.analysis.selectedMutation.validationPlan
-                            .primaryMetric
-                        }
+                        Every suggestion includes its full pressure analysis
                       </strong>
-                      <p>
-                        {
-                          telemetry.analysis.selectedMutation.validationPlan
-                            .baseline
-                        }{' '}
-                        →{' '}
-                        {
-                          telemetry.analysis.selectedMutation.validationPlan
-                            .successThreshold
-                        }
-                      </p>
                     </div>
+                    <code>
+                      {rankedImplementationCandidates.length} suggestions
+                    </code>
                   </div>
+                  {rankedImplementationCandidates.map((candidate, index) => (
+                    <MutationPortfolioRow
+                      analysis={telemetry.analysis!}
+                      candidate={candidate}
+                      evidence={telemetry.evidence}
+                      expanded={expandedMutationIds.includes(candidate.id)}
+                      key={candidate.id}
+                      onExpansionChange={() =>
+                        setExpandedMutationIds((current) =>
+                          current.includes(candidate.id)
+                            ? current.filter((id) => id !== candidate.id)
+                            : [...current, candidate.id],
+                        )
+                      }
+                      onSelectionChange={() =>
+                        toggleImplementationMutation(candidate.id)
+                      }
+                      rank={index + 1}
+                      selected={implementationMutationIds.includes(
+                        candidate.id,
+                      )}
+                    />
+                  ))}
                 </div>
-                {telemetry.analysis.alternatives.length > 0 && (
-                  <div className="mutation-alternatives">
-                    <span>Alternatives considered · select to implement</span>
-                    {telemetry.analysis.alternatives.map((candidate) => (
-                      <label
-                        className={`alternative-choice ${implementationMutationIds.includes(candidate.id) ? 'is-selected' : ''}`}
-                        key={candidate.id}
-                      >
-                        <input
-                          checked={implementationMutationIds.includes(
-                            candidate.id,
-                          )}
-                          onChange={() =>
-                            toggleImplementationMutation(candidate.id)
-                          }
-                          type="checkbox"
-                          value={candidate.id}
-                        />
-                        <div>
-                          <strong>{candidate.title}</strong>
-                          <div className="alternative-evidence-chips">
-                            {candidate.evidenceIds.map((id) => (
-                              <EvidenceChip
-                                evidence={telemetry.evidence}
-                                id={id}
-                                key={id}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <p>{candidate.change}</p>
-                        <span>{candidate.scorecard.total}/100</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
                 <div className="codex-handoff">
                   <div>
                     <ClipboardCheck size={17} />
@@ -1547,6 +1428,199 @@ function LiveTelemetryPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function MutationPortfolioRow({
+  analysis,
+  candidate,
+  evidence,
+  expanded,
+  onExpansionChange,
+  onSelectionChange,
+  rank,
+  selected,
+}: {
+  analysis: EvidenceAnalysis;
+  candidate: EvidenceMutationCandidate;
+  evidence: LiveTelemetryState['evidence'];
+  expanded: boolean;
+  onExpansionChange: () => void;
+  onSelectionChange: () => void;
+  rank: number;
+  selected: boolean;
+}) {
+  const clusters = candidate.pressureClusterIds
+    .map((clusterId) =>
+      analysis.evidenceAssessment.pressureClusters.find(
+        (cluster) => cluster.id === clusterId,
+      ),
+    )
+    .filter(
+      (
+        cluster,
+      ): cluster is EvidenceAnalysis['evidenceAssessment']['pressureClusters'][number] =>
+        cluster !== undefined,
+    );
+  const score = candidate.scorecard.total;
+  const heatHue = Math.max(5, Math.round(180 - score * 2));
+  const heatStyle = {
+    '--preference-fill': `${score}%`,
+    '--preference-heat': String(heatHue),
+  } as CSSProperties;
+  const panelId = `mutation-portfolio-${candidate.id}`;
+
+  return (
+    <article
+      className={`mutation-portfolio-row ${selected ? 'is-selected' : ''}`}
+      style={heatStyle}
+    >
+      <div className="mutation-portfolio-summary">
+        <button
+          aria-controls={panelId}
+          aria-expanded={expanded}
+          className="mutation-portfolio-expand"
+          onClick={onExpansionChange}
+          type="button"
+        >
+          <span className="portfolio-rank">#{rank}</span>
+          <div className="portfolio-title">
+            <div>
+              {clusters.map((cluster) => (
+                <code
+                  data-explain={`${cluster.id} is a grouped selection pressure supported by ${cluster.evidenceIds.length} cited evidence signals.`}
+                  key={cluster.id}
+                  tabIndex={0}
+                >
+                  {cluster.id}
+                </code>
+              ))}
+              {rank === 1 && <span>GPT preferred</span>}
+            </div>
+            <strong>
+              {clusters.map((cluster) => cluster.title).join(' + ') ||
+                candidate.problem}
+            </strong>
+            <span>{candidate.title}</span>
+          </div>
+          <div
+            className="portfolio-preference"
+            data-explain="Darwin preference is the composite portfolio score: 35% evidence strength, 25% user impact, 20% feasibility, and 20% validation clarity. It is a ranking, not a probability of success."
+            tabIndex={0}
+          >
+            <strong>{score}%</strong>
+            <span>preference</span>
+            <div aria-hidden="true">
+              <span />
+            </div>
+          </div>
+          <ChevronRight className={expanded ? 'is-expanded' : ''} size={17} />
+        </button>
+        <label className="portfolio-select">
+          <input
+            aria-label={`Implement ${candidate.title}`}
+            checked={selected}
+            onChange={onSelectionChange}
+            type="checkbox"
+            value={candidate.id}
+          />
+          <span>Implement</span>
+        </label>
+      </div>
+
+      {expanded && (
+        <div className="mutation-portfolio-detail" id={panelId}>
+          <div className="portfolio-hypothesis">
+            <span>Hypothesis</span>
+            <p>{candidate.hypothesis}</p>
+          </div>
+          <div className="mutation-causal-change">
+            <span>Evidence-led change</span>
+            <p>{candidate.change}</p>
+          </div>
+          <div className="mutation-citations">
+            {candidate.evidenceIds.map((id) => (
+              <EvidenceChip evidence={evidence} id={id} key={id} />
+            ))}
+            <span>
+              {candidate.predictedImpact.metric}{' '}
+              {candidate.predictedImpact.direction}
+            </span>
+          </div>
+
+          {clusters.map((cluster) => (
+            <section className="portfolio-pressure-analysis" key={cluster.id}>
+              <div>
+                <code>{cluster.id}</code>
+                <strong>{cluster.title}</strong>
+              </div>
+              <p>{cluster.interpretation}</p>
+              <div className="portfolio-pressure-evidence">
+                {cluster.evidenceIds.map((id) => (
+                  <EvidenceChip evidence={evidence} id={id} key={id} />
+                ))}
+              </div>
+              <dl>
+                <div>
+                  <dt>User consequence</dt>
+                  <dd>{cluster.userConsequence}</dd>
+                </div>
+                <div>
+                  <dt>Competing explanations</dt>
+                  <dd>{cluster.competingExplanations.join(' · ')}</dd>
+                </div>
+                <div>
+                  <dt>Evolution opportunity</dt>
+                  <dd>{cluster.mutationOpportunity}</dd>
+                </div>
+              </dl>
+              {cluster.affectedTargets.length > 0 && (
+                <div className="portfolio-targets">
+                  <span>Affected targets</span>
+                  {cluster.affectedTargets.map((target) => (
+                    <code key={target}>{target}</code>
+                  ))}
+                </div>
+              )}
+            </section>
+          ))}
+
+          <div className="mutation-scorecard">
+            {Object.entries(candidate.scorecard).map(([label, value]) => (
+              <div key={label}>
+                <span>{label.replace(/([A-Z])/g, ' $1')}</span>
+                <strong>{value}%</strong>
+              </div>
+            ))}
+          </div>
+          <div className="validation-plan">
+            <span>Measured validation plan</span>
+            <strong>{candidate.validationPlan.primaryMetric}</strong>
+            <p>
+              {candidate.validationPlan.baseline} →{' '}
+              {candidate.validationPlan.successThreshold}
+            </p>
+            <small>
+              Guardrails · {candidate.validationPlan.guardrails.join(' · ')}
+            </small>
+          </div>
+          <div className="portfolio-implementation-context">
+            <div>
+              <span>Scope</span>
+              <p>{candidate.scope.join(' · ')}</p>
+            </div>
+            <div>
+              <span>Tradeoffs</span>
+              <p>{candidate.tradeoffs.join(' · ')}</p>
+            </div>
+            <div>
+              <span>Predicted impact rationale</span>
+              <p>{candidate.predictedImpact.rationale}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 
