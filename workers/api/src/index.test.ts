@@ -9,6 +9,7 @@ import {
   SimulationSummarySchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
+  TargetApplicationConnectionSchema,
   TelemetryReceiptSchema,
 } from '@darwin/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -136,6 +137,12 @@ const installOpenAIResponse = (output: unknown) =>
             : 'export function App() { return null; }',
         );
       }
+      if (url.startsWith('https://darwin-projectflow.pages.dev/')) {
+        return new Response(
+          '<!doctype html><html><head><title>ProjectFlow</title></head></html>',
+          { headers: { 'Content-Type': 'text/html' } },
+        );
+      }
       if (url.endsWith('/merge')) {
         return Response.json({ merged: true, sha: 'f'.repeat(40) });
       }
@@ -184,6 +191,80 @@ describe('Darwin API', () => {
         model: 'gpt-5.6',
         liveModelAvailable: true,
       },
+    });
+  });
+
+  it('verifies, persists, and disconnects the configured target application', async () => {
+    installOpenAIResponse(evidenceModelOutput);
+    const request = {
+      fullName: 'sjohnston1972/projectflow',
+      branch: 'main',
+      productionUrl: 'https://darwin-projectflow.pages.dev/',
+      studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+    };
+    const connectedResponse = await handleRequest(
+      new Request('http://localhost/api/target-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      }),
+    );
+    const connection = TargetApplicationConnectionSchema.parse(
+      await connectedResponse.json(),
+    );
+
+    expect(connectedResponse.status).toBe(201);
+    expect(connection.repository).toMatchObject({
+      fullName: request.fullName,
+      branch: request.branch,
+      productionUrl: request.productionUrl,
+      studyUrl: request.studyUrl,
+    });
+    expect(connection.checks.map((check) => check.id)).toEqual([
+      'repository',
+      'contract',
+      'runtime',
+      'telemetry',
+    ]);
+
+    const loadedResponse = await handleRequest(
+      new Request('http://localhost/api/target-connection'),
+    );
+    expect(
+      TargetApplicationConnectionSchema.parse(await loadedResponse.json()),
+    ).toEqual(connection);
+
+    const disconnected = await handleRequest(
+      new Request('http://localhost/api/target-connection/disconnect', {
+        method: 'POST',
+      }),
+    );
+    expect(disconnected.status).toBe(204);
+    expect(
+      (
+        await handleRequest(
+          new Request('http://localhost/api/target-connection'),
+        )
+      ).status,
+    ).toBe(204);
+  });
+
+  it('rejects target connections outside the configured control boundary', async () => {
+    const response = await handleRequest(
+      new Request('http://localhost/api/target-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: 'another/repository',
+          branch: 'main',
+          productionUrl: 'https://example.com/',
+          studyUrl: 'https://example.com/?study=true',
+        }),
+      }),
+    );
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'target_not_allowed',
     });
   });
 

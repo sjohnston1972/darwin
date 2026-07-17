@@ -625,6 +625,37 @@ export const RepositoryContextSchema = z.object({
   studyUrl: z.string().url(),
 });
 
+export const TargetConnectionRequestSchema = z
+  .object({
+    fullName: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
+    branch: StudyIdentifierSchema,
+    productionUrl: z.string().url(),
+    studyUrl: z.string().url(),
+  })
+  .strict();
+
+export const TargetConnectionCheckSchema = z.object({
+  id: z.enum(['repository', 'contract', 'runtime', 'telemetry']),
+  label: z.string().min(1),
+  status: z.literal('passed'),
+  detail: z.string().min(1),
+});
+
+export const TargetApplicationConnectionSchema = z.object({
+  connectionId: StudyIdentifierSchema,
+  status: z.literal('connected'),
+  connectedAt: z.string().datetime(),
+  verifiedAt: z.string().datetime(),
+  target: z.object({
+    targetId: SemanticTargetSchema,
+    name: z.string().min(1),
+    purpose: z.string().min(1),
+    defaultBranch: StudyIdentifierSchema,
+  }),
+  repository: RepositoryContextSchema,
+  checks: z.array(TargetConnectionCheckSchema).length(4),
+});
+
 export const EvidenceAnalysisSchema = z.object({
   analysisId: StudyIdentifierSchema,
   evidenceId: StudyIdentifierSchema,
@@ -872,6 +903,12 @@ export type EvidenceMutationCandidate = z.infer<
 >;
 export type EvidenceAnalysis = z.infer<typeof EvidenceAnalysisSchema>;
 export type RepositoryContext = z.infer<typeof RepositoryContextSchema>;
+export type TargetConnectionRequest = z.infer<
+  typeof TargetConnectionRequestSchema
+>;
+export type TargetApplicationConnection = z.infer<
+  typeof TargetApplicationConnectionSchema
+>;
 export type CodexImplementationManifest = z.infer<
   typeof CodexImplementationManifestSchema
 >;

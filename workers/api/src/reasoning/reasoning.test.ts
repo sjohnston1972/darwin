@@ -133,8 +133,14 @@ const repositorySnapshot: RepositorySnapshot = {
     validationCommands: ['npm run verify'],
     maximumChangedFiles: 8,
     maximumChangedLines: 700,
-    productionUrl: 'https://sjohnston1972.github.io/projectflow/',
-    studyUrl: 'https://sjohnston1972.github.io/projectflow/?study=true',
+    productionUrl: 'https://darwin-projectflow.pages.dev/',
+    studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+  },
+  target: {
+    targetId: 'projectflow',
+    name: 'ProjectFlow',
+    purpose: 'Project management workspace.',
+    defaultBranch: 'main',
   },
   developerContext:
     '# Live ProjectFlow repository snapshot\n\nExact commit: ' +

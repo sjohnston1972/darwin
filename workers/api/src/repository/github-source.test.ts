@@ -44,6 +44,15 @@ describe('captureRepositorySnapshot', () => {
     expect(snapshot.context.sourceHash).toMatch(/^[a-f0-9]{64}$/);
     expect(snapshot.context.mutablePaths).toEqual(['apps/projectflow/src/**']);
     expect(snapshot.context.validationCommands).toEqual(['npm run verify']);
+    expect(snapshot.context.productionUrl).toBe(
+      'https://darwin-projectflow.pages.dev/',
+    );
+    expect(snapshot.target).toEqual({
+      targetId: 'projectflow',
+      name: 'ProjectFlow',
+      purpose: 'Task management',
+      defaultBranch: 'main',
+    });
     expect(snapshot.developerContext).toContain(`Exact commit: ${commitSha}`);
     expect(snapshot.developerContext).toContain(
       'export function App() { return null; }',

@@ -51,6 +51,12 @@ const assertPath = (path: string) => {
 export interface RepositorySnapshot {
   context: RepositoryContext;
   developerContext: string;
+  target: {
+    targetId: string;
+    name: string;
+    purpose: string;
+    defaultBranch: string;
+  };
 }
 
 export interface RepositorySnapshotOptions {
@@ -128,10 +134,10 @@ export async function captureRepositorySnapshot(
     maximumChangedFiles: targetConfig.limits.maximumChangedFiles,
     maximumChangedLines: targetConfig.limits.maximumChangedLines,
     productionUrl:
-      options.productionUrl || 'https://sjohnston1972.github.io/projectflow/',
+      options.productionUrl || 'https://darwin-projectflow.pages.dev/',
     studyUrl:
       options.studyUrl ||
-      'https://sjohnston1972.github.io/projectflow/?study=true',
+      'https://darwin-projectflow.pages.dev/?study=true',
   });
   const developerContext = [
     '# Live ProjectFlow repository snapshot',
@@ -152,5 +158,14 @@ export async function captureRepositorySnapshot(
       '',
     ]),
   ].join('\n');
-  return { context, developerContext };
+  return {
+    context,
+    developerContext,
+    target: {
+      targetId: targetConfig.targetId,
+      name: targetConfig.name,
+      purpose: targetConfig.purpose,
+      defaultBranch: targetConfig.defaultBranch,
+    },
+  };
 }

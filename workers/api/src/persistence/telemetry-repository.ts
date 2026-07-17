@@ -6,6 +6,7 @@ import type {
   RepositoryMutationExecution,
   StoredTelemetryEvent,
   StudyTelemetryEvent,
+  TargetApplicationConnection,
 } from '@darwin/shared';
 
 export interface TelemetryInsertResult {
@@ -67,6 +68,11 @@ export interface TelemetryRepository {
   getRepositoryExecutionByAnalysis(
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
+  getTargetConnection(): Promise<TargetApplicationConnection | null>;
+  saveTargetConnection(
+    connection: TargetApplicationConnection,
+  ): Promise<void>;
+  deleteTargetConnection(): Promise<void>;
   reset(): Promise<void>;
 }
 
@@ -79,6 +85,7 @@ const evidenceAnalysisStore = new Map<
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
+let targetConnectionStore: TargetApplicationConnection | null = null;
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -225,6 +232,18 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
         (execution) => execution.analysisId === analysisId,
       ) ?? null
     );
+  }
+
+  async getTargetConnection() {
+    return targetConnectionStore;
+  }
+
+  async saveTargetConnection(connection: TargetApplicationConnection) {
+    targetConnectionStore = connection;
+  }
+
+  async deleteTargetConnection() {
+    targetConnectionStore = null;
   }
 
   async reset() {
@@ -573,6 +592,41 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return this.findRepositoryExecution('analysis_id', analysisId);
   }
 
+  async getTargetConnection() {
+    const row = await this.database
+      .prepare(
+        `SELECT connection_json
+         FROM target_connections
+         ORDER BY connected_at DESC
+         LIMIT 1`,
+      )
+      .first<{ connection_json: string }>();
+    return row
+      ? (JSON.parse(row.connection_json) as TargetApplicationConnection)
+      : null;
+  }
+
+  async saveTargetConnection(connection: TargetApplicationConnection) {
+    await this.database.batch([
+      this.database.prepare('DELETE FROM target_connections'),
+      this.database
+        .prepare(
+          `INSERT INTO target_connections (
+            connection_id, connected_at, connection_json
+          ) VALUES (?, ?, ?)`,
+        )
+        .bind(
+          connection.connectionId,
+          connection.connectedAt,
+          JSON.stringify(connection),
+        ),
+    ]);
+  }
+
+  async deleteTargetConnection() {
+    await this.database.prepare('DELETE FROM target_connections').run();
+  }
+
   async reset() {
     await this.database.batch([
       this.database.prepare('DELETE FROM telemetry_events'),
@@ -592,4 +646,7 @@ const inMemoryRepository = new InMemoryTelemetryRepository();
 export const getTelemetryRepository = (database?: D1Database) =>
   database ? new D1TelemetryRepository(database) : inMemoryRepository;
 
-export const resetInMemoryTelemetry = () => inMemoryRepository.reset();
+export const resetInMemoryTelemetry = async () => {
+  await inMemoryRepository.reset();
+  await inMemoryRepository.deleteTargetConnection();
+};

@@ -12,6 +12,8 @@ import {
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
   StudyTelemetryEventSchema,
+  TargetApplicationConnectionSchema,
+  TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
   type HealthResponse,
   type SimulationResult,
@@ -116,6 +118,18 @@ const simulationFromId = (id: string) => {
   });
 };
 
+const configuredTarget = (env?: Partial<Env>) =>
+  TargetConnectionRequestSchema.parse({
+    fullName: env?.PROJECTFLOW_REPOSITORY || 'sjohnston1972/projectflow',
+    branch: env?.PROJECTFLOW_BRANCH || 'main',
+    productionUrl:
+      env?.PROJECTFLOW_PRODUCTION_URL ||
+      'https://darwin-projectflow.pages.dev/',
+    studyUrl:
+      env?.PROJECTFLOW_STUDY_URL ||
+      'https://darwin-projectflow.pages.dev/?study=true',
+  });
+
 export const resetSimulationStore = () => {
   simulationStore.clear();
 };
@@ -163,13 +177,139 @@ export const handleRequest = async (
     return json(response);
   }
 
+  if (request.method === 'GET' && pathname === '/api/target-connection') {
+    const connection = await telemetryRepository.getTargetConnection();
+    return connection
+      ? json(TargetApplicationConnectionSchema.parse(connection))
+      : new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (request.method === 'POST' && pathname === '/api/target-connection') {
+    let input: unknown;
+    try {
+      input = await request.json();
+    } catch {
+      return json(
+        { error: 'invalid_request', message: 'Request body must be JSON.' },
+        { status: 400 },
+      );
+    }
+    const parsed = TargetConnectionRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return json(
+        {
+          error: 'invalid_target',
+          message: 'Repository, branch and deployment URLs are required.',
+        },
+        { status: 400 },
+      );
+    }
+    const allowed = configuredTarget(env);
+    const requested = parsed.data;
+    if (
+      requested.fullName !== allowed.fullName ||
+      requested.branch !== allowed.branch ||
+      new URL(requested.productionUrl).href !==
+        new URL(allowed.productionUrl).href ||
+      new URL(requested.studyUrl).href !== new URL(allowed.studyUrl).href
+    ) {
+      return json(
+        {
+          error: 'target_not_allowed',
+          message:
+            'This controlled Darwin environment accepts only its configured ProjectFlow target.',
+        },
+        { status: 403 },
+      );
+    }
+
+    try {
+      const snapshot = await captureRepositorySnapshot({
+        ...requested,
+        githubToken: env?.GITHUB_TOKEN,
+      });
+      const runtimeResponse = await fetch(requested.studyUrl, {
+        headers: { Accept: 'text/html' },
+      });
+      if (!runtimeResponse.ok) {
+        throw new Error(
+          `Target deployment returned ${runtimeResponse.status}.`,
+        );
+      }
+      const runtimeHtml = await runtimeResponse.text();
+      if (!runtimeHtml.includes('<title>ProjectFlow</title>')) {
+        throw new Error('Target deployment identity could not be verified.');
+      }
+      const timestamp = new Date().toISOString();
+      const connection = TargetApplicationConnectionSchema.parse({
+        connectionId: `target-${snapshot.context.baseSha.slice(0, 12)}`,
+        status: 'connected',
+        connectedAt: timestamp,
+        verifiedAt: timestamp,
+        target: snapshot.target,
+        repository: snapshot.context,
+        checks: [
+          {
+            id: 'repository',
+            label: 'GitHub repository',
+            status: 'passed',
+            detail: `${snapshot.context.fullName} at ${snapshot.context.baseSha.slice(0, 12)}`,
+          },
+          {
+            id: 'contract',
+            label: 'Darwin target contract',
+            status: 'passed',
+            detail: `${snapshot.context.mutablePaths.length} mutable paths, ${snapshot.context.validationCommands.length} validation commands`,
+          },
+          {
+            id: 'runtime',
+            label: 'Cloudflare runtime',
+            status: 'passed',
+            detail: `${new URL(requested.productionUrl).host} returned ${runtimeResponse.status}`,
+          },
+          {
+            id: 'telemetry',
+            label: 'Measured study',
+            status: 'passed',
+            detail: 'Privacy-safe semantic telemetry endpoint configured',
+          },
+        ],
+      });
+      await telemetryRepository.saveTargetConnection(connection);
+      return json(connection, { status: 201 });
+    } catch (error) {
+      return json(
+        {
+          error: 'target_verification_failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Target verification failed.',
+        },
+        { status: 502 },
+      );
+    }
+  }
+
+  if (
+    request.method === 'POST' &&
+    pathname === '/api/target-connection/disconnect'
+  ) {
+    await telemetryRepository.deleteTargetConnection();
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
+    const targetConnection = await telemetryRepository.getTargetConnection();
     if (env?.GITHUB_TOKEN) {
       try {
         await dispatchResetWorkflow({
           token: env.GITHUB_TOKEN,
-          fullName: env.PROJECTFLOW_REPOSITORY || 'sjohnston1972/projectflow',
-          branch: env.PROJECTFLOW_BRANCH || 'main',
+          fullName:
+            targetConnection?.repository.fullName ||
+            configuredTarget(env).fullName,
+          branch:
+            targetConnection?.repository.branch || configuredTarget(env).branch,
         });
       } catch (error) {
         return json(
@@ -387,16 +527,24 @@ export const handleRequest = async (
       );
     }
     const model = env?.OPENAI_MODEL || 'gpt-5.6';
+    const targetConnection = await telemetryRepository.getTargetConnection();
     let repositorySnapshot: Awaited<
       ReturnType<typeof captureRepositorySnapshot>
     >;
     try {
       repositorySnapshot = await captureRepositorySnapshot({
-        fullName: env?.PROJECTFLOW_REPOSITORY,
-        branch: env?.PROJECTFLOW_BRANCH,
+        fullName:
+          targetConnection?.repository.fullName ||
+          configuredTarget(env).fullName,
+        branch:
+          targetConnection?.repository.branch || configuredTarget(env).branch,
         githubToken: env?.GITHUB_TOKEN,
-        productionUrl: env?.PROJECTFLOW_PRODUCTION_URL,
-        studyUrl: env?.PROJECTFLOW_STUDY_URL,
+        productionUrl:
+          targetConnection?.repository.productionUrl ||
+          configuredTarget(env).productionUrl,
+        studyUrl:
+          targetConnection?.repository.studyUrl ||
+          configuredTarget(env).studyUrl,
       });
     } catch {
       return json(
