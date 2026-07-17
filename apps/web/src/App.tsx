@@ -672,7 +672,6 @@ function App() {
                   </article>
                 ))}
               </section>
-
             </>
           )}
 
@@ -880,7 +879,7 @@ function App() {
                   <thead className="border-b border-line text-xs uppercase text-mist">
                     <tr>
                       <th className="px-6 py-3 font-medium">Genome</th>
-                      <th className="px-6 py-3 font-medium">Event</th>
+                      <th className="px-6 py-3 font-medium">Mutation</th>
                       <th className="px-6 py-3 font-medium">Selection</th>
                       <th className="px-6 py-3 font-medium">Fitness</th>
                       <th className="px-6 py-3 text-right font-medium">
@@ -922,6 +921,13 @@ function App() {
                 <FossilExecutionArtifact
                   key={genomeExecution.executionId}
                   execution={genomeExecution}
+                  mutationTitle={
+                    liveTelemetry.observationArchives.find(
+                      (archive) =>
+                        archive.execution.executionId ===
+                        genomeExecution.executionId,
+                    )?.analysis.selectedMutation.title ?? null
+                  }
                   manifest={
                     liveTelemetry.execution?.executionId ===
                     genomeExecution.executionId
@@ -2556,6 +2562,7 @@ function ObservationArchiveArtifact({
 
 function FossilExecutionArtifact({
   execution,
+  mutationTitle,
   manifest,
   releasing,
   retrying,
@@ -2567,6 +2574,7 @@ function FossilExecutionArtifact({
   onRetry,
 }: {
   execution: RepositoryMutationExecution;
+  mutationTitle: string | null;
   manifest: CodexImplementationManifest | null;
   releasing: boolean;
   retrying: boolean;
@@ -2600,8 +2608,10 @@ function FossilExecutionArtifact({
             </strong>
           </div>
           <div>
-            <span>Event</span>
-            <strong>{execution.manifestId}</strong>
+            <span>Mutation</span>
+            <strong title={mutationTitle ?? execution.manifestId}>
+              {mutationTitle ?? execution.manifestId}
+            </strong>
           </div>
           <div>
             <span>Selection</span>

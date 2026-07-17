@@ -718,6 +718,9 @@ describe('Darwin control room', () => {
       return artifact!;
     });
     expect(executionArtifact?.open).toBe(false);
+    expect(
+      within(executionArtifact).getByText('Reveal capacity context'),
+    ).toBeVisible();
     fireEvent.click(
       executionArtifact!.querySelector(':scope > summary') as HTMLElement,
     );
