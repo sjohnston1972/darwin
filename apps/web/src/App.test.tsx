@@ -19,8 +19,48 @@ const repository = {
   validationCommands: ['npm run verify'],
   maximumChangedFiles: 4,
   maximumChangedLines: 1200,
-  productionUrl: 'https://sjohnston1972.github.io/projectflow/',
-  studyUrl: 'https://sjohnston1972.github.io/projectflow/?study=true',
+  productionUrl: 'https://darwin-projectflow.pages.dev/',
+  studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+} as const;
+const targetConnection = {
+  connectionId: 'target-test',
+  status: 'connected',
+  connectedAt: timestamp,
+  verifiedAt: timestamp,
+  target: {
+    targetId: 'projectflow',
+    name: 'ProjectFlow',
+    purpose:
+      'Task management for creating projects, assigning work, and coordinating delivery.',
+    defaultBranch: 'main',
+  },
+  repository,
+  checks: [
+    {
+      id: 'repository',
+      label: 'GitHub repository',
+      status: 'passed',
+      detail: 'sjohnston1972/projectflow at dddddddddddd',
+    },
+    {
+      id: 'contract',
+      label: 'Darwin target contract',
+      status: 'passed',
+      detail: '1 mutable paths, 1 validation commands',
+    },
+    {
+      id: 'runtime',
+      label: 'Cloudflare runtime',
+      status: 'passed',
+      detail: 'darwin-projectflow.pages.dev returned 200',
+    },
+    {
+      id: 'telemetry',
+      label: 'Measured study',
+      status: 'passed',
+      detail: 'Privacy-safe semantic telemetry endpoint configured',
+    },
+  ],
 } as const;
 const evidence = {
   evidenceId: 'evidence-measured-test',
@@ -255,8 +295,12 @@ const manifest = {
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
-const installApi = (latestAnalysis: unknown = null) => {
+const installApi = (
+  latestAnalysis: unknown = null,
+  initialConnection: unknown = null,
+) => {
   let liveExecution: Record<string, unknown> | null = null;
+  let liveConnection: unknown = initialConnection;
   const fetchMock = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -292,7 +336,7 @@ const installApi = (latestAnalysis: unknown = null) => {
           pullRequestNumber: 7,
           pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
           previewUrl:
-            'https://sjohnston1972.github.io/projectflow/?study=true&execution=test',
+            'https://darwin-evolution-test.darwin-projectflow.pages.dev/?study=true',
           patch:
             '@@ live repository patch @@\n-old behavior\n+measured behavior',
           changedFiles: ['apps/projectflow/src/App.tsx'],
@@ -377,6 +421,17 @@ const installApi = (latestAnalysis: unknown = null) => {
           timestamp,
         });
       }
+      if (url.endsWith('/api/target-connection/disconnect')) {
+        liveConnection = null;
+        return response(null, 204);
+      }
+      if (url.endsWith('/api/target-connection')) {
+        if (init?.method === 'POST') {
+          liveConnection = targetConnection;
+          return response(targetConnection, 201);
+        }
+        return liveConnection ? response(liveConnection) : response(null, 204);
+      }
       if (url.endsWith('/api/demo/reset')) {
         return response({
           status: 'reset',
@@ -409,14 +464,9 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: /Open measured study/ }),
     ).toHaveAttribute('href', expect.stringContaining('study=true'));
-    expect(screen.getByRole('link', { name: 'Target application' })).toEqual(
-      expect.objectContaining({
-        target: '_blank',
-      }),
-    );
     expect(
       screen.getByRole('link', { name: 'Target application' }),
-    ).toHaveAttribute('href', expect.not.stringContaining('variant='));
+    ).toHaveAttribute('href', '/?view=target');
     expect(
       screen.queryByText('Observe 10,000 interactions'),
     ).not.toBeInTheDocument();
@@ -531,7 +581,7 @@ describe('Darwin control room', () => {
     expect(await screen.findByText('Mutation released')).toBeVisible();
     await waitFor(() =>
       expect(
-        screen.getByRole('link', { name: 'Target application' }),
+        screen.getByRole('link', { name: /Open measured study/ }),
       ).toHaveAttribute('href', repository.studyUrl),
     );
     await waitFor(() =>
@@ -551,17 +601,47 @@ describe('Darwin control room', () => {
     );
   });
 
-  it('does not expose a baked variant selector in the target view', async () => {
+  it('connects, verifies, and disconnects ProjectFlow from the target view', async () => {
     window.history.replaceState({}, '', '/?view=target');
-    installApi();
+    const fetchMock = installApi();
     render(<App />);
 
     expect(screen.queryByText(/Baseline v1\.0/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Evolved v1\.1/)).not.toBeInTheDocument();
-    expect(screen.getByTitle('ProjectFlow target application')).toHaveAttribute(
-      'src',
-      expect.not.stringContaining('variant='),
+    expect(
+      screen.getByRole('heading', { name: 'Connect a target application' }),
+    ).toBeVisible();
+    expect(await screen.findByText('No repository is connected')).toBeVisible();
+    expect(screen.getByLabelText('GitHub repository')).toHaveValue(
+      'sjohnston1972/projectflow',
     );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Connect ProjectFlow' }),
+    );
+
+    expect(await screen.findByText('GitHub repository')).toBeVisible();
+    expect(
+      screen.getByText('darwin.target.json', { exact: false }),
+    ).toBeVisible();
+    expect(screen.getByText('Cloudflare runtime')).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: /Open measured application/ }),
+    ).toHaveAttribute('href', repository.studyUrl);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/target-connection'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: repository.fullName,
+          branch: repository.branch,
+          productionUrl: 'http://localhost:5174/',
+          studyUrl: 'http://localhost:5174/?study=true',
+        }),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+    expect(await screen.findByText('No repository is connected')).toBeVisible();
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {

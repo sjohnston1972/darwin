@@ -69,9 +69,7 @@ export interface TelemetryRepository {
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
-  saveTargetConnection(
-    connection: TargetApplicationConnection,
-  ): Promise<void>;
+  saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
   deleteTargetConnection(): Promise<void>;
   reset(): Promise<void>;
 }

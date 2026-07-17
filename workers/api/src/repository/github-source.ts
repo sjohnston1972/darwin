@@ -136,8 +136,7 @@ export async function captureRepositorySnapshot(
     productionUrl:
       options.productionUrl || 'https://darwin-projectflow.pages.dev/',
     studyUrl:
-      options.studyUrl ||
-      'https://darwin-projectflow.pages.dev/?study=true',
+      options.studyUrl || 'https://darwin-projectflow.pages.dev/?study=true',
   });
   const developerContext = [
     '# Live ProjectFlow repository snapshot',

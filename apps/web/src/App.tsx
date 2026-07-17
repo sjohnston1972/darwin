@@ -1,14 +1,18 @@
 import {
   HealthResponseSchema,
+  TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type RepositoryMutationExecution,
   type StoredTelemetryEvent,
+  type TargetApplicationConnection,
+  type TargetConnectionRequest,
 } from '@darwin/shared';
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   ArrowDown,
   Box,
   BrainCircuit,
@@ -24,11 +28,13 @@ import {
   ExternalLink,
   FlaskConical,
   GitBranch,
+  Github,
   LayoutDashboard,
   Menu,
   Moon,
   MousePointer2,
   Network,
+  Link2,
   Radar,
   Rocket,
   RotateCcw,
@@ -36,6 +42,7 @@ import {
   ShieldCheck,
   Sun,
   Users,
+  Unplug,
   X,
 } from 'lucide-react';
 import {
@@ -76,7 +83,7 @@ const navItems = [
     label: 'Target application',
     icon: Box,
     active: false,
-    help: 'Open the real standalone ProjectFlow application in a dedicated full-screen view.',
+    help: 'Connect and verify the GitHub repository Darwin observes, reasons about, and evolves.',
   },
   {
     label: 'Observations',
@@ -101,6 +108,12 @@ const navItems = [
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const projectFlowBaseUrl =
   import.meta.env.VITE_PROJECTFLOW_BASE_URL ?? 'http://localhost:5174';
+const configuredTarget: TargetConnectionRequest = {
+  fullName: 'sjohnston1972/projectflow',
+  branch: 'main',
+  productionUrl: `${projectFlowBaseUrl}/`,
+  studyUrl: `${projectFlowBaseUrl}/?study=true`,
+};
 
 function App() {
   const [theme, setTheme] = useState<Theme>(() =>
@@ -114,16 +127,18 @@ function App() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const targetOnly =
     new URLSearchParams(window.location.search).get('view') === 'target';
+  const targetConnection = useTargetConnection();
   const liveTelemetry = useLiveTelemetry();
   const repository =
-    liveTelemetry.execution?.repository ?? liveTelemetry.analysis?.repository;
+    liveTelemetry.execution?.repository ??
+    liveTelemetry.analysis?.repository ??
+    targetConnection.connection?.repository;
   const targetApplicationUrl =
     (liveTelemetry.execution?.previewUrl &&
-    ['preview_ready', 'releasing', 'released'].includes(
-      liveTelemetry.execution.status,
-    )
+    ['preview_ready', 'releasing'].includes(liveTelemetry.execution.status)
       ? liveTelemetry.execution.previewUrl
-      : repository?.studyUrl) ?? `${projectFlowBaseUrl}/?study=true`;
+      : (targetConnection.connection?.repository.studyUrl ??
+        repository?.studyUrl)) ?? `${projectFlowBaseUrl}/?study=true`;
   const activeCommit =
     liveTelemetry.execution?.status === 'released'
       ? liveTelemetry.execution.headSha
@@ -232,24 +247,16 @@ function App() {
 
   if (targetOnly) {
     return (
-      <div className="organism-preview-page">
-        <GlobalExplainTooltip />
-        <header>
-          <a href="/" className="flex items-center gap-3">
-            <DarwinMark />
-            <strong>DARWIN</strong>
-          </a>
-          <span>ProjectFlow target application</span>
-          <div className="target-header-actions">
-            <ThemeToggle theme={theme} onChange={setTheme} />
-          </div>
-        </header>
-        <iframe
-          className="organism-standalone-frame"
-          src={targetApplicationUrl}
-          title="ProjectFlow target application"
-        />
-      </div>
+      <TargetConnectionPage
+        connection={targetConnection.connection}
+        error={targetConnection.error}
+        loading={targetConnection.loading}
+        saving={targetConnection.saving}
+        theme={theme}
+        onChangeTheme={setTheme}
+        onConnect={targetConnection.connect}
+        onDisconnect={targetConnection.disconnect}
+      />
     );
   }
 
@@ -287,14 +294,10 @@ function App() {
                   className={active ? 'nav-item nav-item-active' : 'nav-item'}
                   href={
                     label === 'Target application'
-                      ? targetApplicationUrl
+                      ? '/?view=target'
                       : active
                         ? '#top'
                         : `#${label.toLowerCase().replace(' ', '-')}`
-                  }
-                  target={label === 'Target application' ? '_blank' : undefined}
-                  rel={
-                    label === 'Target application' ? 'noreferrer' : undefined
                   }
                   onClick={() => setNavigationOpen(false)}
                   data-explain={help}
@@ -402,8 +405,9 @@ function App() {
                 Helping your software evolve.
               </p>
               <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base">
-                ProjectFlow is connected. Its genome is ready for observation,
-                measurement, and controlled selection.
+                {targetConnection.connection
+                  ? 'ProjectFlow is connected. Its genome is ready for observation, measurement, and controlled selection.'
+                  : 'Connect ProjectFlow to verify its repository genome, measured runtime, and controlled mutation boundary.'}
               </p>
             </div>
             <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
@@ -671,6 +675,352 @@ function App() {
             </p>
           </footer>
         </div>
+      </main>
+    </div>
+  );
+}
+
+function useTargetConnection() {
+  const [connection, setConnection] =
+    useState<TargetApplicationConnection | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${apiBaseUrl}/api/target-connection`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (response.status === 204) return null;
+        if (!response.ok) throw new Error('Target connection lookup failed.');
+        return TargetApplicationConnectionSchema.parse(await response.json());
+      })
+      .then((result) => setConnection(result))
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError')
+          return;
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : 'Target connection lookup failed.',
+        );
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, []);
+
+  const connect = async (request: TargetConnectionRequest) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/target-connection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'Target verification failed.');
+      }
+      setConnection(TargetApplicationConnectionSchema.parse(payload));
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'Target verification failed.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const disconnect = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/target-connection/disconnect`,
+        { method: 'POST' },
+      );
+      if (!response.ok) throw new Error('Target disconnect failed.');
+      setConnection(null);
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'Target disconnect failed.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return { connection, loading, saving, error, connect, disconnect };
+}
+
+function TargetConnectionPage({
+  connection,
+  error,
+  loading,
+  saving,
+  theme,
+  onChangeTheme,
+  onConnect,
+  onDisconnect,
+}: {
+  connection: TargetApplicationConnection | null;
+  error: string | null;
+  loading: boolean;
+  saving: boolean;
+  theme: Theme;
+  onChangeTheme: (theme: Theme) => void;
+  onConnect: (request: TargetConnectionRequest) => Promise<void>;
+  onDisconnect: () => Promise<void>;
+}) {
+  const [request, setRequest] = useState<TargetConnectionRequest>(() => ({
+    ...configuredTarget,
+  }));
+  const update = (field: keyof TargetConnectionRequest, value: string) =>
+    setRequest((current) => ({ ...current, [field]: value }));
+
+  return (
+    <div className="target-connect-page">
+      <GlobalExplainTooltip />
+      <header className="target-connect-header">
+        <a href="/" className="target-brand" aria-label="Back to control room">
+          <DarwinMark />
+          <strong>DARWIN</strong>
+        </a>
+        <span>Target application</span>
+        <div className="target-header-actions">
+          <a
+            className="target-back-link"
+            href="/"
+            aria-label="Back to control room"
+            data-explain="Return to Darwin's control room without changing the active target connection."
+          >
+            <ArrowLeft size={15} /> <span>Control room</span>
+          </a>
+          <ThemeToggle theme={theme} onChange={onChangeTheme} />
+        </div>
+      </header>
+
+      <main className="target-connect-main">
+        <section className="target-connect-intro">
+          <p className="section-label">Repository onboarding</p>
+          <div className="target-connect-title-row">
+            <div>
+              <h1>Connect a target application</h1>
+              <p>
+                Give Darwin a GitHub repository and measured deployment. Darwin
+                verifies the target contract before it observes telemetry,
+                reasons over source, or prepares a mutation.
+              </p>
+            </div>
+            <span
+              className={
+                connection
+                  ? 'connection-state connection-state-live'
+                  : 'connection-state'
+              }
+            >
+              <span className="status-dot" aria-hidden="true" />
+              {loading
+                ? 'Checking connection'
+                : connection
+                  ? 'Connected'
+                  : 'Not connected'}
+            </span>
+          </div>
+        </section>
+
+        <ol className="connection-steps" aria-label="Connection verification">
+          {[
+            ['01', 'Repository', 'Read the exact GitHub commit'],
+            ['02', 'Contract', 'Validate darwin.target.json'],
+            ['03', 'Runtime', 'Reach the Cloudflare deployment'],
+            ['04', 'Ready', 'Bind telemetry and mutations'],
+          ].map(([number, label, detail]) => (
+            <li className={connection ? 'is-complete' : ''} key={number}>
+              <span>{connection ? <Check size={14} /> : number}</span>
+              <div>
+                <strong>{label}</strong>
+                <small>{detail}</small>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <section className="connection-workspace">
+          <form
+            className="connection-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onConnect(request);
+            }}
+          >
+            <div className="connection-section-heading">
+              <div>
+                <p className="section-label">Target definition</p>
+                <h2>ProjectFlow repository</h2>
+              </div>
+              <Github size={21} />
+            </div>
+            <label>
+              <span>GitHub repository</span>
+              <input
+                aria-label="GitHub repository"
+                value={request.fullName}
+                onChange={(event) => update('fullName', event.target.value)}
+                autoComplete="off"
+              />
+              <small>Owner and repository name</small>
+            </label>
+            <div className="connection-field-grid">
+              <label>
+                <span>Tracked branch</span>
+                <input
+                  aria-label="Tracked branch"
+                  value={request.branch}
+                  onChange={(event) => update('branch', event.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <label>
+                <span>Production deployment</span>
+                <input
+                  aria-label="Production deployment"
+                  type="url"
+                  value={request.productionUrl}
+                  onChange={(event) =>
+                    update('productionUrl', event.target.value)
+                  }
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+            <label>
+              <span>Measured study URL</span>
+              <input
+                aria-label="Measured study URL"
+                type="url"
+                value={request.studyUrl}
+                onChange={(event) => update('studyUrl', event.target.value)}
+                autoComplete="off"
+              />
+              <small>
+                Darwin telemetry is enabled on this application view
+              </small>
+            </label>
+
+            {error && (
+              <p className="connection-error" role="alert">
+                <AlertTriangle size={15} /> {error}
+              </p>
+            )}
+
+            <div className="connection-actions">
+              <div className="start-action-wrap">
+                {!connection && !loading && (
+                  <span className="start-here-cue" aria-hidden="true">
+                    Start here <ArrowDown size={15} />
+                  </span>
+                )}
+                <button
+                  className="primary-action"
+                  type="submit"
+                  disabled={saving || loading}
+                  data-explain="Verify the live GitHub commit, Darwin target contract, bounded source paths, validation commands, and Cloudflare runtime before saving this connection."
+                >
+                  {saving ? (
+                    <CircleDashed className="animate-spin" size={17} />
+                  ) : connection ? (
+                    <ShieldCheck size={17} />
+                  ) : (
+                    <Link2 size={17} />
+                  )}
+                  {saving
+                    ? 'Verifying target'
+                    : connection
+                      ? 'Re-verify connection'
+                      : 'Connect ProjectFlow'}
+                </button>
+              </div>
+              {connection && (
+                <button
+                  className="secondary-action"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void onDisconnect()}
+                  data-explain="Remove the active binding so the repository connection can be demonstrated again. Telemetry and fossil records are left unchanged."
+                >
+                  <Unplug size={16} /> Disconnect
+                </button>
+              )}
+            </div>
+          </form>
+
+          <div className="connection-verification" aria-live="polite">
+            <div className="connection-section-heading">
+              <div>
+                <p className="section-label">Live verification</p>
+                <h2>
+                  {connection ? connection.target.name : 'Awaiting target'}
+                </h2>
+              </div>
+              <ShieldCheck size={21} />
+            </div>
+            {connection ? (
+              <>
+                <p className="connection-purpose">
+                  {connection.target.purpose}
+                </p>
+                <div className="connection-identity">
+                  <span>Active commit</span>
+                  <code>{connection.repository.baseSha.slice(0, 12)}</code>
+                  <span>Source fingerprint</span>
+                  <code>{connection.repository.sourceHash.slice(0, 16)}</code>
+                </div>
+                <ul className="connection-check-list">
+                  {connection.checks.map((check) => (
+                    <li key={check.id}>
+                      <CheckCircle2 size={17} />
+                      <div>
+                        <strong>{check.label}</strong>
+                        <span>{check.detail}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <div className="connection-links">
+                  <a
+                    href={connection.repository.studyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open measured application <ExternalLink size={14} />
+                  </a>
+                  <a
+                    href={connection.repository.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View GitHub repository <ExternalLink size={14} />
+                  </a>
+                </div>
+              </>
+            ) : (
+              <div className="connection-empty-state">
+                <Github size={28} />
+                <strong>No repository is connected</strong>
+                <p>
+                  Darwin will show each verification result here before the
+                  target becomes available to GPT and Codex.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
       </main>
     </div>
   );
