@@ -263,6 +263,15 @@ function App() {
           : 'Live model unavailable',
       tone: liveTelemetry.analysis ? 'signal' : 'neutral',
     },
+    {
+      label: 'Genome evolutions',
+      help: 'Accepted mutation bundles retained in the Genome. This increases only after a reviewed repository mutation is released; a rollback does not create another evolution.',
+      value: String(liveTelemetry.genomeEvolutionCount),
+      meta: liveTelemetry.genomeEvolutionCount
+        ? `${liveTelemetry.genomeEvolutionCount} accepted ${liveTelemetry.genomeEvolutionCount === 1 ? 'release' : 'releases'}`
+        : 'No accepted releases',
+      tone: liveTelemetry.genomeEvolutionCount ? 'signal' : 'neutral',
+    },
   ] as const;
 
   useEffect(() => {
@@ -734,7 +743,7 @@ function App() {
                         <span className="status-badge">RETAINED</span>
                       </td>
                     </tr>
-                    {!liveTelemetry.execution && (
+                    {!liveTelemetry.genomeExecutions.length && (
                       <tr className="border-t border-line">
                         <td className="px-6 py-5 font-mono">
                           {repository?.baseSha.slice(0, 12) ?? 'baseline'}
@@ -752,17 +761,33 @@ function App() {
                   </tbody>
                 </table>
               </div>
-              {liveTelemetry.execution && (
+              {liveTelemetry.genomeExecutions.map((genomeExecution) => (
                 <FossilExecutionArtifact
-                  execution={liveTelemetry.execution}
-                  manifest={liveTelemetry.manifest}
+                  key={genomeExecution.executionId}
+                  execution={genomeExecution}
+                  manifest={
+                    liveTelemetry.execution?.executionId ===
+                    genomeExecution.executionId
+                      ? liveTelemetry.manifest
+                      : null
+                  }
                   releasing={liveTelemetry.releasingExecution}
                   retrying={liveTelemetry.implementing}
                   rollingBack={liveTelemetry.rollingBack}
                   releasingRollback={liveTelemetry.releasingRollback}
-                  onRelease={() => void liveTelemetry.releaseExecution()}
-                  onRollback={() => void liveTelemetry.startRollback()}
-                  onReleaseRollback={() => void liveTelemetry.releaseRollback()}
+                  onRelease={() =>
+                    void liveTelemetry.releaseExecution(
+                      genomeExecution.executionId,
+                    )
+                  }
+                  onRollback={() =>
+                    void liveTelemetry.startRollback(genomeExecution.executionId)
+                  }
+                  onReleaseRollback={() =>
+                    void liveTelemetry.releaseRollback(
+                      genomeExecution.executionId,
+                    )
+                  }
                   onRetry={() =>
                     void liveTelemetry.startControlledEvolution(
                       liveTelemetry.manifest?.mutationIds ??
@@ -772,7 +797,7 @@ function App() {
                     )
                   }
                 />
-              )}
+              ))}
             </section>
           )}
 

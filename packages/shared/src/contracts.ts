@@ -876,6 +876,17 @@ export const RepositoryMutationExecutionSchema = z.object({
   completedAt: z.string().datetime().nullable(),
 });
 
+export const EvolutionCycleSchema = z.object({
+  studyId: StudyIdentifierSchema,
+  startedAt: z.string().datetime().nullable(),
+  genomeEvolutionCount: z.number().int().nonnegative(),
+});
+
+export const GenomeHistoryResponseSchema = z.object({
+  evolutionCycle: EvolutionCycleSchema,
+  executions: z.array(RepositoryMutationExecutionSchema),
+});
+
 export const RepositoryExecutionCallbackSchema =
   RepositoryMutationExecutionSchema.pick({
     status: true,
@@ -965,6 +976,8 @@ export type CodexImplementationManifest = z.infer<
   typeof CodexImplementationManifestSchema
 >;
 export type CodexManifestRequest = z.infer<typeof CodexManifestRequestSchema>;
+export type EvolutionCycle = z.infer<typeof EvolutionCycleSchema>;
+export type GenomeHistoryResponse = z.infer<typeof GenomeHistoryResponseSchema>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;

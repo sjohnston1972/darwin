@@ -2,6 +2,7 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  GenomeHistoryResponseSchema,
   RepositoryMutationExecutionSchema,
   StudyEventsResponseSchema,
   type CodexImplementationManifest,
@@ -26,6 +27,8 @@ export interface LiveTelemetryState {
   evidence: EvidencePack | null;
   error: string | null;
   events: StoredTelemetryEvent[];
+  genomeEvolutionCount: number;
+  genomeExecutions: RepositoryMutationExecution[];
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
@@ -41,9 +44,9 @@ export interface LiveTelemetryState {
   sessionCounts: Record<string, number>;
   startControlledEvolution: (mutationIds: string[]) => Promise<void>;
   status: 'loading' | 'live' | 'offline';
-  releaseExecution: () => Promise<void>;
-  releaseRollback: () => Promise<void>;
-  startRollback: () => Promise<void>;
+  releaseExecution: (executionId?: string) => Promise<void>;
+  releaseRollback: (executionId?: string) => Promise<void>;
+  startRollback: (executionId?: string) => Promise<void>;
 }
 
 export function useLiveTelemetry(): LiveTelemetryState {
@@ -65,6 +68,10 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [preparingManifest, setPreparingManifest] = useState(false);
   const [execution, setExecution] =
     useState<RepositoryMutationExecution | null>(null);
+  const [genomeEvolutionCount, setGenomeEvolutionCount] = useState(0);
+  const [genomeExecutions, setGenomeExecutions] = useState<
+    RepositoryMutationExecution[]
+  >([]);
   const [implementing, setImplementing] = useState(false);
   const [releasingExecution, setReleasingExecution] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
@@ -72,8 +79,28 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
 
+  const refreshGenome = async () => {
+    const response = await fetch(`${apiBaseUrl}/api/genome`);
+    if (!response.ok) return;
+    const history = GenomeHistoryResponseSchema.parse(await response.json());
+    setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
+    setGenomeExecutions(history.executions);
+  };
+
+  const resetCurrentCycleMeasurements = () => {
+    setEvents([]);
+    setCount(0);
+    setSessionCounts({});
+    setParticipantCount(0);
+    setBehaviorSignalCount(0);
+    setEvidence(null);
+    setAnalysis(null);
+    setManifest(null);
+  };
+
   useEffect(() => {
     let active = true;
+    void refreshGenome().catch(() => undefined);
     const load = async () => {
       const generation = resetGeneration.current;
       try {
@@ -98,6 +125,10 @@ export function useLiveTelemetry(): LiveTelemetryState {
     void load();
     const initialGeneration = resetGeneration.current;
     const loadDerivedState = async () => {
+      setEvidence(null);
+      setAnalysis(null);
+      setManifest(null);
+      setExecution(null);
       const evidenceResponse = await fetch(
         `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
       );
@@ -298,19 +329,30 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
-  const releaseExecution = async () => {
-    if (!execution) return;
+  const releaseExecution = async (executionId?: string) => {
+    const targetExecution =
+      (executionId
+        ? genomeExecutions.find((item) => item.executionId === executionId)
+        : execution) ?? execution;
+    if (!targetExecution) return;
     setReleasingExecution(true);
     setError(null);
     try {
       const response = await fetch(
-        `${apiBaseUrl}/api/repository-executions/${execution.executionId}/release`,
+        `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/release`,
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
-      if (parsedExecution.success) setExecution(parsedExecution.data);
+      if (parsedExecution.success) {
+        setExecution(parsedExecution.data);
+        if (parsedExecution.data.status === 'released') {
+          resetCurrentCycleMeasurements();
+          await refreshGenome();
+          setExecution(null);
+        }
+      }
       if (!response.ok) {
         throw new Error(
           parsedExecution.success
@@ -327,19 +369,26 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
-  const startRollback = async () => {
-    if (!execution) return;
+  const startRollback = async (executionId?: string) => {
+    const targetExecution =
+      (executionId
+        ? genomeExecutions.find((item) => item.executionId === executionId)
+        : execution) ?? execution;
+    if (!targetExecution) return;
     setRollingBack(true);
     setError(null);
     try {
       const response = await fetch(
-        `${apiBaseUrl}/api/repository-executions/${execution.executionId}/rollback`,
+        `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/rollback`,
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
-      if (parsedExecution.success) setExecution(parsedExecution.data);
+      if (parsedExecution.success) {
+        setExecution(parsedExecution.data);
+        await refreshGenome();
+      }
       if (!response.ok) {
         throw new Error(
           parsedExecution.success
@@ -357,19 +406,26 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
-  const releaseRollback = async () => {
-    if (!execution?.rollback) return;
+  const releaseRollback = async (executionId?: string) => {
+    const targetExecution =
+      (executionId
+        ? genomeExecutions.find((item) => item.executionId === executionId)
+        : execution) ?? execution;
+    if (!targetExecution?.rollback) return;
     setReleasingRollback(true);
     setError(null);
     try {
       const response = await fetch(
-        `${apiBaseUrl}/api/repository-executions/${execution.executionId}/rollback/release`,
+        `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/rollback/release`,
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
-      if (parsedExecution.success) setExecution(parsedExecution.data);
+      if (parsedExecution.success) {
+        setExecution(parsedExecution.data);
+        await refreshGenome();
+      }
       if (!response.ok) {
         throw new Error(
           parsedExecution.success
@@ -398,6 +454,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setAnalysis(null);
     setManifest(null);
     setExecution(null);
+    setGenomeEvolutionCount(0);
+    setGenomeExecutions([]);
     setError(null);
     setGenerating(false);
     setAnalysing(false);
@@ -442,6 +500,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
     execution,
     generateEvidence,
     generating,
+    genomeEvolutionCount,
+    genomeExecutions,
     implementing,
     manifest,
     participantCount,

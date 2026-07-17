@@ -3,6 +3,7 @@ import {
   DemoResetResponseSchema,
   EvidencePackSchema,
   EvidenceAnalysisSchema,
+  GenomeHistoryResponseSchema,
   HealthResponseSchema,
   ParticipantWorkspaceResponseSchema,
   RepositoryMutationExecutionSchema,
@@ -771,6 +772,26 @@ describe('Darwin API', () => {
     expect(releaseResponse.status).toBe(200);
     expect(releasedExecution.status).toBe('released');
     expect(releasedExecution.headSha).toBe('f'.repeat(40));
+
+    const genomeResponse = await handleRequest(
+      new Request('http://localhost/api/genome'),
+    );
+    const genome = GenomeHistoryResponseSchema.parse(
+      await genomeResponse.json(),
+    );
+    expect(genome.evolutionCycle.genomeEvolutionCount).toBe(1);
+    expect(genome.evolutionCycle.startedAt).not.toBeNull();
+    expect(genome.executions).toHaveLength(1);
+    expect(genome.executions[0]?.executionId).toBe(execution.executionId);
+
+    const nextCycleEventsResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
+      ),
+    );
+    expect(
+      StudyEventsResponseSchema.parse(await nextCycleEventsResponse.json()).count,
+    ).toBe(0);
 
     const rollbackResponse = await handleRequest(
       new Request(

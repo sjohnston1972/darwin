@@ -320,6 +320,17 @@ const installApi = (
           behaviorSignalCount: 8,
         });
       }
+      if (url.endsWith('/api/genome')) {
+        const released = liveExecution?.status === 'released';
+        return response({
+          evolutionCycle: {
+            studyId: 'projectflow-baseline-study',
+            startedAt: released ? timestamp : null,
+            genomeEvolutionCount: released ? 1 : 0,
+          },
+          executions: liveExecution ? [liveExecution] : [],
+        });
+      }
       if (url.includes('/evidence/latest')) return response(evidence);
       if (url.includes('/evidence-analysis/latest'))
         return latestAnalysis ? response(latestAnalysis) : response(null, 204);
@@ -655,10 +666,7 @@ describe('Darwin control room', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Release reviewed mutation' }),
     );
-    expect(await screen.findByText('Ready for fresh evidence')).toBeVisible();
-    expect(
-      screen.getByRole('link', { name: 'Open Genome' }),
-    ).toHaveAttribute('href', '/?view=genome');
+    expect(await screen.findByText('Mutation workspace')).toBeVisible();
     window.history.replaceState({}, '', '/?view=genome');
     rerender(<App />);
     const executionArtifact = await waitFor(() => {

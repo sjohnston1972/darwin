@@ -4,6 +4,7 @@ import {
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  GenomeHistoryResponseSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
@@ -164,6 +165,10 @@ export const handleRequest = async (
   }
 
   const telemetryRepository = getTelemetryRepository(env?.DB);
+  const currentCycleStart = async (studyId: string) => {
+    const cycle = await telemetryRepository.getEvolutionCycle();
+    return cycle.studyId === studyId ? cycle.startedAt : null;
+  };
 
   if (request.method === 'GET' && pathname === '/api/health') {
     const response: HealthResponse = {
@@ -180,6 +185,15 @@ export const handleRequest = async (
     };
 
     return json(response);
+  }
+
+  if (request.method === 'GET' && pathname === '/api/genome') {
+    return json(
+      GenomeHistoryResponseSchema.parse({
+        evolutionCycle: await telemetryRepository.getEvolutionCycle(),
+        executions: await telemetryRepository.listRepositoryExecutions(),
+      }),
+    );
   }
 
   if (request.method === 'GET' && pathname === '/api/target-connection') {
@@ -436,8 +450,16 @@ export const handleRequest = async (
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
       : 50;
-    const events = await telemetryRepository.listEvents(studyId, limit);
-    const summary = await telemetryRepository.summarizeEvents(studyId);
+    const receivedAfter = await currentCycleStart(studyId);
+    const events = await telemetryRepository.listEvents(
+      studyId,
+      limit,
+      receivedAfter,
+    );
+    const summary = await telemetryRepository.summarizeEvents(
+      studyId,
+      receivedAfter,
+    );
     return json(
       StudyEventsResponseSchema.parse({
         studyId,
@@ -460,7 +482,11 @@ export const handleRequest = async (
       );
     }
     const events = (
-      await telemetryRepository.listEvents(studyId, 10_000)
+      await telemetryRepository.listEvents(
+        studyId,
+        10_000,
+        await currentCycleStart(studyId),
+      )
     ).filter((event) => event.source === source);
     if (!events.length) {
       return json(
@@ -500,7 +526,12 @@ export const handleRequest = async (
   );
   if (request.method === 'GET' && latestEvidenceMatch) {
     const studyId = decodeURIComponent(latestEvidenceMatch[1]!);
-    const pack = await telemetryRepository.getLatestEvidence(studyId);
+    const cycleStart = await currentCycleStart(studyId);
+    const storedPack = await telemetryRepository.getLatestEvidence(studyId);
+    const pack =
+      storedPack && (!cycleStart || storedPack.generatedAt > cycleStart)
+        ? storedPack
+        : null;
     if (!pack) {
       if (url.searchParams.get('optional') === 'true') {
         return new Response(null, { status: 204, headers: corsHeaders });
@@ -521,7 +552,12 @@ export const handleRequest = async (
   );
   if (request.method === 'POST' && analyseEvidenceMatch) {
     const studyId = decodeURIComponent(analyseEvidenceMatch[1]!);
-    const pack = await telemetryRepository.getLatestEvidence(studyId);
+    const cycleStart = await currentCycleStart(studyId);
+    const storedPack = await telemetryRepository.getLatestEvidence(studyId);
+    const pack =
+      storedPack && (!cycleStart || storedPack.generatedAt > cycleStart)
+        ? storedPack
+        : null;
     if (!pack || !pack.frictionSignals.length) {
       return json(
         {
@@ -600,8 +636,13 @@ export const handleRequest = async (
   );
   if (request.method === 'GET' && latestEvidenceAnalysisMatch) {
     const studyId = decodeURIComponent(latestEvidenceAnalysisMatch[1]!);
-    const analysis =
+    const cycleStart = await currentCycleStart(studyId);
+    const storedAnalysis =
       await telemetryRepository.getLatestEvidenceAnalysis(studyId);
+    const analysis =
+      storedAnalysis && (!cycleStart || storedAnalysis.createdAt > cycleStart)
+        ? storedAnalysis
+        : null;
     if (!analysis) {
       if (url.searchParams.get('optional') === 'true') {
         return new Response(null, { status: 204, headers: corsHeaders });
@@ -1103,6 +1144,7 @@ export const handleRequest = async (
         previewUrl: execution.repository.studyUrl,
       });
       await telemetryRepository.saveRepositoryExecution(execution);
+      await telemetryRepository.advanceEvolutionCycle();
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
       execution = updateRepositoryExecution(execution, {
@@ -1125,7 +1167,11 @@ export const handleRequest = async (
   if (request.method === 'GET' && studySessionMatch) {
     const studyId = decodeURIComponent(studySessionMatch[1]!);
     const sessionId = decodeURIComponent(studySessionMatch[2]!);
-    const events = await telemetryRepository.listSession(studyId, sessionId);
+    const events = await telemetryRepository.listSession(
+      studyId,
+      sessionId,
+      await currentCycleStart(studyId),
+    );
     return json(
       StudySessionResponseSchema.parse({ studyId, sessionId, events }),
     );

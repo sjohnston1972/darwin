@@ -1,12 +1,14 @@
-import type {
-  CodexImplementationManifest,
-  EvidenceAnalysis,
-  EvidencePack,
-  ProjectFlowWorkspace,
-  RepositoryMutationExecution,
-  StoredTelemetryEvent,
-  StudyTelemetryEvent,
-  TargetApplicationConnection,
+import {
+  EvolutionCycleSchema,
+  type CodexImplementationManifest,
+  type EvidenceAnalysis,
+  type EvidencePack,
+  type EvolutionCycle,
+  type ProjectFlowWorkspace,
+  type RepositoryMutationExecution,
+  type StoredTelemetryEvent,
+  type StudyTelemetryEvent,
+  type TargetApplicationConnection,
 } from '@darwin/shared';
 
 export interface TelemetryInsertResult {
@@ -26,11 +28,19 @@ export interface TelemetryRepository {
     events: StudyTelemetryEvent[],
     receivedAt: string,
   ): Promise<TelemetryInsertResult>;
-  listEvents(studyId: string, limit: number): Promise<StoredTelemetryEvent[]>;
-  summarizeEvents(studyId: string): Promise<TelemetryEventSummary>;
+  listEvents(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+  ): Promise<StoredTelemetryEvent[]>;
+  summarizeEvents(
+    studyId: string,
+    receivedAfter?: string | null,
+  ): Promise<TelemetryEventSummary>;
   listSession(
     studyId: string,
     sessionId: string,
+    receivedAfter?: string | null,
   ): Promise<StoredTelemetryEvent[]>;
   getWorkspace(
     studyId: string,
@@ -68,6 +78,9 @@ export interface TelemetryRepository {
   getRepositoryExecutionByAnalysis(
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
+  listRepositoryExecutions(): Promise<RepositoryMutationExecution[]>;
+  getEvolutionCycle(): Promise<EvolutionCycle>;
+  advanceEvolutionCycle(): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
   saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
   deleteTargetConnection(): Promise<void>;
@@ -84,6 +97,13 @@ const evidenceAnalysisStore = new Map<
 const manifestStore = new Map<string, CodexImplementationManifest>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
 let targetConnectionStore: TargetApplicationConnection | null = null;
+const baselineStudyId = 'projectflow-baseline-study';
+const defaultEvolutionCycle = (): EvolutionCycle => ({
+  studyId: baselineStudyId,
+  startedAt: null,
+  genomeEvolutionCount: 0,
+});
+let evolutionCycleStore = defaultEvolutionCycle();
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -112,9 +132,13 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return { accepted, duplicates };
   }
 
-  async listEvents(studyId: string, limit: number) {
+  async listEvents(studyId: string, limit: number, receivedAfter?: string | null) {
     return [...eventStore.values()]
-      .filter((event) => event.studyId === studyId)
+      .filter(
+        (event) =>
+          event.studyId === studyId &&
+          (!receivedAfter || event.receivedAt > receivedAfter),
+      )
       .sort((left, right) =>
         left.receivedAt === right.receivedAt
           ? left.sequence - right.sequence
@@ -123,17 +147,26 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
       .slice(-limit);
   }
 
-  async listSession(studyId: string, sessionId: string) {
+  async listSession(
+    studyId: string,
+    sessionId: string,
+    receivedAfter?: string | null,
+  ) {
     return [...eventStore.values()]
       .filter(
-        (event) => event.studyId === studyId && event.sessionId === sessionId,
+        (event) =>
+          event.studyId === studyId &&
+          event.sessionId === sessionId &&
+          (!receivedAfter || event.receivedAt > receivedAfter),
       )
       .sort((left, right) => left.sequence - right.sequence);
   }
 
-  async summarizeEvents(studyId: string) {
+  async summarizeEvents(studyId: string, receivedAfter?: string | null) {
     const events = [...eventStore.values()].filter(
-      (event) => event.studyId === studyId,
+      (event) =>
+        event.studyId === studyId &&
+        (!receivedAfter || event.receivedAt > receivedAfter),
     );
     const sessionCounts = events.reduce<Record<string, number>>(
       (counts, event) => {
@@ -232,6 +265,25 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     );
   }
 
+  async listRepositoryExecutions() {
+    return [...repositoryExecutionStore.values()].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt),
+    );
+  }
+
+  async getEvolutionCycle() {
+    return evolutionCycleStore;
+  }
+
+  async advanceEvolutionCycle() {
+    evolutionCycleStore = {
+      studyId: baselineStudyId,
+      startedAt: new Date().toISOString(),
+      genomeEvolutionCount: evolutionCycleStore.genomeEvolutionCount + 1,
+    };
+    return evolutionCycleStore;
+  }
+
   async getTargetConnection() {
     return targetConnectionStore;
   }
@@ -251,6 +303,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     evidenceAnalysisStore.clear();
     manifestStore.clear();
     repositoryExecutionStore.clear();
+    evolutionCycleStore = defaultEvolutionCycle();
   }
 }
 
@@ -293,16 +346,16 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return { accepted, duplicates: events.length - accepted };
   }
 
-  async listEvents(studyId: string, limit: number) {
+  async listEvents(studyId: string, limit: number, receivedAfter?: string | null) {
     const result = await this.database
       .prepare(
         `SELECT event_json, received_at
          FROM telemetry_events
-         WHERE study_id = ?
+         WHERE study_id = ? AND (? IS NULL OR received_at > ?)
          ORDER BY received_at DESC, sequence DESC
          LIMIT ?`,
       )
-      .bind(studyId, limit)
+      .bind(studyId, receivedAfter ?? null, receivedAfter ?? null, limit)
       .all<{ event_json: string; received_at: string }>();
 
     return result.results
@@ -313,15 +366,20 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .reverse();
   }
 
-  async listSession(studyId: string, sessionId: string) {
+  async listSession(
+    studyId: string,
+    sessionId: string,
+    receivedAfter?: string | null,
+  ) {
     const result = await this.database
       .prepare(
         `SELECT event_json, received_at
          FROM telemetry_events
          WHERE study_id = ? AND session_id = ?
+           AND (? IS NULL OR received_at > ?)
          ORDER BY sequence ASC`,
       )
-      .bind(studyId, sessionId)
+      .bind(studyId, sessionId, receivedAfter ?? null, receivedAfter ?? null)
       .all<{ event_json: string; received_at: string }>();
 
     return result.results.map((row) => ({
@@ -330,7 +388,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
     }));
   }
 
-  async summarizeEvents(studyId: string) {
+  async summarizeEvents(studyId: string, receivedAfter?: string | null) {
     const [totals, sessions] = await Promise.all([
       this.database
         .prepare(
@@ -341,9 +399,9 @@ export class D1TelemetryRepository implements TelemetryRepository {
                   'touch_cancelled', 'browser_navigation', 'viewport_zoom_changed'
                 ) THEN 1 ELSE 0 END) AS behavior_signal_count
          FROM telemetry_events
-         WHERE study_id = ?`,
+         WHERE study_id = ? AND (? IS NULL OR received_at > ?)`,
         )
-        .bind(studyId)
+        .bind(studyId, receivedAfter ?? null, receivedAfter ?? null)
         .first<{
           count: number;
           participant_count: number;
@@ -353,10 +411,10 @@ export class D1TelemetryRepository implements TelemetryRepository {
         .prepare(
           `SELECT session_id, COUNT(*) AS count
            FROM telemetry_events
-           WHERE study_id = ?
+           WHERE study_id = ? AND (? IS NULL OR received_at > ?)
            GROUP BY session_id`,
         )
-        .bind(studyId)
+        .bind(studyId, receivedAfter ?? null, receivedAfter ?? null)
         .all<{ session_id: string; count: number }>(),
     ]);
     return {
@@ -588,6 +646,68 @@ export class D1TelemetryRepository implements TelemetryRepository {
 
   async getRepositoryExecutionByAnalysis(analysisId: string) {
     return this.findRepositoryExecution('analysis_id', analysisId);
+  }
+
+  async listRepositoryExecutions() {
+    const result = await this.database
+      .prepare(
+        `SELECT execution_json FROM repository_executions ORDER BY updated_at DESC`,
+      )
+      .all<{ execution_json: string }>();
+    return result.results.map(
+      (row) => JSON.parse(row.execution_json) as RepositoryMutationExecution,
+    );
+  }
+
+  async getEvolutionCycle() {
+    const row = await this.database
+      .prepare(`SELECT state_json FROM demo_state WHERE state_key = ?`)
+      .bind('evolution-cycle')
+      .first<{ state_json: string }>();
+    if (row) {
+      try {
+        const parsed = EvolutionCycleSchema.safeParse(
+          JSON.parse(row.state_json),
+        );
+        if (parsed.success) return parsed.data;
+      } catch {
+        // Fall through to the retained-release compatibility path.
+      }
+    }
+
+    const retained = (await this.listRepositoryExecutions()).filter(
+      (execution) => execution.status === 'released',
+    );
+    if (!retained.length) return defaultEvolutionCycle();
+    return {
+      studyId: baselineStudyId,
+      startedAt: retained.reduce(
+        (latest, execution) =>
+          !latest || execution.updatedAt > latest ? execution.updatedAt : latest,
+        null as string | null,
+      ),
+      genomeEvolutionCount: retained.length,
+    };
+  }
+
+  async advanceEvolutionCycle() {
+    const current = await this.getEvolutionCycle();
+    const next: EvolutionCycle = {
+      studyId: baselineStudyId,
+      startedAt: new Date().toISOString(),
+      genomeEvolutionCount: current.genomeEvolutionCount + 1,
+    };
+    await this.database
+      .prepare(
+        `INSERT INTO demo_state (state_key, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(state_key) DO UPDATE SET
+           state_json = excluded.state_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind('evolution-cycle', JSON.stringify(next), next.startedAt)
+      .run();
+    return next;
   }
 
   async getTargetConnection() {
