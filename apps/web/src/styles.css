@@ -2974,10 +2974,6 @@ a:focus-visible {
   background: #181b19;
 }
 
-.live-evidence-embedded {
-  background: #181b19;
-}
-
 .rollback-workspace {
   border-top: 1px solid #2b302d;
   background: #121513;
@@ -3742,9 +3738,34 @@ html[data-theme='light'] .mutation-scorecard > div {
   background: #f7fafc;
 }
 
-html[data-theme='light'] .live-evidence-embedded,
 html[data-theme='light'] .execution-panel-embedded {
   background: #f7fafc;
+}
+
+html[data-theme='light'] .fossil-artifact {
+  border-color: #cbd8e2;
+  background: #edf6fb;
+}
+
+html[data-theme='light'] .fossil-artifact > summary:hover,
+html[data-theme='light'] .fossil-artifact[open] > summary {
+  background: #e2f0f8;
+}
+
+html[data-theme='light'] .fossil-artifact-summary > div > span {
+  color: #5f7485;
+}
+
+html[data-theme='light'] .fossil-artifact-summary strong {
+  color: #263746;
+}
+
+html[data-theme='light'] .fossil-artifact-chevron {
+  color: #50718a;
+}
+
+html[data-theme='light'] .fossil-artifact-detail {
+  border-color: #cbd8e2;
 }
 
 html[data-theme='light'] .repository-run-summary,

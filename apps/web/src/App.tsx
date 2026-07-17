@@ -24,6 +24,7 @@ import {
   ClipboardCheck,
   Code2,
   Database,
+  Dna,
   FileCheck2,
   ExternalLink,
   FlaskConical,
@@ -94,8 +95,8 @@ const navItems = [
     icon: Activity,
   },
   {
-    label: 'Fossil record',
-    icon: GitBranch,
+    label: 'Genome',
+    icon: Dna,
   },
 ] as const;
 
@@ -107,7 +108,7 @@ const dashboardRoutes: Record<DashboardView, string> = {
   Observations: '/?view=observations',
   Mutations: '/?view=mutations',
   'System status': '/?view=status',
-  'Fossil record': '/?view=fossil',
+  Genome: '/?view=genome',
 };
 
 function getDashboardView(): DashboardView {
@@ -120,8 +121,9 @@ function getDashboardView(): DashboardView {
       return 'Mutations';
     case 'status':
       return 'System status';
+    case 'genome':
     case 'fossil':
-      return 'Fossil record';
+      return 'Genome';
     default:
       return 'Control room';
   }
@@ -191,7 +193,6 @@ function App() {
   const mutationArchived =
     liveTelemetry.execution?.status === 'released' &&
     (!rollback || ['failed', 'released'].includes(rollback.status));
-  const observationsArchived = liveTelemetry.execution?.status === 'released';
   const activeGenomeLoci = repository
     ? [
         { locus: 'Repository', value: repository.fullName },
@@ -534,16 +535,13 @@ function App() {
             <WorkspaceHeading activeView={activeView} />
           )}
 
-          {activeView === 'Observations' &&
-            (observationsArchived && liveTelemetry.execution ? (
-              <ObservationWorkspaceReset />
-            ) : (
-              <LiveTelemetryPanel
-                telemetry={liveTelemetry}
-                analysisConfig={health.analysis}
-                mode="observations"
-              />
-            ))}
+          {activeView === 'Observations' && (
+            <LiveTelemetryPanel
+              telemetry={liveTelemetry}
+              analysisConfig={health.analysis}
+              mode="observations"
+            />
+          )}
 
           {activeView === 'Mutations' &&
             (mutationArchived && liveTelemetry.execution ? (
@@ -704,26 +702,26 @@ function App() {
             </section>
           )}
 
-          {activeView === 'Fossil record' && (
+          {activeView === 'Genome' && (
             <section
               className="mt-8 surface-panel"
-              id="fossil-record"
-              aria-labelledby="fossil-title"
+              id="genome-record"
+              aria-labelledby="genome-title"
             >
               <div className="panel-heading">
                 <div>
                   <p className="section-label">Evolution history</p>
                   <div className="heading-with-help">
                     <h2
-                      id="fossil-title"
+                      id="genome-title"
                       className="mt-2 text-xl font-semibold"
                     >
-                      Fossil record
+                      Genome
                     </h2>
-                    <InfoTip text="The version history of retained and rejected evolution events, including the selected genome and fitness at each point." />
+                    <InfoTip text="The retained genome history, including the measured evidence, code mutation, validation, release state, and any controlled rollback." />
                   </div>
                 </div>
-                <GitBranch size={19} className="text-mist" />
+                <Dna size={19} className="text-mist" />
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] text-left text-sm">
@@ -768,12 +766,6 @@ function App() {
                   </tbody>
                 </table>
               </div>
-              {liveTelemetry.execution && (
-                <FossilObservationArtifact
-                  telemetry={liveTelemetry}
-                  analysisConfig={health.analysis}
-                />
-              )}
               {liveTelemetry.execution && (
                 <FossilExecutionArtifact
                   execution={liveTelemetry.execution}
@@ -911,11 +903,11 @@ function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
       description:
         'Inspect the live Darwin services and the immutable ProjectFlow source snapshot used for selection.',
     },
-    'Fossil record': {
-      eyebrow: 'Evolution history',
-      title: 'Fossil record',
+    Genome: {
+      eyebrow: 'Genome history',
+      title: 'Genome',
       description:
-        'Review the retained genome history and the outcome of each controlled evolution event.',
+        'Review retained code mutations, their validation evidence, and controlled rollback history.',
     },
   };
   const view = content[activeView as keyof typeof content];
@@ -1184,7 +1176,7 @@ function TargetConnectionView({
                 type="button"
                 disabled={saving}
                 onClick={() => void onDisconnect()}
-                data-explain="Remove the active binding so the repository connection can be demonstrated again. Telemetry and fossil records are left unchanged."
+                data-explain="Remove the active binding so the repository connection can be demonstrated again. Telemetry and genome history are left unchanged."
               >
                 <Unplug size={16} /> Disconnect
               </button>
@@ -1413,14 +1405,10 @@ function LiveTelemetryPanel({
   telemetry,
   analysisConfig,
   mode,
-  archived = false,
-  embedded = false,
 }: {
   telemetry: LiveTelemetryState;
   analysisConfig: ApiHealthState['analysis'];
   mode: 'observations' | 'mutations';
-  archived?: boolean;
-  embedded?: boolean;
 }) {
   const isObservations = mode === 'observations';
   const sessions = [
@@ -1476,25 +1464,18 @@ function LiveTelemetryPanel({
   }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
   return (
-    <section
-      className={`${embedded ? 'live-evidence live-evidence-embedded' : 'mt-8 surface-panel live-evidence'}`}
-      id={embedded ? undefined : 'real-evidence'}
-    >
+    <section className="mt-8 surface-panel live-evidence" id="real-evidence">
       <div className="panel-heading live-evidence-heading">
         <div>
           <p className="section-label">
             {isObservations
-              ? archived
-                ? 'Archived measured source'
-                : 'Measured source · real users'
+              ? 'Measured source · real users'
               : 'Evidence-led selection'}
           </p>
           <div className="heading-with-help">
             <h2 className="mt-2 text-xl font-semibold">
               {isObservations
-                ? archived
-                  ? 'Study evidence record'
-                  : 'Live study evidence'
+                ? 'Live study evidence'
                 : 'Mutation workspace'}
             </h2>
             <InfoTip
@@ -1507,17 +1488,15 @@ function LiveTelemetryPanel({
           </div>
           <p className="mt-2 text-sm text-mist">
             {isObservations
-              ? archived
-                ? 'Captured semantic events and the evidence retained for this selection.'
-                : 'Ordered semantic events from standalone ProjectFlow.'
+              ? 'Ordered semantic events from standalone ProjectFlow.'
               : 'Compare real pressure clusters, choose a bounded mutation bundle, and supervise the implementation.'}
           </p>
         </div>
         <div className="live-evidence-actions">
           <span className={`source-status source-${telemetry.status}`}>
-            <span /> {archived ? 'archived' : telemetry.status}
+            <span /> {telemetry.status}
           </span>
-          {isObservations && !archived && (
+          {isObservations && (
             <button
               className="primary-action evidence-action"
               type="button"
@@ -2261,81 +2240,14 @@ function MutationWorkspaceReset({
         <h2 className="mt-2 text-xl font-semibold">Ready for fresh evidence</h2>
         <p className="mt-3 max-w-xl text-sm leading-6 text-mist">
           {rollbackReleased
-            ? 'The retained mutation and its reviewed rollback are recorded in the fossil record. New evidence can now begin the next controlled evolution cycle.'
-            : 'The retained mutation is recorded in the fossil record. New evidence can now begin the next controlled evolution cycle.'}
+            ? 'The retained mutation and its reviewed rollback are recorded in Genome. New evidence can now begin the next controlled evolution cycle.'
+            : 'The retained mutation is recorded in Genome. New evidence can now begin the next controlled evolution cycle.'}
         </p>
       </div>
-      <a className="secondary-action" href={dashboardRoutes['Fossil record']}>
-        <GitBranch size={16} /> Open fossil record
+      <a className="secondary-action" href={dashboardRoutes.Genome}>
+        <Dna size={16} /> Open Genome
       </a>
     </section>
-  );
-}
-
-function ObservationWorkspaceReset() {
-  return (
-    <section className="mt-8 surface-panel mutation-reset-panel">
-      <div>
-        <p className="section-label">Study archived</p>
-        <h2 className="mt-2 text-xl font-semibold">Ready for the next study</h2>
-        <p className="mt-3 max-w-xl text-sm leading-6 text-mist">
-          The measured event trace, evidence pack, and selection pressures are
-          retained in the fossil record with their resulting mutation.
-        </p>
-      </div>
-      <a className="secondary-action" href={dashboardRoutes['Fossil record']}>
-        <GitBranch size={16} /> Open fossil record
-      </a>
-    </section>
-  );
-}
-
-function FossilObservationArtifact({
-  telemetry,
-  analysisConfig,
-}: {
-  telemetry: LiveTelemetryState;
-  analysisConfig: ApiHealthState['analysis'];
-}) {
-  const evidence = telemetry.evidence;
-  return (
-    <details className="fossil-artifact" id="fossil-observations">
-      <summary>
-        <div className="fossil-artifact-summary">
-          <div>
-            <span>Observation</span>
-            <strong>{evidence?.study.studyId ?? 'Measured study'}</strong>
-          </div>
-          <div>
-            <span>Events</span>
-            <strong>{telemetry.count.toLocaleString('en-US')} captured</strong>
-          </div>
-          <div>
-            <span>Evidence</span>
-            <strong>
-              {evidence
-                ? `${evidence.quality.strength} · ${evidence.quality.score}/100`
-                : 'Awaiting evidence pack'}
-            </strong>
-          </div>
-          <div>
-            <span>Selection pressures</span>
-            <strong>{evidence?.frictionSignals.length ?? 0} recorded</strong>
-          </div>
-          <span className="status-badge">ARCHIVED</span>
-        </div>
-        <ChevronRight className="fossil-artifact-chevron" size={18} />
-      </summary>
-      <div className="fossil-artifact-detail">
-        <LiveTelemetryPanel
-          archived
-          embedded
-          telemetry={telemetry}
-          analysisConfig={analysisConfig}
-          mode="observations"
-        />
-      </div>
-    </details>
   );
 }
 

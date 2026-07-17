@@ -654,21 +654,17 @@ describe('Darwin control room', () => {
     );
     expect(await screen.findByText('Ready for fresh evidence')).toBeVisible();
     expect(
-      screen.getByRole('link', { name: 'Open fossil record' }),
-    ).toHaveAttribute('href', '/?view=fossil');
-    window.history.replaceState({}, '', '/?view=fossil');
+      screen.getByRole('link', { name: 'Open Genome' }),
+    ).toHaveAttribute('href', '/?view=genome');
+    window.history.replaceState({}, '', '/?view=genome');
     rerender(<App />);
-    const observationArtifact = await waitFor(() => {
+    const executionArtifact = await waitFor(() => {
       const artifact = document.querySelector<HTMLDetailsElement>(
-        '#fossil-observations',
+        '#fossil-execution-measured-test',
       );
       expect(artifact).not.toBeNull();
       return artifact!;
     });
-    const executionArtifact = document.querySelector<HTMLDetailsElement>(
-      '#fossil-execution-measured-test',
-    );
-    expect(observationArtifact.open).toBe(false);
     expect(executionArtifact?.open).toBe(false);
     fireEvent.click(
       executionArtifact!.querySelector(':scope > summary') as HTMLElement,
@@ -817,18 +813,18 @@ describe('Darwin control room', () => {
     );
   });
 
-  it('shows the fossil record in its own workspace', async () => {
-    window.history.replaceState({}, '', '/?view=fossil');
+  it('shows the Genome in its own workspace', async () => {
+    window.history.replaceState({}, '', '/?view=genome');
     installApi();
     render(<App />);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Fossil record' }),
+      screen.getByRole('heading', { level: 1, name: 'Genome' }),
     ).toBeVisible();
     expect(
-      screen.getByRole('heading', { level: 2, name: 'Fossil record' }),
+      screen.getByRole('heading', { level: 2, name: 'Genome' }),
     ).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Fossil record' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Genome' })).toHaveAttribute(
       'aria-current',
       'page',
     );
