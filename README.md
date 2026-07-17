@@ -15,7 +15,7 @@ Until a live manifest is executed, there is no candidate version to display.
 | Repository | Responsibility | Production |
 | --- | --- | --- |
 | [`sjohnston1972/darwin`](https://github.com/sjohnston1972/darwin) | Control room, telemetry API, evidence parsing, GPT reasoning and GitHub orchestration | [Control room](https://darwin-control-room.pages.dev) |
-| [`sjohnston1972/projectflow`](https://github.com/sjohnston1972/projectflow) | Instrumented target application and the Codex mutation workflow | [ProjectFlow](https://sjohnston1972.github.io/projectflow/) |
+| [`sjohnston1972/projectflow`](https://github.com/sjohnston1972/projectflow) | Instrumented target application and the Codex mutation workflow | [ProjectFlow](https://darwin-projectflow.pages.dev/) |
 
 The immutable ProjectFlow commit SHA and a hash of its reasoning context are
 stored with every analysis. A manifest cannot execute against a different
@@ -32,13 +32,13 @@ ProjectFlow interaction
   -> GitHub Actions + Codex source edit
   -> protected-path and change-budget checks
   -> real npm validation
-  -> pull request and GitHub Pages preview
+  -> pull request and isolated Cloudflare Pages preview
   -> human release
   -> merged commit in the fossil record
 ```
 
 Reset dispatches the target repository's reset workflow, restores the tagged
-`demo-baseline` source, redeploys it, and clears Darwin telemetry, evidence,
+`demo-baseline-v2` source, redeploys it, and clears Darwin telemetry, evidence,
 analyses, manifests and execution history.
 
 ## Local Development
@@ -68,8 +68,8 @@ GITHUB_TOKEN=github_fine_grained_token
 DARWIN_CALLBACK_TOKEN=a_shared_random_secret
 PROJECTFLOW_REPOSITORY=sjohnston1972/projectflow
 PROJECTFLOW_BRANCH=main
-PROJECTFLOW_PRODUCTION_URL=https://sjohnston1972.github.io/projectflow/
-PROJECTFLOW_STUDY_URL=https://sjohnston1972.github.io/projectflow/?study=true
+PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
+PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
 ```
 
 The GitHub token needs Actions read/write and pull-request/content permissions
@@ -124,18 +124,21 @@ npm run deploy:api
 npm run deploy:web
 ```
 
-ProjectFlow deploys from its own `main` branch through GitHub Pages. Candidate
-branches receive a separate Pages preview only after repository validation
-passes.
+ProjectFlow deploys from its own `main` branch to Cloudflare Pages. Candidate
+branches receive immutable Cloudflare preview deployments only after repository
+validation passes. The preview URL returned by Cloudflare is stored with the
+Darwin execution and never replaces production before release.
 
 ## Three-Minute Demo
 
-1. Click **Open measured study**, use ProjectFlow, and return to Darwin.
-2. Inspect the full event trace and generate the evidence pack.
-3. Click **Ask GPT-5.6** and expand the ranked pressure clusters.
-4. Select one or more mutation candidates and create the manifest.
-5. Start controlled evolution and open the live GitHub Actions run.
-6. Review the actual diff, checks, Codex summary, pull request and preview.
-7. Release the reviewed mutation; Darwin records the merged commit.
+1. Open **Target application**, connect `sjohnston1972/projectflow`, and show
+   the verified GitHub commit, target contract, Cloudflare runtime and study.
+2. Click **Open measured study**, use ProjectFlow, and return to Darwin.
+3. Inspect the full event trace and generate the evidence pack.
+4. Click **Ask GPT-5.6** and expand the ranked pressure clusters.
+5. Select one or more mutation candidates and create the manifest.
+6. Start controlled evolution and open the live GitHub Actions run.
+7. Review the diff, checks, Codex summary and Cloudflare preview, then release
+   the mutation so Darwin records the merged commit.
 
 No source edit or variant switch is performed manually during this flow.

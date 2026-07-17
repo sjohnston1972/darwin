@@ -739,7 +739,7 @@ describe('Darwin API', () => {
     );
     const preview = await callback({
       status: 'preview_ready',
-      previewUrl: 'https://sjohnston1972.github.io/projectflow/?study=true',
+      previewUrl: 'https://darwin-projectflow.pages.dev/?study=true',
       changedFiles: ['apps/projectflow/src/App.tsx'],
       checks: [
         {
