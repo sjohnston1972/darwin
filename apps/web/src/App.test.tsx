@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
@@ -453,7 +459,7 @@ afterEach(() => {
 });
 
 describe('Darwin control room', () => {
-  it('starts with the measured ProjectFlow workflow, not a synthetic demo', async () => {
+  it('keeps the control room as a concise operational overview', async () => {
     const fetchMock = installApi();
     render(<App />);
 
@@ -485,19 +491,29 @@ describe('Darwin control room', () => {
       screen.queryByRole('heading', { name: 'Standalone ProjectFlow' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: 'Repository genome · --' }),
-    ).toBeVisible();
+      screen.queryByRole('heading', { name: 'Repository genome · --' }),
+    ).not.toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', {
+      name: 'Primary navigation',
+    });
+    expect(
+      within(navigation).getByRole('link', { name: 'Observations' }),
+    ).toHaveAttribute('href', '/?view=observations');
+    expect(
+      within(navigation).getByRole('link', { name: 'Mutations' }),
+    ).toHaveAttribute('href', '/?view=mutations');
+    expect(
+      within(navigation).getByRole('link', { name: 'System status' }),
+    ).toHaveAttribute('href', '/?view=status');
+    expect(
+      screen.queryByRole('heading', { name: 'Live study evidence' }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('Evolved · v1.1')).not.toBeInTheDocument();
     document
       .querySelectorAll<HTMLImageElement>('.brand-mark')
       .forEach((mark) => {
         expect(mark.src).toContain('/assets/darwin-growth-mark.png');
       });
-    expect(
-      await screen.findByText('Evidence pack evidence-measured-test'),
-    ).toBeVisible();
-    expect(screen.getAllByText('14').length).toBeGreaterThan(0);
-    expect(screen.getByText('directional')).toBeVisible();
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/events?limit=200'),
@@ -506,6 +522,7 @@ describe('Darwin control room', () => {
   });
 
   it('shows live GPT pressure clusters, ranked mutations, and Codex handoff', async () => {
+    window.history.replaceState({}, '', '/?view=mutations');
     const fetchMock = installApi();
     render(<App />);
 
@@ -584,11 +601,6 @@ describe('Darwin control room', () => {
     );
     expect(await screen.findByText('Mutation released')).toBeVisible();
     await waitFor(() =>
-      expect(
-        screen.getByRole('link', { name: /Open measured study/ }),
-      ).toHaveAttribute('href', repository.studyUrl),
-    );
-    await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/analyse-evidence'),
         { method: 'POST' },
@@ -657,6 +669,7 @@ describe('Darwin control room', () => {
   });
 
   it('uses the connected repository snapshot as the active genome', async () => {
+    window.history.replaceState({}, '', '/?view=status');
     installApi(null, targetConnection);
     render(<App />);
 
@@ -665,12 +678,14 @@ describe('Darwin control room', () => {
         name: `Repository genome · ${repository.baseSha.slice(0, 12)}`,
       }),
     ).toBeVisible();
-    expect(
-      screen.getByRole('link', { name: /Open measured study/ }),
-    ).toHaveAttribute('href', repository.studyUrl);
+    expect(screen.getByRole('link', { name: 'System status' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {
+    window.history.replaceState({}, '', '/?view=mutations');
     installApi({
       ...analysis,
       evidenceId: 'evidence-stale-test',
@@ -700,5 +715,49 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('button', { name: 'Switch to dark theme' }),
     ).toBeVisible();
+  });
+
+  it('keeps detailed telemetry separate from the mutation workspace', async () => {
+    window.history.replaceState({}, '', '/?view=observations');
+    installApi();
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Observations' }),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Live study evidence' }),
+    ).toBeVisible();
+    expect(
+      screen.getByText('Evidence pack evidence-measured-test'),
+    ).toBeVisible();
+    expect(screen.getByText('directional')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Ask gpt-5.6' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Observations' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('shows the fossil record in its own workspace', async () => {
+    window.history.replaceState({}, '', '/?view=fossil');
+    installApi();
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Fossil record' }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Fossil record' }),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Fossil record' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(
+      screen.queryByRole('heading', { name: 'Live study evidence' }),
+    ).not.toBeInTheDocument();
   });
 });

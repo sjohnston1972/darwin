@@ -89,10 +89,42 @@ const navItems = [
     icon: FlaskConical,
   },
   {
+    label: 'System status',
+    icon: Activity,
+  },
+  {
     label: 'Fossil record',
     icon: GitBranch,
   },
 ] as const;
+
+type DashboardView = (typeof navItems)[number]['label'];
+
+const dashboardRoutes: Record<DashboardView, string> = {
+  'Control room': '/',
+  'Target application': '/?view=target',
+  Observations: '/?view=observations',
+  Mutations: '/?view=mutations',
+  'System status': '/?view=status',
+  'Fossil record': '/?view=fossil',
+};
+
+function getDashboardView(): DashboardView {
+  switch (new URLSearchParams(window.location.search).get('view')) {
+    case 'target':
+      return 'Target application';
+    case 'observations':
+      return 'Observations';
+    case 'mutations':
+      return 'Mutations';
+    case 'status':
+      return 'System status';
+    case 'fossil':
+      return 'Fossil record';
+    default:
+      return 'Control room';
+  }
+}
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const projectFlowBaseUrl =
@@ -114,8 +146,7 @@ function App() {
     analysis: null,
   });
   const [navigationOpen, setNavigationOpen] = useState(false);
-  const targetOnly =
-    new URLSearchParams(window.location.search).get('view') === 'target';
+  const activeView = getDashboardView();
   const targetConnection = useTargetConnection();
   const liveTelemetry = useLiveTelemetry();
   const repository =
@@ -242,7 +273,7 @@ function App() {
     return () => controller.abort();
   }, []);
 
-  if (targetOnly) {
+  if (activeView === 'Target application') {
     return (
       <div className="min-h-screen bg-carbon text-white">
         <GlobalExplainTooltip />
@@ -304,7 +335,7 @@ function App() {
     <div className="min-h-screen bg-carbon text-white">
       <GlobalExplainTooltip />
       <DashboardSidebar
-        activeView="Control room"
+        activeView={activeView}
         health={health}
         navigationOpen={navigationOpen}
         onClose={() => setNavigationOpen(false)}
@@ -330,9 +361,9 @@ function App() {
             <Menu size={19} />
           </button>
           <div className="flex items-center gap-2 text-xs text-mist">
-            <span className="hidden sm:inline">Target application</span>
+            <span className="hidden sm:inline">Workspace</span>
             <ChevronRight className="hidden sm:block" size={14} />
-            <span className="font-mono text-white">ProjectFlow</span>
+            <span className="font-mono text-white">{activeView}</span>
           </div>
           <div className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist">
             <span
@@ -358,290 +389,358 @@ function App() {
         </header>
 
         <div className="mx-auto max-w-[1640px] px-5 pb-12 pt-8 sm:px-8 lg:px-10 lg:pt-11">
-          <section className="hero-band" aria-labelledby="page-title">
-            <img
-              className="hero-dna-visual"
-              src="/assets/darwin-dna-wireframe.webp"
-              alt=""
-              aria-hidden="true"
-            />
-            <div className="relative z-10 max-w-3xl">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
-                <Activity size={15} /> Control room
-                <InfoTip text="Darwin's operator view: observe behavior, ask the configured analyzer for one mutation, approve it, validate it, and retain or reject it." />
-              </div>
-              <h1
-                id="page-title"
-                className="mt-5 text-4xl font-semibold sm:text-5xl lg:text-[56px] lg:leading-[1.05]"
-              >
-                Darwin
-              </h1>
-              <p className="mt-3 text-xl text-white sm:text-2xl">
-                Helping your software evolve.
-              </p>
-              <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base">
-                {targetConnection.connection
-                  ? 'ProjectFlow is connected. Its genome is ready for observation, measurement, and controlled selection.'
-                  : 'Connect ProjectFlow to verify its repository genome, measured runtime, and controlled mutation boundary.'}
-              </p>
-            </div>
-            <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
-              <div className="start-action-wrap">
-                {!liveTelemetry.count && (
-                  <span className="start-here-cue" aria-hidden="true">
-                    Start here <ArrowDown size={15} />
-                  </span>
-                )}
-                <a
-                  className="primary-action"
-                  href={targetApplicationUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
-                >
-                  <Radar size={17} /> Open measured study
-                </a>
-              </div>
-              {!liveTelemetry.analysis && (
-                <span className="demo-status status-idle">
-                  <Activity size={15} />
-                  {liveTelemetry.evidence
-                    ? `${liveTelemetry.evidence.frictionSignals.length} pressures ready for GPT`
-                    : liveTelemetry.count
-                      ? `${liveTelemetry.count} measured events`
-                      : 'Awaiting measured behavior'}
-                </span>
-              )}
-            </div>
-          </section>
-
-          <section
-            className="metric-grid"
-            aria-label="Target application metrics"
-          >
-            {metrics.map((metric) => (
-              <article className="metric-card" key={metric.label}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="metric-label">
-                    <p className="text-sm text-mist">{metric.label}</p>
-                    <InfoTip text={metric.help} />
+          {activeView === 'Control room' && (
+            <>
+              <section className="hero-band" aria-labelledby="page-title">
+                <img
+                  className="hero-dna-visual"
+                  src="/assets/darwin-dna-wireframe.webp"
+                  alt=""
+                  aria-hidden="true"
+                />
+                <div className="relative z-10 max-w-3xl">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
+                    <Activity size={15} /> Control room
+                    <InfoTip text="Darwin's operator view: observe behavior, ask the configured analyzer for one mutation, approve it, validate it, and retain or reject it." />
                   </div>
-                  <span
-                    className={`metric-indicator indicator-${metric.tone}`}
-                    aria-hidden="true"
-                  />
+                  <h1
+                    id="page-title"
+                    className="mt-5 text-4xl font-semibold sm:text-5xl lg:text-[56px] lg:leading-[1.05]"
+                  >
+                    Darwin
+                  </h1>
+                  <p className="mt-3 text-xl text-white sm:text-2xl">
+                    Helping your software evolve.
+                  </p>
+                  <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base">
+                    {targetConnection.connection
+                      ? 'ProjectFlow is connected. Its genome is ready for observation, measurement, and controlled selection.'
+                      : 'Connect ProjectFlow to verify its repository genome, measured runtime, and controlled mutation boundary.'}
+                  </p>
                 </div>
-                <p className="mt-5 font-mono text-3xl font-medium sm:text-[34px]">
-                  {metric.value}
-                </p>
-                <p className="mt-2 text-xs text-mist">{metric.meta}</p>
-              </article>
-            ))}
-          </section>
+                <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
+                  <div className="start-action-wrap">
+                    {!liveTelemetry.count && (
+                      <span className="start-here-cue" aria-hidden="true">
+                        Start here <ArrowDown size={15} />
+                      </span>
+                    )}
+                    <a
+                      className="primary-action"
+                      href={targetApplicationUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
+                    >
+                      <Radar size={17} /> Open measured study
+                    </a>
+                  </div>
+                  {!liveTelemetry.analysis && (
+                    <span className="demo-status status-idle">
+                      <Activity size={15} />
+                      {liveTelemetry.evidence
+                        ? `${liveTelemetry.evidence.frictionSignals.length} pressures ready for GPT`
+                        : liveTelemetry.count
+                          ? `${liveTelemetry.count} measured events`
+                          : 'Awaiting measured behavior'}
+                    </span>
+                  )}
+                </div>
+              </section>
 
-          <LiveTelemetryPanel
-            telemetry={liveTelemetry}
-            analysisConfig={health.analysis}
-          />
+              <section
+                className="metric-grid"
+                aria-label="Target application metrics"
+              >
+                {metrics.map((metric) => (
+                  <article className="metric-card" key={metric.label}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="metric-label">
+                        <p className="text-sm text-mist">{metric.label}</p>
+                        <InfoTip text={metric.help} />
+                      </div>
+                      <span
+                        className={`metric-indicator indicator-${metric.tone}`}
+                        aria-hidden="true"
+                      />
+                    </div>
+                    <p className="mt-5 font-mono text-3xl font-medium sm:text-[34px]">
+                      {metric.value}
+                    </p>
+                    <p className="mt-2 text-xs text-mist">{metric.meta}</p>
+                  </article>
+                ))}
+              </section>
 
-          {liveTelemetry.execution && (
-            <RepositoryExecutionWorkspace
-              execution={liveTelemetry.execution}
-              manifest={liveTelemetry.manifest}
-              releasing={liveTelemetry.releasingExecution}
-              retrying={liveTelemetry.implementing}
-              onRelease={() => void liveTelemetry.releaseExecution()}
-              onRetry={() =>
-                void liveTelemetry.startControlledEvolution(
-                  liveTelemetry.manifest?.mutationIds ??
-                    (liveTelemetry.manifest
-                      ? [liveTelemetry.manifest.mutationId]
-                      : []),
-                )
-              }
+              <section className="mt-8 grid gap-3 md:grid-cols-3">
+                <a
+                  className="surface-panel p-5"
+                  href={dashboardRoutes.Observations}
+                >
+                  <Radar size={18} className="text-signal" />
+                  <p className="mt-5 text-sm font-semibold">Observations</p>
+                  <p className="mt-2 text-xs leading-5 text-mist">
+                    Inspect live sessions, semantic events, and evidence
+                    quality.
+                  </p>
+                </a>
+                <a
+                  className="surface-panel p-5"
+                  href={dashboardRoutes.Mutations}
+                >
+                  <FlaskConical size={18} className="text-signal" />
+                  <p className="mt-5 text-sm font-semibold">Mutations</p>
+                  <p className="mt-2 text-xs leading-5 text-mist">
+                    Ask GPT to reason, select candidates, and review Codex
+                    output.
+                  </p>
+                </a>
+                <a
+                  className="surface-panel p-5"
+                  href={dashboardRoutes['System status']}
+                >
+                  <Server size={18} className="text-signal" />
+                  <p className="mt-5 text-sm font-semibold">System status</p>
+                  <p className="mt-2 text-xs leading-5 text-mist">
+                    Check the Darwin runtime and active ProjectFlow genome.
+                  </p>
+                </a>
+              </section>
+            </>
+          )}
+
+          {activeView !== 'Control room' && (
+            <WorkspaceHeading activeView={activeView} />
+          )}
+
+          {activeView === 'Observations' && (
+            <LiveTelemetryPanel
+              telemetry={liveTelemetry}
+              analysisConfig={health.analysis}
+              mode="observations"
             />
           )}
 
-          <section className="mt-8 grid gap-8 lg:grid-cols-2">
-            <aside
-              className="surface-panel"
-              aria-labelledby="system-status-title"
-            >
-              <div className="panel-heading">
-                <div>
-                  <p className="section-label">System status</p>
-                  <div className="heading-with-help">
-                    <h2
-                      id="system-status-title"
-                      className="mt-2 text-xl font-semibold"
-                    >
-                      {health.status === 'online'
-                        ? 'Runtime connected'
-                        : health.status === 'offline'
-                          ? 'Runtime unavailable'
-                          : 'Checking runtime'}
-                    </h2>
-                    <InfoTip text="Live status returned by the Cloudflare Worker and D1-backed telemetry pipeline, plus the active target application state." />
-                  </div>
-                </div>
-                <Network size={19} className="text-mist" />
-              </div>
-              <div className="divide-y divide-line px-5 sm:px-6">
-                <StatusRow
-                  icon={Server}
-                  label="Worker API"
-                  value={
-                    health.version ? `v${health.version} online` : health.status
+          {activeView === 'Mutations' && (
+            <>
+              <LiveTelemetryPanel
+                telemetry={liveTelemetry}
+                analysisConfig={health.analysis}
+                mode="mutations"
+              />
+              {liveTelemetry.execution && (
+                <RepositoryExecutionWorkspace
+                  execution={liveTelemetry.execution}
+                  manifest={liveTelemetry.manifest}
+                  releasing={liveTelemetry.releasingExecution}
+                  retrying={liveTelemetry.implementing}
+                  onRelease={() => void liveTelemetry.releaseExecution()}
+                  onRetry={() =>
+                    void liveTelemetry.startControlledEvolution(
+                      liveTelemetry.manifest?.mutationIds ??
+                        (liveTelemetry.manifest
+                          ? [liveTelemetry.manifest.mutationId]
+                          : []),
+                    )
                   }
-                  ready={health.status === 'online'}
-                  help="The deployed Darwin Cloudflare Worker. Its version comes from the live /api/health response."
                 />
-                <StatusRow
-                  icon={Database}
-                  label="D1 telemetry"
-                  value={
-                    liveTelemetry.status === 'live'
-                      ? `${liveTelemetry.count} events`
-                      : liveTelemetry.status
-                  }
-                  ready={liveTelemetry.status === 'live'}
-                  help="Semantic events currently persisted and returned by the telemetry repository. Production uses Cloudflare D1."
-                />
-                <StatusRow
-                  icon={FileCheck2}
-                  label="Evidence engine"
-                  value={
-                    liveTelemetry.evidence
-                      ? `parser ${liveTelemetry.evidence.parserVersion} · ${liveTelemetry.evidence.frictionSignals.length} signals`
-                      : 'awaiting evidence'
-                  }
-                  ready={liveTelemetry.evidence !== null}
-                  help="The deterministic TypeScript parser that reconstructs attempts and converts raw events into bounded, citeable friction signals."
-                />
-                <StatusRow
-                  icon={GitBranch}
-                  label="Active genome"
-                  value={
-                    activeCommit
-                      ? `${activeCommit.slice(0, 12)} · ${liveTelemetry.execution?.status ?? 'measured baseline'}`
-                      : 'awaiting repository snapshot'
-                  }
-                  ready={repository !== undefined}
-                  help="The exact ProjectFlow Git commit currently retained on the tracked branch. Candidate commits remain review-only until their pull request is released."
-                />
-              </div>
-            </aside>
+              )}
+            </>
+          )}
 
-            <aside
-              className="surface-panel"
-              aria-labelledby="variant-summary-title"
-            >
-              <div className="panel-heading">
-                <div>
-                  <p className="section-label">Genome state</p>
-                  <div className="heading-with-help">
-                    <h2
-                      id="variant-summary-title"
-                      className="mt-2 text-xl font-semibold"
-                    >
-                      Repository genome · {activeCommit?.slice(0, 12) ?? '--'}
-                    </h2>
-                    <InfoTip text="The immutable repository snapshot used by GPT and Codex. The active commit changes only after a reviewed pull request is merged." />
-                  </div>
-                </div>
-                <Code2 size={19} className="text-mist" />
-              </div>
-              <div
-                className="genome-comparison"
-                role="table"
-                aria-label="Active genome configuration"
+          {activeView === 'System status' && (
+            <section className="mt-8 grid gap-8 lg:grid-cols-2">
+              <aside
+                className="surface-panel"
+                aria-labelledby="system-status-title"
               >
-                <div className="genome-comparison-header" role="row">
-                  <span role="columnheader">Locus</span>
-                  <strong className="is-active" role="columnheader">
-                    {liveTelemetry.execution?.status ?? 'baseline'}
-                  </strong>
-                </div>
-                {activeGenomeLoci.map((row) => (
-                  <div
-                    className="genome-comparison-row"
-                    key={row.locus}
-                    role="row"
-                  >
-                    <span role="cell">{row.locus}</span>
-                    <code className="is-active" role="cell">
-                      {row.value}
-                    </code>
+                <div className="panel-heading">
+                  <div>
+                    <p className="section-label">System status</p>
+                    <div className="heading-with-help">
+                      <h2
+                        id="system-status-title"
+                        className="mt-2 text-xl font-semibold"
+                      >
+                        {health.status === 'online'
+                          ? 'Runtime connected'
+                          : health.status === 'offline'
+                            ? 'Runtime unavailable'
+                            : 'Checking runtime'}
+                      </h2>
+                      <InfoTip text="Live status returned by the Cloudflare Worker and D1-backed telemetry pipeline, plus the active target application state." />
+                    </div>
                   </div>
-                ))}
-                <div className="genome-comparison-source">
-                  <Code2 size={13} /> Live GitHub repository state
+                  <Network size={19} className="text-mist" />
                 </div>
-              </div>
-            </aside>
-          </section>
+                <div className="divide-y divide-line px-5 sm:px-6">
+                  <StatusRow
+                    icon={Server}
+                    label="Worker API"
+                    value={
+                      health.version
+                        ? `v${health.version} online`
+                        : health.status
+                    }
+                    ready={health.status === 'online'}
+                    help="The deployed Darwin Cloudflare Worker. Its version comes from the live /api/health response."
+                  />
+                  <StatusRow
+                    icon={Database}
+                    label="D1 telemetry"
+                    value={
+                      liveTelemetry.status === 'live'
+                        ? `${liveTelemetry.count} events`
+                        : liveTelemetry.status
+                    }
+                    ready={liveTelemetry.status === 'live'}
+                    help="Semantic events currently persisted and returned by the telemetry repository. Production uses Cloudflare D1."
+                  />
+                  <StatusRow
+                    icon={FileCheck2}
+                    label="Evidence engine"
+                    value={
+                      liveTelemetry.evidence
+                        ? `parser ${liveTelemetry.evidence.parserVersion} · ${liveTelemetry.evidence.frictionSignals.length} signals`
+                        : 'awaiting evidence'
+                    }
+                    ready={liveTelemetry.evidence !== null}
+                    help="The deterministic TypeScript parser that reconstructs attempts and converts raw events into bounded, citeable friction signals."
+                  />
+                  <StatusRow
+                    icon={GitBranch}
+                    label="Active genome"
+                    value={
+                      activeCommit
+                        ? `${activeCommit.slice(0, 12)} · ${liveTelemetry.execution?.status ?? 'measured baseline'}`
+                        : 'awaiting repository snapshot'
+                    }
+                    ready={repository !== undefined}
+                    help="The exact ProjectFlow Git commit currently retained on the tracked branch. Candidate commits remain review-only until their pull request is released."
+                  />
+                </div>
+              </aside>
 
-          <section
-            className="mt-8 surface-panel"
-            id="fossil-record"
-            aria-labelledby="fossil-title"
-          >
-            <div className="panel-heading">
-              <div>
-                <p className="section-label">Evolution history</p>
-                <div className="heading-with-help">
-                  <h2 id="fossil-title" className="mt-2 text-xl font-semibold">
-                    Fossil record
-                  </h2>
-                  <InfoTip text="The version history of retained and rejected evolution events, including the selected genome and fitness at each point." />
+              <aside
+                className="surface-panel"
+                aria-labelledby="variant-summary-title"
+              >
+                <div className="panel-heading">
+                  <div>
+                    <p className="section-label">Genome state</p>
+                    <div className="heading-with-help">
+                      <h2
+                        id="variant-summary-title"
+                        className="mt-2 text-xl font-semibold"
+                      >
+                        Repository genome · {activeCommit?.slice(0, 12) ?? '--'}
+                      </h2>
+                      <InfoTip text="The immutable repository snapshot used by GPT and Codex. The active commit changes only after a reviewed pull request is merged." />
+                    </div>
+                  </div>
+                  <Code2 size={19} className="text-mist" />
                 </div>
+                <div
+                  className="genome-comparison"
+                  role="table"
+                  aria-label="Active genome configuration"
+                >
+                  <div className="genome-comparison-header" role="row">
+                    <span role="columnheader">Locus</span>
+                    <strong className="is-active" role="columnheader">
+                      {liveTelemetry.execution?.status ?? 'baseline'}
+                    </strong>
+                  </div>
+                  {activeGenomeLoci.map((row) => (
+                    <div
+                      className="genome-comparison-row"
+                      key={row.locus}
+                      role="row"
+                    >
+                      <span role="cell">{row.locus}</span>
+                      <code className="is-active" role="cell">
+                        {row.value}
+                      </code>
+                    </div>
+                  ))}
+                  <div className="genome-comparison-source">
+                    <Code2 size={13} /> Live GitHub repository state
+                  </div>
+                </div>
+              </aside>
+            </section>
+          )}
+
+          {activeView === 'Fossil record' && (
+            <section
+              className="mt-8 surface-panel"
+              id="fossil-record"
+              aria-labelledby="fossil-title"
+            >
+              <div className="panel-heading">
+                <div>
+                  <p className="section-label">Evolution history</p>
+                  <div className="heading-with-help">
+                    <h2
+                      id="fossil-title"
+                      className="mt-2 text-xl font-semibold"
+                    >
+                      Fossil record
+                    </h2>
+                    <InfoTip text="The version history of retained and rejected evolution events, including the selected genome and fitness at each point." />
+                  </div>
+                </div>
+                <GitBranch size={19} className="text-mist" />
               </div>
-              <GitBranch size={19} className="text-mist" />
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="border-b border-line text-xs uppercase text-mist">
-                  <tr>
-                    <th className="px-6 py-3 font-medium">Genome</th>
-                    <th className="px-6 py-3 font-medium">Event</th>
-                    <th className="px-6 py-3 font-medium">Selection</th>
-                    <th className="px-6 py-3 font-medium">Fitness</th>
-                    <th className="px-6 py-3 text-right font-medium">State</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="px-6 py-5 font-mono">v0.1</td>
-                    <td className="px-6 py-5 text-mist">
-                      Foundation established
-                    </td>
-                    <td className="px-6 py-5 text-mist">Baseline</td>
-                    <td className="px-6 py-5 font-mono text-mist">--</td>
-                    <td className="px-6 py-5 text-right">
-                      <span className="status-badge">RETAINED</span>
-                    </td>
-                  </tr>
-                  {!liveTelemetry.execution ? (
-                    <tr className="border-t border-line">
-                      <td className="px-6 py-5 font-mono">
-                        {repository?.baseSha.slice(0, 12) ?? 'baseline'}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="border-b border-line text-xs uppercase text-mist">
+                    <tr>
+                      <th className="px-6 py-3 font-medium">Genome</th>
+                      <th className="px-6 py-3 font-medium">Event</th>
+                      <th className="px-6 py-3 font-medium">Selection</th>
+                      <th className="px-6 py-3 font-medium">Fitness</th>
+                      <th className="px-6 py-3 text-right font-medium">
+                        State
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-6 py-5 font-mono">v0.1</td>
                       <td className="px-6 py-5 text-mist">
-                        ProjectFlow repository snapshot connected
+                        Foundation established
                       </td>
                       <td className="px-6 py-5 text-mist">Baseline</td>
                       <td className="px-6 py-5 font-mono text-mist">--</td>
                       <td className="px-6 py-5 text-right">
-                        <span className="status-badge">CURRENT</span>
+                        <span className="status-badge">RETAINED</span>
                       </td>
                     </tr>
-                  ) : (
-                    <RepositoryFossilRow execution={liveTelemetry.execution} />
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                    {!liveTelemetry.execution ? (
+                      <tr className="border-t border-line">
+                        <td className="px-6 py-5 font-mono">
+                          {repository?.baseSha.slice(0, 12) ?? 'baseline'}
+                        </td>
+                        <td className="px-6 py-5 text-mist">
+                          ProjectFlow repository snapshot connected
+                        </td>
+                        <td className="px-6 py-5 text-mist">Baseline</td>
+                        <td className="px-6 py-5 font-mono text-mist">--</td>
+                        <td className="px-6 py-5 text-right">
+                          <span className="status-badge">CURRENT</span>
+                        </td>
+                      </tr>
+                    ) : (
+                      <RepositoryFossilRow
+                        execution={liveTelemetry.execution}
+                      />
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
@@ -733,13 +832,57 @@ function useTargetConnection() {
   return { connection, loading, saving, error, connect, disconnect };
 }
 
+function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
+  const content: Record<
+    Exclude<DashboardView, 'Control room' | 'Target application'>,
+    { eyebrow: string; title: string; description: string }
+  > = {
+    Observations: {
+      eyebrow: 'Measured behavior',
+      title: 'Observations',
+      description:
+        'Review the real ProjectFlow sessions, interaction signals, and evidence Darwin can cite.',
+    },
+    Mutations: {
+      eyebrow: 'Controlled selection',
+      title: 'Mutations',
+      description:
+        'Reason over verified evidence, compare candidates, and supervise the bounded Codex implementation.',
+    },
+    'System status': {
+      eyebrow: 'Runtime and genome',
+      title: 'System status',
+      description:
+        'Inspect the live Darwin services and the immutable ProjectFlow source snapshot used for selection.',
+    },
+    'Fossil record': {
+      eyebrow: 'Evolution history',
+      title: 'Fossil record',
+      description:
+        'Review the retained genome history and the outcome of each controlled evolution event.',
+    },
+  };
+  const view = content[activeView as keyof typeof content];
+
+  if (!view) return null;
+  return (
+    <section className="border-b border-line pb-8">
+      <p className="section-label">{view.eyebrow}</p>
+      <h1 className="mt-3 text-3xl font-semibold sm:text-4xl">{view.title}</h1>
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-mist sm:text-base">
+        {view.description}
+      </p>
+    </section>
+  );
+}
+
 function DashboardSidebar({
   activeView,
   health,
   navigationOpen,
   onClose,
 }: {
-  activeView: 'Control room' | 'Target application';
+  activeView: DashboardView;
   health: ApiHealthState;
   navigationOpen: boolean;
   onClose: () => void;
@@ -772,12 +915,7 @@ function DashboardSidebar({
         <ul className="mt-3 space-y-1">
           {navItems.map(({ label, icon: Icon }) => {
             const active = label === activeView;
-            const href =
-              label === 'Control room'
-                ? '/'
-                : label === 'Target application'
-                  ? '/?view=target'
-                  : `/#${label.toLowerCase().replace(' ', '-')}`;
+            const href = dashboardRoutes[label];
 
             return (
               <li key={label}>
@@ -1218,10 +1356,13 @@ function GlobalExplainTooltip() {
 function LiveTelemetryPanel({
   telemetry,
   analysisConfig,
+  mode,
 }: {
   telemetry: LiveTelemetryState;
   analysisConfig: ApiHealthState['analysis'];
+  mode: 'observations' | 'mutations';
 }) {
+  const isObservations = mode === 'observations';
   const sessions = [
     ...new Set(telemetry.events.map((event) => event.sessionId)),
   ];
@@ -1278,33 +1419,49 @@ function LiveTelemetryPanel({
     <section className="mt-8 surface-panel live-evidence" id="real-evidence">
       <div className="panel-heading live-evidence-heading">
         <div>
-          <p className="section-label">Measured source · real users</p>
+          <p className="section-label">
+            {isObservations
+              ? 'Measured source · real users'
+              : 'Evidence-led selection'}
+          </p>
           <div className="heading-with-help">
-            <h2 className="mt-2 text-xl font-semibold">Live study evidence</h2>
-            <InfoTip text="Real semantic events ingested from the standalone ProjectFlow application. The view shows ordered behavior, sessions, participants, and detector-ready signals without recording typed values." />
+            <h2 className="mt-2 text-xl font-semibold">
+              {isObservations ? 'Live study evidence' : 'Mutation workspace'}
+            </h2>
+            <InfoTip
+              text={
+                isObservations
+                  ? 'Real semantic events ingested from the standalone ProjectFlow application. The view shows ordered behavior, sessions, participants, and detector-ready signals without recording typed values.'
+                  : 'GPT reasons only over the verified evidence pack and connected ProjectFlow source snapshot. Candidate changes stay reviewable until an approved manifest is executed.'
+              }
+            />
           </div>
           <p className="mt-2 text-sm text-mist">
-            Ordered semantic events from standalone ProjectFlow.
+            {isObservations
+              ? 'Ordered semantic events from standalone ProjectFlow.'
+              : 'Compare real pressure clusters, choose a bounded mutation bundle, and supervise the implementation.'}
           </p>
         </div>
         <div className="live-evidence-actions">
           <span className={`source-status source-${telemetry.status}`}>
             <span /> {telemetry.status}
           </span>
-          <button
-            className="primary-action evidence-action"
-            type="button"
-            disabled={!telemetry.count || telemetry.generating}
-            onClick={() => void telemetry.generateEvidence()}
-            data-explain="Parse the current measured D1 events into ordered journeys, coverage quality, task attempts, and citeable friction signals."
-          >
-            {telemetry.generating ? (
-              <CircleDashed className="is-spinning" size={15} />
-            ) : (
-              <FileCheck2 size={15} />
-            )}
-            {telemetry.generating ? 'Parsing evidence' : 'Generate evidence'}
-          </button>
+          {isObservations && (
+            <button
+              className="primary-action evidence-action"
+              type="button"
+              disabled={!telemetry.count || telemetry.generating}
+              onClick={() => void telemetry.generateEvidence()}
+              data-explain="Parse the current measured D1 events into ordered journeys, coverage quality, task attempts, and citeable friction signals."
+            >
+              {telemetry.generating ? (
+                <CircleDashed className="is-spinning" size={15} />
+              ) : (
+                <FileCheck2 size={15} />
+              )}
+              {telemetry.generating ? 'Parsing evidence' : 'Generate evidence'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1322,71 +1479,75 @@ function LiveTelemetryPanel({
         </div>
       )}
 
-      <div className="evidence-stats" aria-label="Real study counts">
-        <div data-explain="Every persisted semantic event in this study, counted across the full database rather than only the recent trace window.">
-          <Database size={16} />
-          <span>Raw events</span>
-          <strong>{telemetry.count}</strong>
-        </div>
-        <div data-explain="Distinct ordered browser sessions across the full persisted study.">
-          <Network size={16} />
-          <span>Sessions</span>
-          <strong>{Object.keys(telemetry.sessionCounts).length}</strong>
-        </div>
-        <div data-explain="Anonymous participant identifiers represented across the full persisted study.">
-          <Users size={16} />
-          <span>Participants</span>
-          <strong>{telemetry.participantCount}</strong>
-        </div>
-        <div data-explain="Hover hesitation, rage click, false affordance, indecision, drag expectation, browser Back, zoom-readability, and touch-conflict observations.">
-          <MousePointer2 size={16} />
-          <span>Behavior signals</span>
-          <strong>{telemetry.behaviorSignalCount}</strong>
-        </div>
-      </div>
+      {isObservations && (
+        <>
+          <div className="evidence-stats" aria-label="Real study counts">
+            <div data-explain="Every persisted semantic event in this study, counted across the full database rather than only the recent trace window.">
+              <Database size={16} />
+              <span>Raw events</span>
+              <strong>{telemetry.count}</strong>
+            </div>
+            <div data-explain="Distinct ordered browser sessions across the full persisted study.">
+              <Network size={16} />
+              <span>Sessions</span>
+              <strong>{Object.keys(telemetry.sessionCounts).length}</strong>
+            </div>
+            <div data-explain="Anonymous participant identifiers represented across the full persisted study.">
+              <Users size={16} />
+              <span>Participants</span>
+              <strong>{telemetry.participantCount}</strong>
+            </div>
+            <div data-explain="Hover hesitation, rage click, false affordance, indecision, drag expectation, browser Back, zoom-readability, and touch-conflict observations.">
+              <MousePointer2 size={16} />
+              <span>Behavior signals</span>
+              <strong>{telemetry.behaviorSignalCount}</strong>
+            </div>
+          </div>
 
-      {telemetry.events.length ? (
-        <div className="trace-layout">
-          <div className="session-index">
-            <button
-              className={selectedSession === null ? 'is-active' : ''}
-              type="button"
-              onClick={() => setSelectedSession(null)}
-              data-explain="All persisted events in this study. The detailed trace remains responsive by polling and displaying only the latest 200 records."
-            >
-              All captured events <span>{telemetry.count}</span>
-            </button>
-            {sessions.map((session) => {
-              const count = telemetry.sessionCounts[session] ?? 0;
-              return (
+          {telemetry.events.length ? (
+            <div className="trace-layout">
+              <div className="session-index">
                 <button
-                  className={selectedSession === session ? 'is-active' : ''}
-                  key={session}
+                  className={selectedSession === null ? 'is-active' : ''}
                   type="button"
-                  onClick={() => setSelectedSession(session)}
-                  data-explain="All persisted events in this session. Selecting it filters the detailed trace to its latest loaded records."
+                  onClick={() => setSelectedSession(null)}
+                  data-explain="All persisted events in this study. The detailed trace remains responsive by polling and displaying only the latest 200 records."
                 >
-                  {shortId(session)} <span>{count}</span>
+                  All captured events <span>{telemetry.count}</span>
                 </button>
-              );
-            })}
-          </div>
-          <div className="event-trace" aria-label="Ordered event trace">
-            {visibleEvents.slice(-12).map((event) => (
-              <EventTraceRow event={event} key={event.eventId} />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="empty-evidence">
-          <Activity size={18} />
-          <div>
-            <strong>Waiting for a real ProjectFlow interaction</strong>
-            <span>
-              Open ProjectFlow and interact to create the first trace.
-            </span>
-          </div>
-        </div>
+                {sessions.map((session) => {
+                  const count = telemetry.sessionCounts[session] ?? 0;
+                  return (
+                    <button
+                      className={selectedSession === session ? 'is-active' : ''}
+                      key={session}
+                      type="button"
+                      onClick={() => setSelectedSession(session)}
+                      data-explain="All persisted events in this session. Selecting it filters the detailed trace to its latest loaded records."
+                    >
+                      {shortId(session)} <span>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="event-trace" aria-label="Ordered event trace">
+                {visibleEvents.slice(-12).map((event) => (
+                  <EventTraceRow event={event} key={event.eventId} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="empty-evidence">
+              <Activity size={18} />
+              <div>
+                <strong>Waiting for a real ProjectFlow interaction</strong>
+                <span>
+                  Open ProjectFlow and interact to create the first trace.
+                </span>
+              </div>
+            </div>
+          )}
+        </>
       )}
       {telemetry.evidence && (
         <div className="evidence-pack">
@@ -1421,265 +1582,292 @@ function LiveTelemetryPanel({
               </div>
             </dl>
           </div>
-          <div className="evidence-signals">
-            {telemetry.evidence.frictionSignals.length ? (
-              telemetry.evidence.frictionSignals.map((signal) => (
-                <details key={signal.evidenceId}>
-                  <summary>
-                    <span>{signal.evidenceId}</span>
-                    <strong>{signal.ruleId.replaceAll('_', ' ')}</strong>
-                    <small>{signal.severity}</small>
-                    <ChevronRight size={15} />
-                  </summary>
-                  <p>{signal.summary}</p>
-                  <div className="signal-provenance">
-                    <span>Rule {signal.ruleVersion}</span>
-                    <span>{signal.support.events} events</span>
-                    <span>{signal.support.sessions} sessions</span>
-                    <span>{signal.support.participants} participants</span>
+          {isObservations && (
+            <>
+              <div className="evidence-signals">
+                {telemetry.evidence.frictionSignals.length ? (
+                  telemetry.evidence.frictionSignals.map((signal) => (
+                    <details key={signal.evidenceId}>
+                      <summary>
+                        <span>{signal.evidenceId}</span>
+                        <strong>{signal.ruleId.replaceAll('_', ' ')}</strong>
+                        <small>{signal.severity}</small>
+                        <ChevronRight size={15} />
+                      </summary>
+                      <p>{signal.summary}</p>
+                      <div className="signal-provenance">
+                        <span>Rule {signal.ruleVersion}</span>
+                        <span>{signal.support.events} events</span>
+                        <span>{signal.support.sessions} sessions</span>
+                        <span>{signal.support.participants} participants</span>
+                      </div>
+                      <div className="signal-trace">
+                        {signal.trace.map((event) => (
+                          <code key={event.eventId}>
+                            {event.sequence.toString().padStart(2, '0')} ·{' '}
+                            {event.eventType} · {event.targetId ?? event.route}
+                          </code>
+                        ))}
+                      </div>
+                    </details>
+                  ))
+                ) : (
+                  <p className="no-signals">
+                    No detector threshold was crossed by the current real
+                    sample.
+                  </p>
+                )}
+              </div>
+              <div className="evidence-quality-band">
+                <div>
+                  <span>Evidence quality</span>
+                  <strong>{telemetry.evidence.quality.strength}</strong>
+                  <code>{telemetry.evidence.quality.score}/100</code>
+                </div>
+                {telemetry.evidence.quality.limitations.length ? (
+                  <ul>
+                    {telemetry.evidence.quality.limitations.map(
+                      (limitation) => (
+                        <li key={limitation}>{limitation}</li>
+                      ),
+                    )}
+                  </ul>
+                ) : (
+                  <p>No material coverage limitation detected.</p>
+                )}
+              </div>
+            </>
+          )}
+          {!isObservations && (
+            <div className="reasoning-workspace">
+              <div className="reasoning-heading">
+                <div>
+                  <span className="section-label">
+                    OpenAI reasoning boundary
+                  </span>
+                  <div className="reasoning-title">
+                    <strong>{configuredModel} evidence reasoning</strong>
+                    <span
+                      className={`model-runtime ${liveModelAvailable ? 'is-live' : 'is-unavailable'}`}
+                    >
+                      {liveModelAvailable ? 'LIVE API' : 'UNAVAILABLE'}
+                    </span>
+                    <InfoTip text="This is the model invocation point. One request is made per evidence hash and cached; invalid citations or protected scope are rejected before a proposal can continue." />
                   </div>
-                  <div className="signal-trace">
-                    {signal.trace.map((event) => (
-                      <code key={event.eventId}>
-                        {event.sequence.toString().padStart(2, '0')} ·{' '}
-                        {event.eventType} · {event.targetId ?? event.route}
+                  <p>
+                    Ordered journeys are reconstructed first. GPT must explain
+                    competing causes and return a scored mutation portfolio.
+                  </p>
+                  <div
+                    className="model-context"
+                    aria-label="Context supplied to GPT"
+                  >
+                    <span>Context supplied</span>
+                    <code>product goals</code>
+                    <code>route inventory</code>
+                    <code>active variant</code>
+                    <code>capabilities</code>
+                    <code>friction signals</code>
+                    <code>complete ordered journeys</code>
+                    <code>coverage limitations</code>
+                    <code>50 mutation examples</code>
+                    <code>ProjectFlow source</code>
+                  </div>
+                </div>
+                <button
+                  className="primary-action evidence-action"
+                  type="button"
+                  disabled={
+                    !telemetry.evidence.frictionSignals.length ||
+                    telemetry.analysing ||
+                    !liveModelAvailable
+                  }
+                  onClick={() => void telemetry.analyseEvidence()}
+                  data-explain={`Invoke ${configuredModel} once for this evidence hash. The request contains aggregate evidence and the structured ProjectFlow application map, never raw participant records.`}
+                >
+                  {telemetry.analysing ? (
+                    <CircleDashed className="is-spinning" size={15} />
+                  ) : (
+                    <BrainCircuit size={15} />
+                  )}
+                  {telemetry.analysing
+                    ? 'Reasoning over evidence'
+                    : telemetry.analysis
+                      ? 'Open cached reasoning'
+                      : liveModelAvailable
+                        ? `Ask ${configuredModel}`
+                        : 'Live model unavailable'}
+                </button>
+              </div>
+              {telemetry.analysis && (
+                <div className="analysis-result">
+                  <div className="analysis-audit-line">
+                    <span>{telemetry.analysis.mode}</span>
+                    <code>{telemetry.analysis.model}</code>
+                    <code>prompt {telemetry.analysis.promptVersion}</code>
+                    <code>{telemetry.analysis.cacheKey.slice(0, 16)}...</code>
+                    {telemetry.analysis.promptCache && (
+                      <code>
+                        prompt cache ·{' '}
+                        {telemetry.analysis.promptCache.cachedTokens ===
+                        undefined
+                          ? telemetry.analysis.promptCache.contextVersion
+                          : `${telemetry.analysis.promptCache.cachedTokens} tokens`}
                       </code>
+                    )}
+                  </div>
+                  <div className="reasoning-assessment">
+                    <div>
+                      <span>Evidence assessment</span>
+                      <strong>
+                        {telemetry.analysis.evidenceAssessment.quality.strength}
+                      </strong>
+                      <code>
+                        {telemetry.analysis.evidenceAssessment.quality.score}
+                        /100
+                      </code>
+                    </div>
+                    <p>{telemetry.analysis.evidenceAssessment.summary}</p>
+                  </div>
+                  <div className="mutation-portfolio">
+                    <div className="mutation-portfolio-heading">
+                      <div>
+                        <span>Ranked pressure portfolio</span>
+                        <strong>
+                          Every suggestion includes its full pressure analysis
+                        </strong>
+                      </div>
+                      <code>
+                        {rankedImplementationCandidates.length} suggestions
+                      </code>
+                    </div>
+                    {rankedImplementationCandidates.map((candidate, index) => (
+                      <MutationPortfolioRow
+                        analysis={telemetry.analysis!}
+                        candidate={candidate}
+                        evidence={telemetry.evidence}
+                        expanded={expandedMutationIds.includes(candidate.id)}
+                        key={candidate.id}
+                        onExpansionChange={() =>
+                          setExpandedMutationIds((current) =>
+                            current.includes(candidate.id)
+                              ? current.filter((id) => id !== candidate.id)
+                              : [...current, candidate.id],
+                          )
+                        }
+                        onSelectionChange={() =>
+                          toggleImplementationMutation(candidate.id)
+                        }
+                        rank={index + 1}
+                        selected={implementationMutationIds.includes(
+                          candidate.id,
+                        )}
+                      />
                     ))}
                   </div>
-                </details>
-              ))
-            ) : (
-              <p className="no-signals">
-                No detector threshold was crossed by the current real sample.
-              </p>
-            )}
-          </div>
-          <div className="evidence-quality-band">
-            <div>
-              <span>Evidence quality</span>
-              <strong>{telemetry.evidence.quality.strength}</strong>
-              <code>{telemetry.evidence.quality.score}/100</code>
-            </div>
-            {telemetry.evidence.quality.limitations.length ? (
-              <ul>
-                {telemetry.evidence.quality.limitations.map((limitation) => (
-                  <li key={limitation}>{limitation}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>No material coverage limitation detected.</p>
-            )}
-          </div>
-          <div className="reasoning-workspace">
-            <div className="reasoning-heading">
-              <div>
-                <span className="section-label">OpenAI reasoning boundary</span>
-                <div className="reasoning-title">
-                  <strong>{configuredModel} evidence reasoning</strong>
-                  <span
-                    className={`model-runtime ${liveModelAvailable ? 'is-live' : 'is-unavailable'}`}
-                  >
-                    {liveModelAvailable ? 'LIVE API' : 'UNAVAILABLE'}
-                  </span>
-                  <InfoTip text="This is the model invocation point. One request is made per evidence hash and cached; invalid citations or protected scope are rejected before a proposal can continue." />
-                </div>
-                <p>
-                  Ordered journeys are reconstructed first. GPT must explain
-                  competing causes and return a scored mutation portfolio.
-                </p>
-                <div
-                  className="model-context"
-                  aria-label="Context supplied to GPT"
-                >
-                  <span>Context supplied</span>
-                  <code>product goals</code>
-                  <code>route inventory</code>
-                  <code>active variant</code>
-                  <code>capabilities</code>
-                  <code>friction signals</code>
-                  <code>complete ordered journeys</code>
-                  <code>coverage limitations</code>
-                  <code>50 mutation examples</code>
-                  <code>ProjectFlow source</code>
-                </div>
-              </div>
-              <button
-                className="primary-action evidence-action"
-                type="button"
-                disabled={
-                  !telemetry.evidence.frictionSignals.length ||
-                  telemetry.analysing ||
-                  !liveModelAvailable
-                }
-                onClick={() => void telemetry.analyseEvidence()}
-                data-explain={`Invoke ${configuredModel} once for this evidence hash. The request contains aggregate evidence and the structured ProjectFlow application map, never raw participant records.`}
-              >
-                {telemetry.analysing ? (
-                  <CircleDashed className="is-spinning" size={15} />
-                ) : (
-                  <BrainCircuit size={15} />
-                )}
-                {telemetry.analysing
-                  ? 'Reasoning over evidence'
-                  : telemetry.analysis
-                    ? 'Open cached reasoning'
-                    : liveModelAvailable
-                      ? `Ask ${configuredModel}`
-                      : 'Live model unavailable'}
-              </button>
-            </div>
-            {telemetry.analysis && (
-              <div className="analysis-result">
-                <div className="analysis-audit-line">
-                  <span>{telemetry.analysis.mode}</span>
-                  <code>{telemetry.analysis.model}</code>
-                  <code>prompt {telemetry.analysis.promptVersion}</code>
-                  <code>{telemetry.analysis.cacheKey.slice(0, 16)}...</code>
-                  {telemetry.analysis.promptCache && (
-                    <code>
-                      prompt cache ·{' '}
-                      {telemetry.analysis.promptCache.cachedTokens === undefined
-                        ? telemetry.analysis.promptCache.contextVersion
-                        : `${telemetry.analysis.promptCache.cachedTokens} tokens`}
-                    </code>
-                  )}
-                </div>
-                <div className="reasoning-assessment">
-                  <div>
-                    <span>Evidence assessment</span>
-                    <strong>
-                      {telemetry.analysis.evidenceAssessment.quality.strength}
-                    </strong>
-                    <code>
-                      {telemetry.analysis.evidenceAssessment.quality.score}/100
-                    </code>
-                  </div>
-                  <p>{telemetry.analysis.evidenceAssessment.summary}</p>
-                </div>
-                <div className="mutation-portfolio">
-                  <div className="mutation-portfolio-heading">
+                  <div className="codex-handoff">
                     <div>
-                      <span>Ranked pressure portfolio</span>
-                      <strong>
-                        Every suggestion includes its full pressure analysis
-                      </strong>
+                      <ClipboardCheck size={17} />
+                      <div>
+                        <strong>Controlled Codex handoff</strong>
+                        <span>
+                          {implementationCandidatesSelected.length
+                            ? `Implementation bundle · ${implementationCandidatesSelected.map((candidate) => candidate.title).join(' + ')}.`
+                            : 'No mutations selected.'}{' '}
+                          Brief, allow-list, evidence citations and validation
+                          commands only.
+                        </span>
+                      </div>
                     </div>
-                    <code>
-                      {rankedImplementationCandidates.length} suggestions
-                    </code>
-                  </div>
-                  {rankedImplementationCandidates.map((candidate, index) => (
-                    <MutationPortfolioRow
-                      analysis={telemetry.analysis!}
-                      candidate={candidate}
-                      evidence={telemetry.evidence}
-                      expanded={expandedMutationIds.includes(candidate.id)}
-                      key={candidate.id}
-                      onExpansionChange={() =>
-                        setExpandedMutationIds((current) =>
-                          current.includes(candidate.id)
-                            ? current.filter((id) => id !== candidate.id)
-                            : [...current, candidate.id],
-                        )
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      disabled={
+                        telemetry.preparingManifest ||
+                        telemetry.implementing ||
+                        implementationCandidatesSelected.length === 0
                       }
-                      onSelectionChange={() =>
-                        toggleImplementationMutation(candidate.id)
-                      }
-                      rank={index + 1}
-                      selected={implementationMutationIds.includes(
-                        candidate.id,
+                      onClick={() => {
+                        if (
+                          telemetry.execution &&
+                          telemetry.execution.status !== 'failed' &&
+                          manifestMatchesSelection
+                        ) {
+                          document
+                            .getElementById('validation')
+                            ?.scrollIntoView?.({
+                              behavior: 'smooth',
+                              block: 'start',
+                            });
+                          return;
+                        }
+                        void telemetry
+                          .startControlledEvolution(
+                            implementationCandidatesSelected.map(
+                              (candidate) => candidate.id,
+                            ),
+                          )
+                          .then(() =>
+                            window.setTimeout(
+                              () =>
+                                document
+                                  .getElementById('validation')
+                                  ?.scrollIntoView?.({
+                                    behavior: 'smooth',
+                                    block: 'start',
+                                  }),
+                              0,
+                            ),
+                          );
+                      }}
+                    >
+                      {telemetry.preparingManifest || telemetry.implementing ? (
+                        <CircleDashed className="is-spinning" size={14} />
+                      ) : (
+                        <Rocket size={14} />
                       )}
-                    />
-                  ))}
-                </div>
-                <div className="codex-handoff">
-                  <div>
-                    <ClipboardCheck size={17} />
-                    <div>
-                      <strong>Controlled Codex handoff</strong>
+                      {telemetry.preparingManifest
+                        ? 'Preparing manifest'
+                        : telemetry.implementing
+                          ? 'Applying mutation'
+                          : telemetry.execution?.status === 'failed' &&
+                              manifestMatchesSelection
+                            ? 'Retry controlled evolution'
+                            : telemetry.execution && manifestMatchesSelection
+                              ? 'View implementation'
+                              : 'Start controlled evolution'}
+                    </button>
+                  </div>
+                  {telemetry.manifest && manifestMatchesSelection && (
+                    <div className="manifest-audit">
+                      <span>MANIFEST {telemetry.manifest.manifestId}</span>
+                      <code>{telemetry.manifest.manifestHash}</code>
                       <span>
-                        {implementationCandidatesSelected.length
-                          ? `Implementation bundle · ${implementationCandidatesSelected.map((candidate) => candidate.title).join(' + ')}.`
-                          : 'No mutations selected.'}{' '}
-                        Brief, allow-list, evidence citations and validation
-                        commands only.
+                        {telemetry.manifest.allowedPaths.length} allowed ·{' '}
+                        {telemetry.manifest.protectedPaths.length} protected ·{' '}
+                        {telemetry.manifest.validationCommands.length} checks ·{' '}
+                        {manifestMutationIds.length} mutation
+                        {manifestMutationIds.length === 1 ? '' : 's'}
                       </span>
                     </div>
-                  </div>
-                  <button
-                    className="secondary-action"
-                    type="button"
-                    disabled={
-                      telemetry.preparingManifest ||
-                      telemetry.implementing ||
-                      implementationCandidatesSelected.length === 0
-                    }
-                    onClick={() => {
-                      if (
-                        telemetry.execution &&
-                        telemetry.execution.status !== 'failed' &&
-                        manifestMatchesSelection
-                      ) {
-                        document
-                          .getElementById('validation')
-                          ?.scrollIntoView?.({
-                            behavior: 'smooth',
-                            block: 'start',
-                          });
-                        return;
-                      }
-                      void telemetry
-                        .startControlledEvolution(
-                          implementationCandidatesSelected.map(
-                            (candidate) => candidate.id,
-                          ),
-                        )
-                        .then(() =>
-                          window.setTimeout(
-                            () =>
-                              document
-                                .getElementById('validation')
-                                ?.scrollIntoView?.({
-                                  behavior: 'smooth',
-                                  block: 'start',
-                                }),
-                            0,
-                          ),
-                        );
-                    }}
-                  >
-                    {telemetry.preparingManifest || telemetry.implementing ? (
-                      <CircleDashed className="is-spinning" size={14} />
-                    ) : (
-                      <Rocket size={14} />
-                    )}
-                    {telemetry.preparingManifest
-                      ? 'Preparing manifest'
-                      : telemetry.implementing
-                        ? 'Applying mutation'
-                        : telemetry.execution?.status === 'failed' &&
-                            manifestMatchesSelection
-                          ? 'Retry controlled evolution'
-                          : telemetry.execution && manifestMatchesSelection
-                            ? 'View implementation'
-                            : 'Start controlled evolution'}
-                  </button>
+                  )}
                 </div>
-                {telemetry.manifest && manifestMatchesSelection && (
-                  <div className="manifest-audit">
-                    <span>MANIFEST {telemetry.manifest.manifestId}</span>
-                    <code>{telemetry.manifest.manifestHash}</code>
-                    <span>
-                      {telemetry.manifest.allowedPaths.length} allowed ·{' '}
-                      {telemetry.manifest.protectedPaths.length} protected ·{' '}
-                      {telemetry.manifest.validationCommands.length} checks ·{' '}
-                      {manifestMutationIds.length} mutation
-                      {manifestMutationIds.length === 1 ? '' : 's'}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {!isObservations && !telemetry.evidence && (
+        <div className="empty-evidence">
+          <FileCheck2 size={18} />
+          <div>
+            <strong>
+              Evidence is required before a mutation can be selected
+            </strong>
+            <span>
+              Generate an evidence pack from the Observations workspace, then
+              return here to invoke GPT.
+            </span>
           </div>
         </div>
       )}
