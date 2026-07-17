@@ -803,7 +803,7 @@ function App() {
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
-            <p className="font-mono">DARWIN CORE 0.19.0</p>
+            <p className="font-mono">DARWIN CORE 0.19.1</p>
           </footer>
         </div>
       </main>

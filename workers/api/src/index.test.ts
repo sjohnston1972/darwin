@@ -151,7 +151,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.19.0');
+    expect(body.version).toBe('0.19.1');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),

@@ -215,7 +215,7 @@ const installApi = () => {
       return response({
         status: 'ok',
         service: 'darwin-api',
-        version: '0.19.0',
+        version: '0.19.1',
         analysis: {
           mode: 'live',
           model: 'gpt-5.6',
