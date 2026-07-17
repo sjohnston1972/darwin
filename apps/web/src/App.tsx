@@ -75,27 +75,22 @@ const navItems = [
   {
     label: 'Control room',
     icon: LayoutDashboard,
-    help: 'Run and monitor one complete controlled evolution cycle.',
   },
   {
     label: 'Target application',
     icon: Box,
-    help: 'Connect and verify the GitHub repository Darwin observes, reasons about, and evolves.',
   },
   {
     label: 'Observations',
     icon: Radar,
-    help: 'Review measured journeys, evidence quality, and recurring selection pressure.',
   },
   {
     label: 'Mutations',
     icon: FlaskConical,
-    help: 'Review GPT-5.6 reasoning and approve or reject its proposal.',
   },
   {
     label: 'Fossil record',
     icon: GitBranch,
-    help: 'See the retained genome history and measured fitness record.',
   },
 ] as const;
 
@@ -775,7 +770,7 @@ function DashboardSidebar({
       <nav className="flex-1 px-3 py-6" aria-label="Primary navigation">
         <p className="section-label px-3">Workspace</p>
         <ul className="mt-3 space-y-1">
-          {navItems.map(({ label, icon: Icon, help }) => {
+          {navItems.map(({ label, icon: Icon }) => {
             const active = label === activeView;
             const href =
               label === 'Control room'
@@ -791,7 +786,6 @@ function DashboardSidebar({
                   href={href}
                   onClick={onClose}
                   aria-current={active ? 'page' : undefined}
-                  data-explain={help}
                 >
                   <Icon size={17} strokeWidth={1.8} />
                   <span>{label}</span>
