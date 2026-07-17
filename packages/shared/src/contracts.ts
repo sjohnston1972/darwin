@@ -653,6 +653,10 @@ export const CodexImplementationManifestSchema = z.object({
   validationCommands: z.array(z.string().min(1)).min(1),
 });
 
+export const CodexManifestRequestSchema = z.object({
+  mutationId: StudyIdentifierSchema.optional(),
+});
+
 export const OutcomeCohortSchema = z.object({
   cohortId: StudyIdentifierSchema,
   studyId: StudyIdentifierSchema,
@@ -917,6 +921,7 @@ export type EvidenceAnalysis = z.infer<typeof EvidenceAnalysisSchema>;
 export type CodexImplementationManifest = z.infer<
   typeof CodexImplementationManifestSchema
 >;
+export type CodexManifestRequest = z.infer<typeof CodexManifestRequestSchema>;
 export type OutcomeCohort = z.infer<typeof OutcomeCohortSchema>;
 export type OutcomeValidation = z.infer<typeof OutcomeValidationSchema>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;

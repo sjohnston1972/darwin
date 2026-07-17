@@ -598,18 +598,19 @@ export async function buildCodexManifest(
   analysis: EvidenceAnalysis,
   repositoryCommit: string,
   createdAt = new Date().toISOString(),
+  mutation: EvidenceMutationCandidate = analysis.selectedMutation,
 ): Promise<CodexImplementationManifest> {
   const payload = {
     analysisId: analysis.analysisId,
-    mutationId: analysis.selectedMutation.id,
+    mutationId: mutation.id,
     evidenceHash: analysis.evidenceHash,
     promptVersion: evidencePromptVersion,
     repositoryCommit,
-    brief: analysis.selectedMutation.codexBrief,
-    evidenceCitations: analysis.selectedMutation.evidenceIds,
+    brief: mutation.codexBrief,
+    evidenceCitations: mutation.evidenceIds,
     allowedPaths: [...codexAllowedPaths],
     protectedPaths: [...codexProtectedPaths],
-    acceptanceCriteria: analysis.selectedMutation.acceptanceCriteria,
+    acceptanceCriteria: mutation.acceptanceCriteria,
     validationCommands: ['npm run typecheck', 'npm run test', 'npm run build'],
   };
   const manifestHash = await sha256(canonicalStringify(payload));

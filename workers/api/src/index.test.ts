@@ -151,7 +151,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.19.1');
+    expect(body.version).toBe('0.20.0');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -486,6 +486,25 @@ describe('Darwin API', () => {
     );
     expect(manifest.repositoryCommit).toBe('c75e37d');
     expect(JSON.stringify(manifest)).not.toContain('participantId');
+
+    const alternative = first.alternatives[0]!;
+    const alternativeManifestResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/evidence-analyses/${first.analysisId}/codex-manifest`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mutationId: alternative.id }),
+        },
+      ),
+      { DARWIN_REPOSITORY_COMMIT: 'c75e37d' },
+    );
+    const alternativeManifest = CodexImplementationManifestSchema.parse(
+      await alternativeManifestResponse.json(),
+    );
+    expect(alternativeManifestResponse.status).toBe(201);
+    expect(alternativeManifest.mutationId).toBe(alternative.id);
+    expect(alternativeManifest.brief).toBe(alternative.codexBrief);
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

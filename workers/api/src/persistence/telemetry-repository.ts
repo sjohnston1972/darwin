@@ -430,10 +430,15 @@ export class D1TelemetryRepository implements TelemetryRepository {
         `INSERT INTO codex_manifests (
           manifest_id, analysis_id, mutation_id, evidence_hash,
           manifest_hash, repository_commit, created_at, manifest_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(analysis_id) DO UPDATE SET
-          manifest_hash = excluded.manifest_hash,
-          manifest_json = excluded.manifest_json`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(analysis_id) DO UPDATE SET
+           manifest_id = excluded.manifest_id,
+           mutation_id = excluded.mutation_id,
+           evidence_hash = excluded.evidence_hash,
+           manifest_hash = excluded.manifest_hash,
+           repository_commit = excluded.repository_commit,
+           created_at = excluded.created_at,
+           manifest_json = excluded.manifest_json`,
       )
       .bind(
         manifest.manifestId,

@@ -198,58 +198,79 @@ const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
 const installApi = (latestAnalysis: unknown = null) => {
-  const fetchMock = vi.fn(async (input: string | URL | Request) => {
-    const url = typeof input === 'string' ? input : input.toString();
-    if (url.includes('/events?limit=50')) {
-      return response({
-        studyId: 'projectflow-baseline-study',
-        events: [],
-        count: 14,
-      });
-    }
-    if (url.includes('/evidence/latest')) return response(evidence);
-    if (url.includes('/evidence-analysis/latest'))
-      return latestAnalysis ? response(latestAnalysis) : response(null, 204);
-    if (url.endsWith('/analyse-evidence')) return response(analysis, 201);
-    if (url.includes('/codex-manifest')) return response(manifest, 201);
-    if (url.endsWith('/api/health')) {
-      return response({
-        status: 'ok',
-        service: 'darwin-api',
-        version: '0.19.1',
-        analysis: {
-          mode: 'live',
-          model: 'gpt-5.6',
-          liveModelAvailable: true,
-        },
-        timestamp,
-      });
-    }
-    if (url.endsWith('/api/organism/state')) {
-      return response({
-        variant: 'baseline',
-        genomeVersion: 'v1.0',
-        evolutionCycles: 0,
-        activeMutationId: null,
-        updatedAt: timestamp,
-      });
-    }
-    if (url.endsWith('/api/evolution/timeline'))
-      return response({ records: [] });
-    if (url.endsWith('/api/demo/reset')) {
-      return response({
-        status: 'reset',
-        organism: {
+  const fetchMock = vi.fn(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/events?limit=50')) {
+        return response({
+          studyId: 'projectflow-baseline-study',
+          events: [],
+          count: 14,
+        });
+      }
+      if (url.includes('/evidence/latest')) return response(evidence);
+      if (url.includes('/evidence-analysis/latest'))
+        return latestAnalysis ? response(latestAnalysis) : response(null, 204);
+      if (url.endsWith('/analyse-evidence')) return response(analysis, 201);
+      if (url.includes('/codex-manifest')) {
+        const requestBody =
+          typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+        const candidate = [
+          analysis.selectedMutation,
+          ...analysis.alternatives,
+        ].find((entry) => entry.id === requestBody.mutationId);
+        return response(
+          candidate
+            ? {
+                ...manifest,
+                mutationId: candidate.id,
+                brief: candidate.codexBrief,
+                evidenceCitations: candidate.evidenceIds,
+                acceptanceCriteria: candidate.acceptanceCriteria,
+              }
+            : manifest,
+          201,
+        );
+      }
+      if (url.endsWith('/api/health')) {
+        return response({
+          status: 'ok',
+          service: 'darwin-api',
+          version: '0.19.1',
+          analysis: {
+            mode: 'live',
+            model: 'gpt-5.6',
+            liveModelAvailable: true,
+          },
+          timestamp,
+        });
+      }
+      if (url.endsWith('/api/organism/state')) {
+        return response({
           variant: 'baseline',
           genomeVersion: 'v1.0',
           evolutionCycles: 0,
           activeMutationId: null,
           updatedAt: timestamp,
-        },
-      });
-    }
-    return response({ error: 'unexpected_test_route', url }, 404);
-  });
+        });
+      }
+      if (url.endsWith('/api/evolution/timeline'))
+        return response({ records: [] });
+      if (url.endsWith('/api/demo/reset')) {
+        return response({
+          status: 'reset',
+          organism: {
+            variant: 'baseline',
+            genomeVersion: 'v1.0',
+            evolutionCycles: 0,
+            activeMutationId: null,
+            updatedAt: timestamp,
+          },
+        });
+      }
+      return response({ error: 'unexpected_test_route', url }, 404);
+    },
+  );
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 };
@@ -285,13 +306,15 @@ describe('Darwin control room', () => {
     expect(
       screen.queryByRole('heading', { name: 'Standalone ProjectFlow' }),
     ).not.toBeInTheDocument();
-    document.querySelectorAll('.brand-mark').forEach((mark) => {
-      expect(
-        [...mark.querySelectorAll('.growth-stage')].map(
-          (stage) => stage.querySelectorAll('svg').length,
-        ),
-      ).toEqual([1, 2, 3]);
-    });
+    expect(
+      screen.getByRole('heading', { name: 'Active genome · v1.0' }),
+    ).toBeVisible();
+    expect(screen.queryByText('Evolved · v1.1')).not.toBeInTheDocument();
+    document
+      .querySelectorAll<HTMLImageElement>('.brand-mark')
+      .forEach((mark) => {
+        expect(mark.src).toContain('/assets/darwin-growth-mark.png');
+      });
     expect(
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
@@ -311,9 +334,25 @@ describe('Darwin control room', () => {
     expect(
       screen.getByText('Capacity controls require interpretation'),
     ).toBeVisible();
-    expect(screen.getByText('Alternatives considered')).toBeVisible();
+    expect(screen.getByText(/Alternatives considered/)).toBeVisible();
     expect(screen.getByText('Replace bars with a table')).toBeVisible();
     expect(screen.getByText('Measured validation plan')).toBeVisible();
+    expect(screen.getByText('capacity-clarity')).toHaveAttribute(
+      'data-explain',
+      expect.stringContaining('Pressure Cluster'),
+    );
+    expect(
+      screen.getAllByText('EV-001', { selector: '.evidence-chip' })[0],
+    ).toHaveAttribute(
+      'data-explain',
+      expect.stringContaining('Support: 1 events'),
+    );
+
+    const alternative = screen.getByRole('radio', {
+      name: /Replace bars with a table/,
+    });
+    fireEvent.click(alternative);
+    expect(alternative).toBeChecked();
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare manifest' }));
     expect(
@@ -324,6 +363,13 @@ describe('Darwin control room', () => {
         expect.stringContaining('/analyse-evidence'),
         { method: 'POST' },
       ),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/codex-manifest'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ mutationId: 'capacity-table' }),
+      }),
     );
   });
 

@@ -25,7 +25,7 @@ export interface LiveTelemetryState {
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
-  prepareCodexManifest: () => Promise<void>;
+  prepareCodexManifest: (mutationId?: string) => Promise<void>;
   preparingManifest: boolean;
   resetState: () => void;
   status: 'loading' | 'live' | 'offline';
@@ -167,14 +167,18 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
-  const prepareCodexManifest = async () => {
+  const prepareCodexManifest = async (mutationId?: string) => {
     if (!analysis) return;
     setPreparingManifest(true);
     setError(null);
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/evidence-analyses/${analysis.analysisId}/codex-manifest`,
-        { method: 'POST' },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mutationId }),
+        },
       );
       if (!response.ok) throw new Error('Codex manifest generation failed.');
       setManifest(

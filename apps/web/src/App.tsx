@@ -26,9 +26,7 @@ import {
   FlaskConical,
   Gauge,
   GitBranch,
-  GitCompareArrows,
   LayoutDashboard,
-  Leaf,
   Menu,
   Moon,
   MousePointer2,
@@ -102,42 +100,6 @@ const navItems = [
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const projectFlowBaseUrl =
   import.meta.env.VITE_PROJECTFLOW_BASE_URL ?? 'http://localhost:5174';
-
-const genomeComparison = [
-  {
-    locus: 'Initial route',
-    baseline: projectFlowGenomes.baseline.initialRoute,
-    evolved: projectFlowGenomes.evolved.initialRoute,
-  },
-  {
-    locus: 'Task destination',
-    baseline: projectFlowGenomes.baseline.taskDestination,
-    evolved: projectFlowGenomes.evolved.taskDestination,
-  },
-  {
-    locus: 'Global search',
-    baseline: projectFlowGenomes.baseline.globalSearch ? 'enabled' : 'absent',
-    evolved: projectFlowGenomes.evolved.globalSearch ? 'enabled' : 'absent',
-  },
-  {
-    locus: 'Quick create',
-    baseline: projectFlowGenomes.baseline.globalQuickCreate
-      ? 'enabled'
-      : 'absent',
-    evolved: projectFlowGenomes.evolved.globalQuickCreate
-      ? 'enabled'
-      : 'absent',
-  },
-  {
-    locus: 'Primary navigation',
-    baseline: projectFlowGenomes.baseline.navigation
-      .map((item) => item.label)
-      .join(' / '),
-    evolved: projectFlowGenomes.evolved.navigation
-      .map((item) => item.label)
-      .join(' / '),
-  },
-] as const;
 
 function App() {
   const [theme, setTheme] = useState<Theme>(() =>
@@ -255,6 +217,24 @@ function App() {
     if (targetOnly) return;
     setOrganismVariant(demo.organism.variant);
   }, [demo.organism.variant, targetOnly]);
+
+  const activeGenome = projectFlowGenomes[organismVariant];
+  const activeGenomeLoci = [
+    { locus: 'Initial route', value: activeGenome.initialRoute },
+    { locus: 'Task destination', value: activeGenome.taskDestination },
+    {
+      locus: 'Global search',
+      value: activeGenome.globalSearch ? 'enabled' : 'absent',
+    },
+    {
+      locus: 'Quick create',
+      value: activeGenome.globalQuickCreate ? 'enabled' : 'absent',
+    },
+    {
+      locus: 'Primary navigation',
+      value: activeGenome.navigation.map((item) => item.label).join(' / '),
+    },
+  ];
 
   if (targetOnly) {
     return (
@@ -610,68 +590,44 @@ function App() {
             >
               <div className="panel-heading">
                 <div>
-                  <p className="section-label">Genome comparison</p>
+                  <p className="section-label">Genome state</p>
                   <div className="heading-with-help">
                     <h2
                       id="variant-summary-title"
                       className="mt-2 text-xl font-semibold"
                     >
-                      Five configured loci
+                      Active genome · {activeGenome.version}
                     </h2>
-                    <InfoTip text="A direct comparison of the checked-in baseline and evolved ProjectFlow configuration that drives the two target variants." />
+                    <InfoTip text="The five checked-in ProjectFlow configuration loci currently selected by Darwin. A candidate genome is not shown until a mutation survives the controlled workflow." />
                   </div>
                 </div>
-                <GitCompareArrows size={19} className="text-mist" />
+                <Code2 size={19} className="text-mist" />
               </div>
               <div
                 className="genome-comparison"
                 role="table"
-                aria-label="Configured genome comparison"
+                aria-label="Active genome configuration"
               >
                 <div className="genome-comparison-header" role="row">
                   <span role="columnheader">Locus</span>
-                  <strong
-                    className={
-                      organismVariant === 'baseline' ? 'is-active' : ''
-                    }
-                    role="columnheader"
-                  >
-                    Baseline · {projectFlowGenomes.baseline.version}
-                  </strong>
-                  <strong
-                    className={organismVariant === 'evolved' ? 'is-active' : ''}
-                    role="columnheader"
-                  >
-                    Evolved · {projectFlowGenomes.evolved.version}
+                  <strong className="is-active" role="columnheader">
+                    {organismVariant} · {activeGenome.version}
                   </strong>
                 </div>
-                {genomeComparison.map((row) => (
+                {activeGenomeLoci.map((row) => (
                   <div
                     className="genome-comparison-row"
                     key={row.locus}
                     role="row"
                   >
                     <span role="cell">{row.locus}</span>
-                    <code
-                      className={
-                        organismVariant === 'baseline' ? 'is-active' : ''
-                      }
-                      role="cell"
-                    >
-                      {row.baseline}
-                    </code>
-                    <code
-                      className={
-                        organismVariant === 'evolved' ? 'is-active' : ''
-                      }
-                      role="cell"
-                    >
-                      {row.evolved}
+                    <code className="is-active" role="cell">
+                      {row.value}
                     </code>
                   </div>
                 ))}
                 <div className="genome-comparison-source">
-                  <Code2 size={13} /> Checked-in genome configuration
+                  <Code2 size={13} /> Active checked-in genome configuration
                 </div>
               </div>
             </aside>
@@ -759,20 +715,12 @@ const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
 
 function DarwinMark() {
   return (
-    <span className="brand-mark" aria-hidden="true">
-      <span className="growth-stage growth-stage-one">
-        <Leaf className="growth-leaf" />
-      </span>
-      <span className="growth-stage growth-stage-two">
-        <Leaf className="growth-leaf" />
-        <Leaf className="growth-leaf" />
-      </span>
-      <span className="growth-stage growth-stage-three">
-        <Leaf className="growth-leaf" />
-        <Leaf className="growth-leaf" />
-        <Leaf className="growth-leaf" />
-      </span>
-    </span>
+    <img
+      className="brand-mark"
+      src="/assets/darwin-growth-mark.png"
+      alt=""
+      aria-hidden="true"
+    />
   );
 }
 
@@ -913,6 +861,9 @@ function LiveTelemetryPanel({
     ...new Set(telemetry.events.map((event) => event.sessionId)),
   ];
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [implementationMutationId, setImplementationMutationId] = useState<
+    string | null
+  >(null);
   const visibleEvents = selectedSession
     ? telemetry.events.filter((event) => event.sessionId === selectedSession)
     : telemetry.events;
@@ -931,6 +882,23 @@ function LiveTelemetryPanel({
   ).length;
   const configuredModel = analysisConfig?.model ?? 'gpt-5.6';
   const liveModelAvailable = analysisConfig?.liveModelAvailable ?? false;
+  const implementationCandidates = telemetry.analysis
+    ? [telemetry.analysis.selectedMutation, ...telemetry.analysis.alternatives]
+    : [];
+  const implementationCandidate =
+    implementationCandidates.find(
+      (candidate) => candidate.id === implementationMutationId,
+    ) ?? implementationCandidates[0];
+  const manifestMatchesSelection =
+    telemetry.manifest?.mutationId === implementationCandidate?.id;
+
+  useEffect(() => {
+    setImplementationMutationId(
+      telemetry.manifest?.mutationId ??
+        telemetry.analysis?.selectedMutation.id ??
+        null,
+    );
+  }, [telemetry.analysis?.analysisId, telemetry.manifest?.mutationId]);
 
   return (
     <section className="mt-8 surface-panel live-evidence" id="real-evidence">
@@ -949,15 +917,6 @@ function LiveTelemetryPanel({
           <span className={`source-status source-${telemetry.status}`}>
             <span /> {telemetry.status}
           </span>
-          <a
-            className="secondary-action"
-            href={`${projectFlowBaseUrl}/study`}
-            target="_blank"
-            rel="noreferrer"
-            data-explain="Open the standalone ProjectFlow telemetry view in a new tab and interact normally to create real semantic evidence."
-          >
-            Open study <ChevronRight size={15} />
-          </a>
           <button
             className="primary-action evidence-action"
             type="button"
@@ -1224,13 +1183,30 @@ function LiveTelemetryPanel({
                   <p>{telemetry.analysis.evidenceAssessment.summary}</p>
                 </div>
                 <div className="pressure-clusters">
-                  <span>Selection pressure clusters</span>
+                  <span>Selection pressure clusters · PC</span>
                   {telemetry.analysis.evidenceAssessment.pressureClusters.map(
                     (cluster) => (
                       <details key={cluster.id}>
                         <summary>
-                          <strong>{cluster.title}</strong>
-                          <code>{cluster.evidenceIds.join(' + ')}</code>
+                          <div className="pressure-cluster-title">
+                            <code
+                              className="cluster-id"
+                              tabIndex={0}
+                              data-explain={`${cluster.id} means Pressure Cluster ${cluster.id.replace(/\D/g, '') || cluster.id}: a grouped interpretation that connects related evidence signals to one product problem.`}
+                            >
+                              {cluster.id}
+                            </code>
+                            <strong>{cluster.title}</strong>
+                          </div>
+                          <div className="pressure-evidence-chips">
+                            {cluster.evidenceIds.map((id) => (
+                              <EvidenceChip
+                                evidence={telemetry.evidence}
+                                id={id}
+                                key={id}
+                              />
+                            ))}
+                          </div>
                           <ChevronRight size={15} />
                         </summary>
                         <p>{cluster.interpretation}</p>
@@ -1253,7 +1229,26 @@ function LiveTelemetryPanel({
                   )}
                 </div>
                 <div className="selected-mutation">
-                  <div className="mutation-rank">SELECTED</div>
+                  <div className="mutation-rank">
+                    <span>GPT selected</span>
+                    <label className="mutation-choice-control">
+                      <input
+                        checked={
+                          implementationMutationId ===
+                          telemetry.analysis.selectedMutation.id
+                        }
+                        name="implementation-mutation"
+                        onChange={() =>
+                          setImplementationMutationId(
+                            telemetry.analysis?.selectedMutation.id ?? null,
+                          )
+                        }
+                        type="radio"
+                        value={telemetry.analysis.selectedMutation.id}
+                      />
+                      <span>Implement</span>
+                    </label>
+                  </div>
                   <div>
                     <h3>{telemetry.analysis.selectedMutation.title}</h3>
                     <p>{telemetry.analysis.selectedMutation.hypothesis}</p>
@@ -1264,7 +1259,11 @@ function LiveTelemetryPanel({
                     <div className="mutation-citations">
                       {telemetry.analysis.selectedMutation.evidenceIds.map(
                         (id) => (
-                          <span key={id}>{id}</span>
+                          <EvidenceChip
+                            evidence={telemetry.evidence}
+                            id={id}
+                            key={id}
+                          />
                         ),
                       )}
                       <span>
@@ -1284,6 +1283,7 @@ function LiveTelemetryPanel({
                       </span>
                     </div>
                     <p className="selection-rationale">
+                      <span>PC = pressure cluster</span>
                       {telemetry.analysis.evidenceAssessment.selectionRationale}
                     </p>
                     <div className="mutation-scorecard">
@@ -1320,16 +1320,36 @@ function LiveTelemetryPanel({
                 </div>
                 {telemetry.analysis.alternatives.length > 0 && (
                   <div className="mutation-alternatives">
-                    <span>Alternatives considered</span>
+                    <span>Alternatives considered · select to implement</span>
                     {telemetry.analysis.alternatives.map((candidate) => (
-                      <div key={candidate.id}>
+                      <label
+                        className={`alternative-choice ${implementationMutationId === candidate.id ? 'is-selected' : ''}`}
+                        key={candidate.id}
+                      >
+                        <input
+                          checked={implementationMutationId === candidate.id}
+                          name="implementation-mutation"
+                          onChange={() =>
+                            setImplementationMutationId(candidate.id)
+                          }
+                          type="radio"
+                          value={candidate.id}
+                        />
                         <div>
                           <strong>{candidate.title}</strong>
-                          <code>{candidate.evidenceIds.join(', ')}</code>
+                          <div className="alternative-evidence-chips">
+                            {candidate.evidenceIds.map((id) => (
+                              <EvidenceChip
+                                evidence={telemetry.evidence}
+                                id={id}
+                                key={id}
+                              />
+                            ))}
+                          </div>
                         </div>
                         <p>{candidate.change}</p>
                         <span>{candidate.scorecard.total}/100</span>
-                      </div>
+                      </label>
                     ))}
                   </div>
                 )}
@@ -1339,8 +1359,9 @@ function LiveTelemetryPanel({
                     <div>
                       <strong>Controlled Codex handoff</strong>
                       <span>
-                        Selected brief, allow-list, evidence citations and
-                        validation commands only.
+                        Implementation choice · {implementationCandidate?.title}
+                        . Brief, allow-list, evidence citations and validation
+                        commands only.
                       </span>
                     </div>
                   </div>
@@ -1348,17 +1369,23 @@ function LiveTelemetryPanel({
                     className="secondary-action"
                     type="button"
                     disabled={telemetry.preparingManifest}
-                    onClick={() => void telemetry.prepareCodexManifest()}
+                    onClick={() =>
+                      void telemetry.prepareCodexManifest(
+                        implementationCandidate?.id,
+                      )
+                    }
                   >
                     {telemetry.preparingManifest ? (
                       <CircleDashed className="is-spinning" size={14} />
                     ) : (
                       <Code2 size={14} />
                     )}
-                    {telemetry.manifest ? 'Manifest ready' : 'Prepare manifest'}
+                    {manifestMatchesSelection
+                      ? 'Manifest ready'
+                      : 'Prepare manifest'}
                   </button>
                 </div>
-                {telemetry.manifest && (
+                {telemetry.manifest && manifestMatchesSelection && (
                   <div className="manifest-audit">
                     <span>MANIFEST {telemetry.manifest.manifestId}</span>
                     <code>{telemetry.manifest.manifestHash}</code>
@@ -1375,6 +1402,27 @@ function LiveTelemetryPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function EvidenceChip({
+  evidence,
+  id,
+}: {
+  evidence: LiveTelemetryState['evidence'];
+  id: string;
+}) {
+  const signal = evidence?.frictionSignals.find(
+    (candidate) => candidate.evidenceId === id,
+  );
+  const explanation = signal
+    ? `${signal.summary} Severity: ${signal.severity}. Support: ${signal.support.events} events, ${signal.support.attempts} attempts, ${signal.support.sessions} sessions, ${signal.support.participants} participants.`
+    : `${id} is a citation from the current measured evidence pack.`;
+
+  return (
+    <span className="evidence-chip" data-explain={explanation} tabIndex={0}>
+      {id}
+    </span>
   );
 }
 

@@ -1,5 +1,6 @@
 import {
   CodexImplementationManifestSchema,
+  CodexManifestRequestSchema,
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
@@ -208,7 +209,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.19.1',
+      version: '0.20.0',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -541,8 +542,6 @@ export const handleRequest = async (
       return json(CodexImplementationManifestSchema.parse(existing));
     }
     if (request.method === 'POST') {
-      if (existing)
-        return json(CodexImplementationManifestSchema.parse(existing));
       const analysis =
         await telemetryRepository.getEvidenceAnalysis(analysisId);
       if (!analysis) {
@@ -551,9 +550,46 @@ export const handleRequest = async (
           { status: 404 },
         );
       }
+      let input: unknown = {};
+      try {
+        const text = await request.text();
+        input = text ? JSON.parse(text) : {};
+      } catch {
+        return json(
+          { error: 'invalid_request', message: 'Manifest request is invalid.' },
+          { status: 400 },
+        );
+      }
+      const parsed = CodexManifestRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        return json(
+          { error: 'invalid_request', issues: parsed.error.issues },
+          { status: 400 },
+        );
+      }
+      const candidates = [analysis.selectedMutation, ...analysis.alternatives];
+      const mutation = parsed.data.mutationId
+        ? candidates.find(
+            (candidate) => candidate.id === parsed.data.mutationId,
+          )
+        : analysis.selectedMutation;
+      if (!mutation) {
+        return json(
+          {
+            error: 'invalid_mutation',
+            message: 'The selected mutation is not part of this analysis.',
+          },
+          { status: 400 },
+        );
+      }
+      if (existing?.mutationId === mutation.id) {
+        return json(CodexImplementationManifestSchema.parse(existing));
+      }
       const manifest = await buildCodexManifest(
         analysis,
         env?.DARWIN_REPOSITORY_COMMIT || 'working-tree',
+        undefined,
+        mutation,
       );
       await telemetryRepository.saveCodexManifest(manifest);
       return json(CodexImplementationManifestSchema.parse(manifest), {
