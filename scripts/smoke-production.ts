@@ -59,6 +59,26 @@ const requireSecurityHeaders = (
   }
 };
 
+const fetchPageWithSecurityPolicy = async (
+  url: string,
+  label: string,
+  connectSource: string,
+) => {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const response = await requireOk(await fetch(url), label);
+    try {
+      requireSecurityHeaders(response, label, connectSource);
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 6)
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+  throw lastError;
+};
+
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
 ).json()) as { status: string; version: string };
@@ -101,8 +121,7 @@ for (const [label, url, title, connectSource] of [
   ],
   ['ProjectFlow', projectFlowUrl, '<title>ProjectFlow', "connect-src 'self'"],
 ] as const) {
-  const response = await requireOk(await fetch(url), label);
-  requireSecurityHeaders(response, label, connectSource);
+  const response = await fetchPageWithSecurityPolicy(url, label, connectSource);
   const html = await response.text();
   if (!html.includes(title)) throw new Error(`${label} HTML title is missing.`);
 }
