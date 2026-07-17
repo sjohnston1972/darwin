@@ -254,7 +254,11 @@ const installApi = (latestAnalysis: unknown = null) => {
   return fetchMock;
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+  document.documentElement.dataset.theme = 'dark';
+});
 
 describe('Darwin control room', () => {
   it('starts with the measured ProjectFlow workflow, not a synthetic demo', async () => {
@@ -331,5 +335,20 @@ describe('Darwin control room', () => {
       screen.queryByText('Reveal capacity context'),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ask gpt-5.6' })).toBeEnabled();
+  });
+
+  it('persists the light theme from the header control', () => {
+    installApi();
+    render(<App />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Switch to light theme' }),
+    );
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(localStorage.getItem('darwin-theme')).toBe('light');
+    expect(
+      screen.getByRole('button', { name: 'Switch to dark theme' }),
+    ).toBeVisible();
   });
 });

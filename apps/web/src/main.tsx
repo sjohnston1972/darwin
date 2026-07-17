@@ -5,6 +5,10 @@ import App from './App';
 import './styles.css';
 import './projectflow/projectflow.css';
 
+const storedTheme = localStorage.getItem('darwin-theme');
+document.documentElement.dataset.theme =
+  storedTheme === 'light' ? 'light' : 'dark';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

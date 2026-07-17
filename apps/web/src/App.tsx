@@ -29,6 +29,7 @@ import {
   GitCompareArrows,
   LayoutDashboard,
   Menu,
+  Moon,
   MousePointer2,
   Network,
   Radar,
@@ -36,6 +37,8 @@ import {
   RotateCcw,
   Server,
   ShieldCheck,
+  Sprout,
+  Sun,
   TrendingUp,
   Users,
   X,
@@ -51,6 +54,7 @@ import {
 } from './telemetry/useLiveTelemetry';
 
 type HealthState = 'checking' | 'online' | 'offline';
+type Theme = 'dark' | 'light';
 
 interface ApiHealthState {
   status: HealthState;
@@ -136,6 +140,9 @@ const genomeComparison = [
 ] as const;
 
 function App() {
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
+  );
   const [health, setHealth] = useState<ApiHealthState>({
     status: 'checking',
     version: null,
@@ -158,6 +165,15 @@ function App() {
   const resetDemo = async () => {
     if (await demo.reset()) liveTelemetry.resetState();
   };
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem('darwin-theme', theme);
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', theme === 'light' ? '#f4f7fb' : '#101211');
+  }, [theme]);
   const recentSessions = new Set(
     liveTelemetry.events.map((event) => event.sessionId),
   ).size;
@@ -245,31 +261,32 @@ function App() {
       <div className="organism-preview-page">
         <header>
           <a href="/" className="flex items-center gap-3">
-            <span className="brand-mark" aria-hidden="true">
-              <span />
-            </span>
+            <DarwinMark />
             <strong>DARWIN</strong>
           </a>
           <span>ProjectFlow target application</span>
-          <div
-            className="variant-control"
-            role="group"
-            aria-label="ProjectFlow variant"
-          >
-            <button
-              className={organismVariant === 'baseline' ? 'is-active' : ''}
-              type="button"
-              onClick={() => setOrganismVariant('baseline')}
+          <div className="target-header-actions">
+            <div
+              className="variant-control"
+              role="group"
+              aria-label="ProjectFlow variant"
             >
-              Baseline <span>v1.0</span>
-            </button>
-            <button
-              className={organismVariant === 'evolved' ? 'is-active' : ''}
-              type="button"
-              onClick={() => setOrganismVariant('evolved')}
-            >
-              Evolved <span>v1.1</span>
-            </button>
+              <button
+                className={organismVariant === 'baseline' ? 'is-active' : ''}
+                type="button"
+                onClick={() => setOrganismVariant('baseline')}
+              >
+                Baseline <span>v1.0</span>
+              </button>
+              <button
+                className={organismVariant === 'evolved' ? 'is-active' : ''}
+                type="button"
+                onClick={() => setOrganismVariant('evolved')}
+              >
+                Evolved <span>v1.1</span>
+              </button>
+            </div>
+            <ThemeToggle theme={theme} onChange={setTheme} />
           </div>
         </header>
         <iframe
@@ -290,9 +307,7 @@ function App() {
             href="#top"
             aria-label="Darwin control room"
           >
-            <span className="brand-mark" aria-hidden="true">
-              <span />
-            </span>
+            <DarwinMark />
             <span className="text-[17px] font-semibold tracking-[0.16em]">
               DARWIN
             </span>
@@ -387,8 +402,9 @@ function App() {
           >
             <ShieldCheck size={15} className="text-signal" />
             <span>Controlled mode</span>
+            <ThemeToggle theme={theme} onChange={setTheme} />
             <button
-              className="icon-button ml-2"
+              className="icon-button"
               type="button"
               onClick={() => void resetDemo()}
               disabled={demo.stage === 'resetting'}
@@ -740,6 +756,37 @@ function App() {
 const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
   return `${analysis.model} live`;
 };
+
+function DarwinMark() {
+  return (
+    <span className="brand-mark" aria-hidden="true">
+      <Sprout className="growth-stage growth-stage-one" />
+      <Sprout className="growth-stage growth-stage-two" />
+      <Sprout className="growth-stage growth-stage-three" />
+    </span>
+  );
+}
+
+function ThemeToggle({
+  theme,
+  onChange,
+}: {
+  theme: Theme;
+  onChange: (theme: Theme) => void;
+}) {
+  const nextTheme = theme === 'dark' ? 'light' : 'dark';
+  return (
+    <button
+      className="icon-button theme-toggle"
+      type="button"
+      aria-label={`Switch to ${nextTheme} theme`}
+      data-explain={`Switch to ${nextTheme} theme`}
+      onClick={() => onChange(nextTheme)}
+    >
+      {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+    </button>
+  );
+}
 
 function InfoTip({ text }: { text: string }) {
   return (
