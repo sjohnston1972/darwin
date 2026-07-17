@@ -191,6 +191,7 @@ function App() {
   const mutationArchived =
     liveTelemetry.execution?.status === 'released' &&
     (!rollback || ['failed', 'released'].includes(rollback.status));
+  const observationsArchived = liveTelemetry.execution?.status === 'released';
   const activeGenomeLoci = repository
     ? [
         { locus: 'Repository', value: repository.fullName },
@@ -533,13 +534,16 @@ function App() {
             <WorkspaceHeading activeView={activeView} />
           )}
 
-          {activeView === 'Observations' && (
-            <LiveTelemetryPanel
-              telemetry={liveTelemetry}
-              analysisConfig={health.analysis}
-              mode="observations"
-            />
-          )}
+          {activeView === 'Observations' &&
+            (observationsArchived && liveTelemetry.execution ? (
+              <ObservationWorkspaceReset />
+            ) : (
+              <LiveTelemetryPanel
+                telemetry={liveTelemetry}
+                analysisConfig={health.analysis}
+                mode="observations"
+              />
+            ))}
 
           {activeView === 'Mutations' &&
             (mutationArchived && liveTelemetry.execution ? (
@@ -746,7 +750,7 @@ function App() {
                         <span className="status-badge">RETAINED</span>
                       </td>
                     </tr>
-                    {!liveTelemetry.execution ? (
+                    {!liveTelemetry.execution && (
                       <tr className="border-t border-line">
                         <td className="px-6 py-5 font-mono">
                           {repository?.baseSha.slice(0, 12) ?? 'baseline'}
@@ -760,45 +764,39 @@ function App() {
                           <span className="status-badge">CURRENT</span>
                         </td>
                       </tr>
-                    ) : (
-                      <RepositoryFossilRow
-                        execution={liveTelemetry.execution}
-                      />
-                    )}
-                    {liveTelemetry.execution?.rollback && (
-                      <RepositoryRollbackFossilRow
-                        rollback={liveTelemetry.execution.rollback}
-                      />
                     )}
                   </tbody>
                 </table>
               </div>
+              {liveTelemetry.execution && (
+                <FossilObservationArtifact
+                  telemetry={liveTelemetry}
+                  analysisConfig={health.analysis}
+                />
+              )}
+              {liveTelemetry.execution && (
+                <FossilExecutionArtifact
+                  execution={liveTelemetry.execution}
+                  manifest={liveTelemetry.manifest}
+                  releasing={liveTelemetry.releasingExecution}
+                  retrying={liveTelemetry.implementing}
+                  rollingBack={liveTelemetry.rollingBack}
+                  releasingRollback={liveTelemetry.releasingRollback}
+                  onRelease={() => void liveTelemetry.releaseExecution()}
+                  onRollback={() => void liveTelemetry.startRollback()}
+                  onReleaseRollback={() => void liveTelemetry.releaseRollback()}
+                  onRetry={() =>
+                    void liveTelemetry.startControlledEvolution(
+                      liveTelemetry.manifest?.mutationIds ??
+                        (liveTelemetry.manifest
+                          ? [liveTelemetry.manifest.mutationId]
+                          : []),
+                    )
+                  }
+                />
+              )}
             </section>
           )}
-
-          {activeView === 'Fossil record' &&
-            liveTelemetry.execution?.status === 'released' && (
-              <RepositoryExecutionWorkspace
-                archived
-                execution={liveTelemetry.execution}
-                manifest={liveTelemetry.manifest}
-                releasing={liveTelemetry.releasingExecution}
-                retrying={liveTelemetry.implementing}
-                rollingBack={liveTelemetry.rollingBack}
-                releasingRollback={liveTelemetry.releasingRollback}
-                onRelease={() => void liveTelemetry.releaseExecution()}
-                onRollback={() => void liveTelemetry.startRollback()}
-                onReleaseRollback={() => void liveTelemetry.releaseRollback()}
-                onRetry={() =>
-                  void liveTelemetry.startControlledEvolution(
-                    liveTelemetry.manifest?.mutationIds ??
-                      (liveTelemetry.manifest
-                        ? [liveTelemetry.manifest.mutationId]
-                        : []),
-                  )
-                }
-              />
-            )}
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
@@ -1415,10 +1413,14 @@ function LiveTelemetryPanel({
   telemetry,
   analysisConfig,
   mode,
+  archived = false,
+  embedded = false,
 }: {
   telemetry: LiveTelemetryState;
   analysisConfig: ApiHealthState['analysis'];
   mode: 'observations' | 'mutations';
+  archived?: boolean;
+  embedded?: boolean;
 }) {
   const isObservations = mode === 'observations';
   const sessions = [
@@ -1474,17 +1476,26 @@ function LiveTelemetryPanel({
   }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
   return (
-    <section className="mt-8 surface-panel live-evidence" id="real-evidence">
+    <section
+      className={`${embedded ? 'live-evidence live-evidence-embedded' : 'mt-8 surface-panel live-evidence'}`}
+      id={embedded ? undefined : 'real-evidence'}
+    >
       <div className="panel-heading live-evidence-heading">
         <div>
           <p className="section-label">
             {isObservations
-              ? 'Measured source · real users'
+              ? archived
+                ? 'Archived measured source'
+                : 'Measured source · real users'
               : 'Evidence-led selection'}
           </p>
           <div className="heading-with-help">
             <h2 className="mt-2 text-xl font-semibold">
-              {isObservations ? 'Live study evidence' : 'Mutation workspace'}
+              {isObservations
+                ? archived
+                  ? 'Study evidence record'
+                  : 'Live study evidence'
+                : 'Mutation workspace'}
             </h2>
             <InfoTip
               text={
@@ -1496,15 +1507,17 @@ function LiveTelemetryPanel({
           </div>
           <p className="mt-2 text-sm text-mist">
             {isObservations
-              ? 'Ordered semantic events from standalone ProjectFlow.'
+              ? archived
+                ? 'Captured semantic events and the evidence retained for this selection.'
+                : 'Ordered semantic events from standalone ProjectFlow.'
               : 'Compare real pressure clusters, choose a bounded mutation bundle, and supervise the implementation.'}
           </p>
         </div>
         <div className="live-evidence-actions">
           <span className={`source-status source-${telemetry.status}`}>
-            <span /> {telemetry.status}
+            <span /> {archived ? 'archived' : telemetry.status}
           </span>
-          {isObservations && (
+          {isObservations && !archived && (
             <button
               className="primary-action evidence-action"
               type="button"
@@ -2259,6 +2272,164 @@ function MutationWorkspaceReset({
   );
 }
 
+function ObservationWorkspaceReset() {
+  return (
+    <section className="mt-8 surface-panel mutation-reset-panel">
+      <div>
+        <p className="section-label">Study archived</p>
+        <h2 className="mt-2 text-xl font-semibold">Ready for the next study</h2>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-mist">
+          The measured event trace, evidence pack, and selection pressures are
+          retained in the fossil record with their resulting mutation.
+        </p>
+      </div>
+      <a className="secondary-action" href={dashboardRoutes['Fossil record']}>
+        <GitBranch size={16} /> Open fossil record
+      </a>
+    </section>
+  );
+}
+
+function FossilObservationArtifact({
+  telemetry,
+  analysisConfig,
+}: {
+  telemetry: LiveTelemetryState;
+  analysisConfig: ApiHealthState['analysis'];
+}) {
+  const evidence = telemetry.evidence;
+  return (
+    <details className="fossil-artifact" id="fossil-observations">
+      <summary>
+        <div className="fossil-artifact-summary">
+          <div>
+            <span>Observation</span>
+            <strong>{evidence?.study.studyId ?? 'Measured study'}</strong>
+          </div>
+          <div>
+            <span>Events</span>
+            <strong>{telemetry.count.toLocaleString('en-US')} captured</strong>
+          </div>
+          <div>
+            <span>Evidence</span>
+            <strong>
+              {evidence
+                ? `${evidence.quality.strength} · ${evidence.quality.score}/100`
+                : 'Awaiting evidence pack'}
+            </strong>
+          </div>
+          <div>
+            <span>Selection pressures</span>
+            <strong>{evidence?.frictionSignals.length ?? 0} recorded</strong>
+          </div>
+          <span className="status-badge">ARCHIVED</span>
+        </div>
+        <ChevronRight className="fossil-artifact-chevron" size={18} />
+      </summary>
+      <div className="fossil-artifact-detail">
+        <LiveTelemetryPanel
+          archived
+          embedded
+          telemetry={telemetry}
+          analysisConfig={analysisConfig}
+          mode="observations"
+        />
+      </div>
+    </details>
+  );
+}
+
+function FossilExecutionArtifact({
+  execution,
+  manifest,
+  releasing,
+  retrying,
+  rollingBack,
+  releasingRollback,
+  onRelease,
+  onRollback,
+  onReleaseRollback,
+  onRetry,
+}: {
+  execution: RepositoryMutationExecution;
+  manifest: CodexImplementationManifest | null;
+  releasing: boolean;
+  retrying: boolean;
+  rollingBack: boolean;
+  releasingRollback: boolean;
+  onRelease: () => void;
+  onRollback: () => void;
+  onReleaseRollback: () => void;
+  onRetry: () => void;
+}) {
+  const retained = execution.status === 'released';
+  const failed = execution.status === 'failed';
+  const rollback = execution.rollback;
+  const artifactState =
+    rollback?.status === 'released'
+      ? 'REVERTED'
+      : failed
+        ? 'EXECUTION FAILED'
+        : retained
+          ? 'RETAINED'
+          : 'CANDIDATE';
+
+  return (
+    <details className="fossil-artifact" id={`fossil-${execution.executionId}`}>
+      <summary>
+        <div className="fossil-artifact-summary">
+          <div>
+            <span>Genome</span>
+            <strong>
+              {execution.headSha?.slice(0, 12) ?? execution.branch}
+            </strong>
+          </div>
+          <div>
+            <span>Event</span>
+            <strong>{execution.manifestId}</strong>
+          </div>
+          <div>
+            <span>Selection</span>
+            <strong>
+              {rollback?.status === 'released'
+                ? 'Returned to baseline'
+                : retained
+                  ? 'Survived selection'
+                  : failed
+                    ? 'Execution failed'
+                    : executionStatusLabel[execution.status]}
+            </strong>
+          </div>
+          <div>
+            <span>Fitness</span>
+            <strong>{retained ? 'Measurement pending' : '--'}</strong>
+          </div>
+          <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
+            {artifactState}
+          </span>
+        </div>
+        <ChevronRight className="fossil-artifact-chevron" size={18} />
+      </summary>
+      <div className="fossil-artifact-detail">
+        <RepositoryExecutionWorkspace
+          embedded
+          archived
+          execution={execution}
+          manifest={manifest}
+          releasing={releasing}
+          retrying={retrying}
+          rollingBack={rollingBack}
+          releasingRollback={releasingRollback}
+          onRelease={onRelease}
+          onRollback={onRollback}
+          onReleaseRollback={onReleaseRollback}
+          onRetry={onRetry}
+        />
+      </div>
+    </details>
+  );
+}
+
 function RepositoryExecutionWorkspace({
   execution,
   manifest,
@@ -2267,6 +2438,7 @@ function RepositoryExecutionWorkspace({
   rollingBack,
   releasingRollback,
   archived = false,
+  embedded = false,
   onRelease,
   onRollback,
   onReleaseRollback,
@@ -2279,6 +2451,7 @@ function RepositoryExecutionWorkspace({
   rollingBack: boolean;
   releasingRollback: boolean;
   archived?: boolean;
+  embedded?: boolean;
   onRelease: () => void;
   onRollback: () => void;
   onReleaseRollback: () => void;
@@ -2305,7 +2478,7 @@ function RepositoryExecutionWorkspace({
 
   return (
     <section
-      className="mt-8 surface-panel execution-panel"
+      className={`${embedded ? 'execution-panel execution-panel-embedded' : 'mt-8 surface-panel execution-panel'}`}
       id="validation"
       aria-labelledby="repository-execution-title"
     >
@@ -2853,72 +3026,6 @@ function RollbackWorkspace({
         </>
       )}
     </section>
-  );
-}
-
-function RepositoryFossilRow({
-  execution,
-}: {
-  execution: RepositoryMutationExecution;
-}) {
-  const failed = execution.status === 'failed';
-  const retained = execution.status === 'released';
-  return (
-    <tr className="border-t border-line">
-      <td className="px-6 py-5 font-mono">
-        {execution.headSha?.slice(0, 12) ?? execution.branch}
-      </td>
-      <td className="px-6 py-5 text-mist">
-        {execution.manifestId} · {execution.changedFiles.length} changed files
-      </td>
-      <td className="px-6 py-5 text-mist">
-        {retained
-          ? 'Survived selection'
-          : failed
-            ? 'Execution failed'
-            : executionStatusLabel[execution.status]}
-      </td>
-      <td className="px-6 py-5 font-mono text-mist">
-        {retained ? 'Post-release measurement pending' : '--'}
-      </td>
-      <td className="px-6 py-5 text-right">
-        <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
-          {failed ? 'EXECUTION FAILED' : retained ? 'CURRENT' : 'CANDIDATE'}
-        </span>
-      </td>
-    </tr>
-  );
-}
-
-function RepositoryRollbackFossilRow({
-  rollback,
-}: {
-  rollback: RepositoryRollback;
-}) {
-  const reverted = rollback.status === 'released';
-  const failed = rollback.status === 'failed';
-  return (
-    <tr className="border-t border-line">
-      <td className="px-6 py-5 font-mono">
-        {rollback.headSha?.slice(0, 12) ?? rollback.branch}
-      </td>
-      <td className="px-6 py-5 text-mist">
-        {rollback.rollbackId} · inverse of {rollback.revertedSha.slice(0, 12)}
-      </td>
-      <td className="px-6 py-5 text-mist">
-        {reverted
-          ? 'Retained mutation reverted'
-          : failed
-            ? 'Rollback failed'
-            : rollbackStatusLabel[rollback.status]}
-      </td>
-      <td className="px-6 py-5 font-mono text-mist">--</td>
-      <td className="px-6 py-5 text-right">
-        <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
-          {failed ? 'ROLLBACK FAILED' : reverted ? 'REVERTED' : 'ROLLBACK'}
-        </span>
-      </td>
-    </tr>
   );
 }
 

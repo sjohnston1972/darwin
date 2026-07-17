@@ -577,7 +577,7 @@ describe('Darwin control room', () => {
   it('shows live GPT pressure clusters, ranked mutations, and Codex handoff', async () => {
     window.history.replaceState({}, '', '/?view=mutations');
     const fetchMock = installApi();
-    render(<App />);
+    const { rerender } = render(<App />);
 
     const ask = await screen.findByRole('button', { name: 'Ask gpt-5.6' });
     expect(ask).toBeEnabled();
@@ -656,6 +656,26 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: 'Open fossil record' }),
     ).toHaveAttribute('href', '/?view=fossil');
+    window.history.replaceState({}, '', '/?view=fossil');
+    rerender(<App />);
+    const observationArtifact = await waitFor(() => {
+      const artifact = document.querySelector<HTMLDetailsElement>(
+        '#fossil-observations',
+      );
+      expect(artifact).not.toBeNull();
+      return artifact!;
+    });
+    const executionArtifact = document.querySelector<HTMLDetailsElement>(
+      '#fossil-execution-measured-test',
+    );
+    expect(observationArtifact.open).toBe(false);
+    expect(executionArtifact?.open).toBe(false);
+    fireEvent.click(
+      executionArtifact!.querySelector(':scope > summary') as HTMLElement,
+    );
+    expect(
+      await screen.findByRole('heading', { name: 'Codex execution record' }),
+    ).toBeVisible();
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/analyse-evidence'),

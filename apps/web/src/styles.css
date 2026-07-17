@@ -2899,6 +2899,85 @@ a:focus-visible {
   padding: 26px;
 }
 
+.fossil-artifact {
+  border-top: 1px solid #2b302d;
+  background: #151816;
+}
+
+.fossil-artifact > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 18px;
+  min-height: 94px;
+  padding: 16px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.fossil-artifact > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fossil-artifact > summary:hover,
+.fossil-artifact[open] > summary {
+  background: rgb(167 202 127 / 4%);
+}
+
+.fossil-artifact-summary {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.75fr) minmax(180px, 1.25fr) minmax(180px, 1.25fr)
+    minmax(150px, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.fossil-artifact-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.fossil-artifact-summary > div > span {
+  color: #778078;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fossil-artifact-summary strong {
+  overflow: hidden;
+  color: #c5ccc7;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fossil-artifact-chevron {
+  color: #84918a;
+  transition: transform 160ms ease;
+}
+
+.fossil-artifact[open] .fossil-artifact-chevron {
+  transform: rotate(90deg);
+}
+
+.fossil-artifact-detail {
+  border-top: 1px solid #2b302d;
+}
+
+.execution-panel-embedded {
+  background: #181b19;
+}
+
+.live-evidence-embedded {
+  background: #181b19;
+}
+
 .rollback-workspace {
   border-top: 1px solid #2b302d;
   background: #121513;
@@ -3663,6 +3742,11 @@ html[data-theme='light'] .mutation-scorecard > div {
   background: #f7fafc;
 }
 
+html[data-theme='light'] .live-evidence-embedded,
+html[data-theme='light'] .execution-panel-embedded {
+  background: #f7fafc;
+}
+
 html[data-theme='light'] .repository-run-summary,
 html[data-theme='light'] .repository-run-summary > div,
 html[data-theme='light'] .repository-links,
@@ -4049,6 +4133,14 @@ html[data-theme='light'] .error-band {
   .execution-steps {
     grid-template-columns: repeat(5, minmax(145px, 1fr));
     overflow-x: auto;
+  }
+
+  .fossil-artifact-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fossil-artifact-summary > .status-badge {
+    justify-self: start;
   }
 }
 
