@@ -155,6 +155,9 @@ const installOpenAIResponse = (output: unknown) =>
             : 'export function App() { return null; }',
         );
       }
+      if (url.endsWith('/merge')) {
+        return Response.json({ merged: true, sha: 'f'.repeat(40) });
+      }
       return new Response(
         JSON.stringify({
           id: 'resp_test_live',
@@ -684,6 +687,20 @@ describe('Darwin API', () => {
 
     const invalid = await callback({ status: 'released' });
     expect(invalid.response.status).toBe(409);
+
+    const releaseResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/repository-executions/${execution.executionId}/release`,
+        { method: 'POST' },
+      ),
+      { GITHUB_TOKEN: 'github-test-token' },
+    );
+    const releasedExecution = RepositoryMutationExecutionSchema.parse(
+      await releaseResponse.json(),
+    );
+    expect(releaseResponse.status).toBe(200);
+    expect(releasedExecution.status).toBe('released');
+    expect(releasedExecution.headSha).toBe('f'.repeat(40));
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

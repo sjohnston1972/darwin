@@ -60,7 +60,11 @@ import {
   createRepositoryExecution,
   updateRepositoryExecution,
 } from './repository/execution';
-import { dispatchEvolutionWorkflow } from './repository/github-actions';
+import {
+  dispatchEvolutionWorkflow,
+  dispatchResetWorkflow,
+  mergeEvolutionPullRequest,
+} from './repository/github-actions';
 
 export interface Env {
   DB?: D1Database;
@@ -255,6 +259,26 @@ export const handleRequest = async (
   }
 
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
+    if (env?.GITHUB_TOKEN) {
+      try {
+        await dispatchResetWorkflow({
+          token: env.GITHUB_TOKEN,
+          fullName: env.PROJECTFLOW_REPOSITORY || 'sjohnston1972/projectflow',
+          branch: env.PROJECTFLOW_BRANCH || 'main',
+        });
+      } catch (error) {
+        return json(
+          {
+            error: 'repository_reset_failed',
+            message:
+              error instanceof Error
+                ? error.message
+                : 'ProjectFlow reset dispatch failed.',
+          },
+          { status: 502 },
+        );
+      }
+    }
     resetSimulationStore(false);
     await telemetryRepository.reset();
     await telemetryRepository.saveDemoState(demoState());
@@ -840,6 +864,69 @@ export const handleRequest = async (
         },
         { status: 409 },
       );
+    }
+  }
+
+  const repositoryReleaseMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/release$/,
+  );
+  if (request.method === 'POST' && repositoryReleaseMatch) {
+    const executionId = decodeURIComponent(repositoryReleaseMatch[1]!);
+    let execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    if (execution.status === 'released') {
+      return json(RepositoryMutationExecutionSchema.parse(execution));
+    }
+    if (execution.status !== 'preview_ready') {
+      return json(
+        {
+          error: 'not_releasable',
+          message: 'A validated pull request preview is required for release.',
+        },
+        { status: 409 },
+      );
+    }
+    if (!env?.GITHUB_TOKEN) {
+      return json(
+        {
+          error: 'repository_release_unavailable',
+          message: 'GitHub release credentials are not configured.',
+        },
+        { status: 503 },
+      );
+    }
+    execution = updateRepositoryExecution(execution, { status: 'releasing' });
+    await telemetryRepository.saveRepositoryExecution(execution);
+    try {
+      const releasedSha = await mergeEvolutionPullRequest({
+        token: env.GITHUB_TOKEN,
+        execution,
+      });
+      execution = updateRepositoryExecution(execution, {
+        status: 'released',
+        headSha: releasedSha,
+        previewUrl: execution.repository.productionUrl,
+      });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      return json(RepositoryMutationExecutionSchema.parse(execution));
+    } catch (error) {
+      execution = updateRepositoryExecution(execution, {
+        status: 'failed',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'GitHub pull request release failed.',
+      });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      return json(RepositoryMutationExecutionSchema.parse(execution), {
+        status: 502,
+      });
     }
   }
 
