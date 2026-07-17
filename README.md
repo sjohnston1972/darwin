@@ -1,47 +1,148 @@
 # Darwin
 
-> **Helping your software evolve.**
+<p align="center">
+  <img src="apps/web/public/assets/darwin-growth-mark.png" alt="Darwin growth mark" width="168" />
+</p>
 
-Darwin turns privacy-safe application telemetry into a controlled, reviewable
-repository change. It reconstructs real user journeys, asks GPT-5.6 to reason
-over measured evidence and the exact target source commit, then dispatches a
-constrained Codex run that validates its work and opens a pull request.
+<h3 align="center">Helping your software evolve.</h3>
 
-Darwin does not contain an evolved ProjectFlow variant or a recorded mutation.
-Until a live manifest is executed, there is no candidate version to display.
+<p align="center">
+  Darwin turns privacy-conscious product telemetry into a human-approved,
+  repository-backed software mutation with real validation, release, and rollback evidence.
+</p>
 
-## Repositories
+<p align="center">
+  <a href="https://darwin-control-room.pages.dev"><strong>Open Darwin</strong></a>
+  &nbsp;|&nbsp;
+  <a href="https://darwin-projectflow.pages.dev/?study=true"><strong>Open measured ProjectFlow study</strong></a>
+  &nbsp;|&nbsp;
+  <a href="https://github.com/sjohnston1972/darwin/wiki"><strong>Read the wiki</strong></a>
+</p>
 
-| Repository | Responsibility | Production |
-| --- | --- | --- |
-| [`sjohnston1972/darwin`](https://github.com/sjohnston1972/darwin) | Control room, telemetry API, evidence parsing, GPT reasoning and GitHub orchestration | [Control room](https://darwin-control-room.pages.dev) |
-| [`sjohnston1972/projectflow`](https://github.com/sjohnston1972/projectflow) | Instrumented target application and the Codex mutation workflow | [ProjectFlow](https://darwin-projectflow.pages.dev/) |
+<p align="center">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white" />
+  <img alt="React" src="https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white" />
+  <img alt="Cloudflare" src="https://img.shields.io/badge/Cloudflare-Workers%20%2B%20D1-f38020?logo=cloudflare&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-2f855a" />
+</p>
 
-The immutable ProjectFlow commit SHA and a hash of its reasoning context are
-stored with every analysis. A manifest cannot execute against a different
-commit.
+## What Darwin proves
 
-## Proof Loop
+Darwin demonstrates one complete, inspectable evolution cycle:
 
-```text
-ProjectFlow interaction
-  -> validated semantic event in D1
-  -> deterministic evidence pack with EV citations
-  -> GPT-5.6 pressure clusters and mutation candidates
-  -> human-selected manifest
-  -> GitHub Actions + Codex source edit
-  -> protected-path and change-budget checks
-  -> real npm validation
-  -> pull request and isolated Cloudflare Pages preview
-  -> human release
-  -> merged commit in the fossil record
+1. Connect an instrumented target application and verify its exact GitHub commit.
+2. Capture ordered semantic telemetry from real browser interaction.
+3. Reconstruct journeys and derive deterministic, citable friction evidence.
+4. Ask GPT-5.6 for a schema-valid portfolio of evidence-backed mutations.
+5. Let a human select one or more mutations and create an immutable manifest.
+6. Dispatch a bounded Codex workflow in the target repository.
+7. Review the real patch, checks, pull request, and isolated deployment preview.
+8. Release or reject the mutation, then retain the complete record in Genome.
+9. Prepare and validate a separate rollback when a retained mutation should be reverted.
+
+The repository does **not** contain a prebuilt evolved ProjectFlow variant. A candidate exists only after a live manifest has been executed against the verified target commit.
+
+## Product tour
+
+### Control room
+
+The operator view summarizes measured behavior, evidence strength, selection pressure, reasoning state, release confidence, and accepted Genome evolutions.
+
+[![Darwin control room](docs/assets/screenshots/control-room.png)](https://darwin-control-room.pages.dev)
+
+### Target application
+
+Darwin verifies the repository, `darwin.target.json` contract, deployment, telemetry surface, mutable paths, protected paths, and validation commands before reasoning or execution.
+
+[![Target application onboarding](docs/assets/screenshots/target-application.png)](https://darwin-control-room.pages.dev/?view=target)
+
+### Observations
+
+The evidence inspector shows persisted events, sessions, anonymous participants, behavioral signals, deterministic evidence IDs, and archived evidence from completed mutation cycles.
+
+[![Live observations](docs/assets/screenshots/observations.png)](https://darwin-control-room.pages.dev/?view=observations)
+
+### Genome
+
+Genome preserves the repository mutation, evidence provenance, validation output, release state, pull request, preview, Codex report, and rollback history.
+
+[![Genome history](docs/assets/screenshots/genome.png)](https://darwin-control-room.pages.dev/?view=genome)
+
+## Architecture
+
+Darwin and ProjectFlow are separate repositories and deployments. Darwin owns observation, reasoning, and orchestration; ProjectFlow owns its source, mutation policy, validation, and deployment.
+
+```mermaid
+flowchart LR
+  U[Measured ProjectFlow session] --> TC[Telemetry client]
+  TC --> API[Cloudflare Worker API]
+  API --> D1[(Cloudflare D1)]
+  D1 --> EE[Deterministic evidence engine]
+  EE --> GPT[GPT-5.6 structured reasoning]
+  GPT --> MF[Human-selected manifest]
+  MF --> GH[ProjectFlow GitHub Actions]
+  GH --> CX[Codex mutation]
+  CX --> VA[Repository validation]
+  VA --> PR[Pull request and preview]
+  PR -->|human release| GM[Genome]
+  GM --> RB[Reviewable rollback]
 ```
 
-Reset dispatches the target repository's reset workflow, restores the tagged
-`demo-baseline-v2` source, redeploys it, and clears Darwin telemetry, evidence,
-analyses, manifests and execution history.
+Every analysis stores the ProjectFlow base SHA and a SHA-256 fingerprint of the exact source context. Every manifest is bound to that analysis, evidence hash, repository commit, allowed paths, protected paths, and validation commands.
 
-## Local Development
+Read the detailed [Architecture wiki page](docs/wiki/Architecture.md) and [controlled evolution workflow](docs/wiki/AI-and-Mutation-Workflow.md).
+
+## Evidence boundary
+
+The browser records stable semantic IDs and bounded interaction measurements. It does not capture typed values, search terms, keystrokes, arbitrary page text, absolute screen coordinates, DOM paths, or raw cursor trails.
+
+Captured behavior includes:
+
+- session and page lifecycle;
+- route changes and browser Back/Forward use;
+- clicks, pointer type, normalized target position, and repeated-click signals;
+- hover duration, hover without click, and hover-to-click latency;
+- pointer transitions, bounded direction-change counts, and target indecision;
+- drag intent on non-draggable surfaces and touch cancellation;
+- relative browser zoom changes;
+- validation error codes and search result counts without entered values;
+- task-attempt start, completion, failure, and abandonment.
+
+TypeScript reconstructs attempts, journeys, and detector signals before GPT is invoked. GPT receives privacy-safe ordered journeys, evidence summaries, the target application map, mutation examples, and the exact allowed ProjectFlow source snapshot.
+
+The seeded scale replay remains separate:
+
+```powershell
+npm run simulate -- --seed=1859 --variant=baseline
+```
+
+It produces exactly 10,000 deterministic **synthetic** events. Synthetic events are rejected by the live evidence ingestion path and are never presented as real users.
+
+## Repository layout
+
+```text
+apps/web                    Darwin React + Vite control room
+workers/api                 Cloudflare Worker API, evidence, GPT, GitHub orchestration
+packages/shared             Zod contracts and shared TypeScript types
+packages/telemetry-client   First-party semantic telemetry client
+prompts                     Versioned reasoning and implementation prompts
+docs                        Product, architecture, runbook, screenshots, wiki source
+scripts                     Context generation, bootstrap, and production smoke checks
+```
+
+ProjectFlow lives at [`sjohnston1972/projectflow`](https://github.com/sjohnston1972/projectflow). It publishes `darwin.target.json` and owns `darwin-evolve.yml`, `darwin-rollback.yml`, and `darwin-reset.yml`.
+
+## Local development
+
+### Prerequisites
+
+- Node.js 20 or newer
+- npm 10 or newer
+- a Cloudflare account for remote D1/Workers deployment
+- an OpenAI API key for live reasoning
+- a fine-grained GitHub token for the controlled ProjectFlow workflow
+
+### Install and run
 
 ```powershell
 git clone https://github.com/sjohnston1972/darwin.git
@@ -51,69 +152,46 @@ npm install
 npm run dev
 ```
 
-Local services:
+Local endpoints:
 
-- Darwin control room: `http://localhost:5173`
-- Worker API: `http://localhost:8787`
-- ProjectFlow runs separately from `..\projectflow` with `npm run dev`
+| Service | URL |
+| --- | --- |
+| Darwin control room | `http://localhost:5173` |
+| Darwin Worker API | `http://localhost:8787` |
+| ProjectFlow | run separately from `../projectflow` |
 
-Create `.env` in Darwin:
+Create `.env` from `.env.example` and configure the live integrations:
 
 ```dotenv
-OPENAI_API_KEY=your_api_key
+OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-5.6
 OPENAI_TIMEOUT_MS=60000
 DARWIN_AI_MODE=live
-GITHUB_TOKEN=github_fine_grained_token
-DARWIN_CALLBACK_TOKEN=a_shared_random_secret
+GITHUB_TOKEN=your_fine_grained_github_token
+DARWIN_CALLBACK_TOKEN=a_long_random_shared_secret
 PROJECTFLOW_REPOSITORY=sjohnston1972/projectflow
 PROJECTFLOW_BRANCH=main
 PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
 PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
 ```
 
-The GitHub token needs Actions read/write and pull-request/content permissions
-for ProjectFlow. Install `OPENAI_API_KEY` and the same
-`DARWIN_CALLBACK_TOKEN` as ProjectFlow Actions secrets. Secrets are never put in
-the manifest or sent to the browser.
+The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Secrets stay in Worker and GitHub secret stores; they are not sent to the browser or written into manifests.
 
-## Telemetry
-
-`packages/telemetry-client` captures semantic behavior, including routes,
-stable target IDs, workflow outcomes, hover duration, hover without click,
-hover-to-click latency, false affordances, repeated clicks, pointer type,
-normalized click position, pointer transitions, direction changes, drag intent,
-touch cancellation, browser Back/Forward use and relative zoom changes.
-
-It never captures typed values, search text, keystrokes, arbitrary page text,
-absolute screen coordinates or raw cursor trails. The evidence parser is
-deterministic and GPT is not involved until after a hashed evidence pack exists.
-
-The scale replay remains available as a separate engineering check:
+## Quality checks
 
 ```powershell
-npm run simulate -- --seed=1859 --variant=baseline
-```
-
-It creates exactly 10,000 seeded events. Synthetic events are rejected by the
-real telemetry ingestion endpoint and cannot become live evidence.
-
-## Validation
-
-```powershell
+npm run lint
+npm run format:check
 npm run typecheck
-npm test
+npm run test
 npm run build
 ```
 
-ProjectFlow's workflow independently runs `npm run verify` after Codex writes a
-patch. It also rejects protected paths, workflow changes, excessive file or line
-counts and a base SHA that no longer matches the manifest.
+The deterministic reasoning context is regenerated during `npm run build` and verified during `npm run typecheck`.
 
 ## Deployment
 
-Authenticate Wrangler, configure Worker secrets, apply D1 migrations, then
-deploy the API and control room:
+Configure Worker secrets, apply migrations, and deploy the API and Pages application:
 
 ```powershell
 npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml
@@ -122,23 +200,43 @@ npx wrangler secret put DARWIN_CALLBACK_TOKEN --config workers/api/wrangler.toml
 npm run deploy:migrate
 npm run deploy:api
 npm run deploy:web
+npm run smoke:production
 ```
 
-ProjectFlow deploys from its own `main` branch to Cloudflare Pages. Candidate
-branches receive immutable Cloudflare preview deployments only after repository
-validation passes. The preview URL returned by Cloudflare is stored with the
-Darwin execution and never replaces production before release.
+ProjectFlow deploys independently from its own `main` branch. Candidate branches receive isolated Cloudflare preview deployments. Darwin never switches production to a candidate before an explicit release action.
 
-## Three-Minute Demo
+See [Operations and Deployment](docs/wiki/Operations-and-Deployment.md) for D1 migrations, secrets, rollback, smoke checks, and failure recovery.
 
-1. Open **Target application**, connect `sjohnston1972/projectflow`, and show
-   the verified GitHub commit, target contract, Cloudflare runtime and study.
-2. Click **Open measured study**, use ProjectFlow, and return to Darwin.
-3. Inspect the full event trace and generate the evidence pack.
-4. Click **Ask GPT-5.6** and expand the ranked pressure clusters.
-5. Select one or more mutation candidates and create the manifest.
-6. Start controlled evolution and open the live GitHub Actions run.
-7. Review the diff, checks, Codex summary and Cloudflare preview, then release
-   the mutation so Darwin records the merged commit.
+## Three-minute demo
 
-No source edit or variant switch is performed manually during this flow.
+1. Open **Target application** and re-verify the live ProjectFlow commit.
+2. Open the measured study in a new window and interact with ProjectFlow.
+3. Return to **Observations**, inspect the event trace, and generate evidence.
+4. Open **Mutations**, invoke GPT-5.6, and expand the ranked pressure portfolio.
+5. Select one or more supported mutations and start controlled evolution.
+6. Follow the linked GitHub Actions run; review the real patch, checks, PR, and preview.
+7. Release the reviewed mutation and open its expanded Genome record.
+8. Demonstrate the separate reviewable rollback path when appropriate.
+
+The full script, failure branches, and reset checklist are in the [Demo Runbook](docs/wiki/Demo-Runbook.md).
+
+## Security status
+
+This is a public Build Week proof of life, locked to one configured ProjectFlow target. It is **not ready to connect to a production repository or private customer telemetry**. The audit backlog tracks operator authentication, telemetry authentication, protected read APIs, callback replay protection, retention, CSP, and CI hardening.
+
+Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [open security issues](https://github.com/sjohnston1972/darwin/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity).
+
+## Documentation
+
+- [GitHub wiki](https://github.com/sjohnston1972/darwin/wiki)
+- [Wiki source in this repository](docs/wiki/Home.md)
+- [Architecture](docs/wiki/Architecture.md)
+- [Telemetry and Evidence](docs/wiki/Telemetry-and-Evidence.md)
+- [AI and Mutation Workflow](docs/wiki/AI-and-Mutation-Workflow.md)
+- [API Reference](docs/wiki/API-Reference.md)
+- [Operations and Deployment](docs/wiki/Operations-and-Deployment.md)
+- [Troubleshooting](docs/wiki/Troubleshooting.md)
+
+## License
+
+[MIT](LICENSE)
