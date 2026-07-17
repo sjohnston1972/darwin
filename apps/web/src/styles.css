@@ -3753,6 +3753,14 @@ html[data-theme='light'] .connection-endpoints a:hover {
   color: #075985;
 }
 
+html[data-theme='light'] .connection-links a {
+  color: #0369a1;
+}
+
+html[data-theme='light'] .connection-links a:hover {
+  color: #075985;
+}
+
 html[data-theme='light'] .connection-form input {
   border-color: #cbd8e2;
   background: #fff;
