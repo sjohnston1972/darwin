@@ -12,8 +12,32 @@ const requireOk = async (response: Response, label: string) => {
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
 ).json()) as { status: string; version: string };
-if (health.status !== 'ok' || health.version !== '0.21.0') {
+if (health.status !== 'ok' || health.version !== '0.22.0') {
   throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
+}
+
+const targetConnection = (await (
+  await requireOk(
+    await fetch(`${apiUrl}/api/target-connection`),
+    'Target connection',
+  )
+).json()) as {
+  status: string;
+  repository: {
+    fullName: string;
+    baseSha: string;
+    productionUrl: string;
+  };
+};
+if (
+  targetConnection.status !== 'connected' ||
+  targetConnection.repository.fullName !== 'sjohnston1972/projectflow' ||
+  !/^[a-f0-9]{40}$/.test(targetConnection.repository.baseSha) ||
+  targetConnection.repository.productionUrl !== `${projectFlowUrl}/`
+) {
+  throw new Error(
+    `Unexpected target connection: ${JSON.stringify(targetConnection)}`,
+  );
 }
 
 for (const [label, url, title] of [
@@ -102,6 +126,7 @@ console.log(
       api: health,
       controlRoomUrl,
       projectFlowUrl,
+      targetCommit: targetConnection.repository.baseSha,
       d1EventId: eventId,
       simulationEvents: simulation.run.eventCount,
     },
