@@ -1,11 +1,12 @@
 import {
   HealthResponseSchema,
+  type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type EvolutionAnalysisResponse,
-  type EvolutionRecord,
   type FitnessBreakdown,
   type MutationDiff,
+  type RepositoryMutationExecution,
   type SimulationSummary,
   type StoredTelemetryEvent,
   type ValidationResult,
@@ -25,6 +26,7 @@ import {
   Code2,
   Database,
   FileCheck2,
+  ExternalLink,
   FlaskConical,
   Gauge,
   GitBranch,
@@ -53,8 +55,6 @@ import {
 import { createPortal } from 'react-dom';
 
 import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
-import type { ProjectFlowVariant } from './projectflow/data';
-import { projectFlowGenomes } from './projectflow/genomes';
 import {
   useLiveTelemetry,
   type LiveTelemetryState,
@@ -125,26 +125,36 @@ function App() {
   const simulationLab =
     import.meta.env.DEV &&
     new URLSearchParams(window.location.search).get('lab') === 'simulation';
-  const [organismVariant, setOrganismVariant] =
-    useState<ProjectFlowVariant>('baseline');
   const demo = useEvolutionDemo();
   const liveTelemetry = useLiveTelemetry();
-  const activeOrganism = liveTelemetry.execution?.organism ?? demo.organism;
-  const liveExecutionStage: DemoStage = liveTelemetry.validatingExecution
-    ? 'validating'
-    : liveTelemetry.releasingExecution
-      ? 'releasing'
-      : (liveTelemetry.execution?.stage ?? 'idle');
-  const evolutionTimeline = liveTelemetry.execution?.record
+  const repository =
+    liveTelemetry.execution?.repository ?? liveTelemetry.analysis?.repository;
+  const targetApplicationUrl =
+    (liveTelemetry.execution?.previewUrl &&
+    ['preview_ready', 'releasing', 'released'].includes(
+      liveTelemetry.execution.status,
+    )
+      ? liveTelemetry.execution.previewUrl
+      : repository?.studyUrl) ?? `${projectFlowBaseUrl}/?study=true`;
+  const activeCommit =
+    liveTelemetry.execution?.status === 'released'
+      ? liveTelemetry.execution.headSha
+      : repository?.baseSha;
+  const activeGenomeLoci = repository
     ? [
-        ...demo.timeline.filter(
-          (record) => record.id !== liveTelemetry.execution?.record?.id,
-        ),
-        liveTelemetry.execution.record,
+        { locus: 'Repository', value: repository.fullName },
+        { locus: 'Tracked branch', value: repository.branch },
+        {
+          locus: 'Active commit',
+          value: activeCommit?.slice(0, 12) ?? 'awaiting release',
+        },
+        { locus: 'Source snapshot', value: repository.sourceHash.slice(0, 16) },
+        {
+          locus: 'Mutable surface',
+          value: `${repository.mutablePaths.length} bounded source paths`,
+        },
       ]
-    : demo.timeline;
-  const evolvedGenomeAvailable =
-    activeOrganism.variant === 'evolved' && liveTelemetry.manifest !== null;
+    : [];
   const resetDemo = async () => {
     if (await demo.reset()) liveTelemetry.resetState();
   };
@@ -234,39 +244,6 @@ function App() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    if (targetOnly) {
-      const requestedVariant = new URLSearchParams(window.location.search).get(
-        'variant',
-      );
-      setOrganismVariant(
-        evolvedGenomeAvailable && requestedVariant === 'evolved'
-          ? 'evolved'
-          : 'baseline',
-      );
-      return;
-    }
-    setOrganismVariant(evolvedGenomeAvailable ? 'evolved' : 'baseline');
-  }, [evolvedGenomeAvailable, targetOnly]);
-
-  const activeGenome = projectFlowGenomes[organismVariant];
-  const activeGenomeLoci = [
-    { locus: 'Initial route', value: activeGenome.initialRoute },
-    { locus: 'Task destination', value: activeGenome.taskDestination },
-    {
-      locus: 'Global search',
-      value: activeGenome.globalSearch ? 'enabled' : 'absent',
-    },
-    {
-      locus: 'Quick create',
-      value: activeGenome.globalQuickCreate ? 'enabled' : 'absent',
-    },
-    {
-      locus: 'Primary navigation',
-      value: activeGenome.navigation.map((item) => item.label).join(' / '),
-    },
-  ];
-
   if (targetOnly) {
     return (
       <div className="organism-preview-page">
@@ -278,35 +255,13 @@ function App() {
           </a>
           <span>ProjectFlow target application</span>
           <div className="target-header-actions">
-            <div
-              className="variant-control"
-              role="group"
-              aria-label="ProjectFlow variant"
-            >
-              <button
-                className={organismVariant === 'baseline' ? 'is-active' : ''}
-                type="button"
-                onClick={() => setOrganismVariant('baseline')}
-              >
-                Baseline <span>v1.0</span>
-              </button>
-              {evolvedGenomeAvailable && (
-                <button
-                  className={organismVariant === 'evolved' ? 'is-active' : ''}
-                  type="button"
-                  onClick={() => setOrganismVariant('evolved')}
-                >
-                  Evolved <span>{activeOrganism.genomeVersion}</span>
-                </button>
-              )}
-            </div>
             <ThemeToggle theme={theme} onChange={setTheme} />
           </div>
         </header>
         <iframe
           className="organism-standalone-frame"
-          src={`${projectFlowBaseUrl}/?variant=${organismVariant}`}
-          title={`ProjectFlow ${organismVariant} application`}
+          src={targetApplicationUrl}
+          title="ProjectFlow target application"
         />
       </div>
     );
@@ -346,7 +301,7 @@ function App() {
                   className={active ? 'nav-item nav-item-active' : 'nav-item'}
                   href={
                     label === 'Target application'
-                      ? `${projectFlowBaseUrl}/?variant=${organismVariant}`
+                      ? targetApplicationUrl
                       : active
                         ? '#top'
                         : `#${label.toLowerCase().replace(' ', '-')}`
@@ -431,7 +386,7 @@ function App() {
               onClick={() => void resetDemo()}
               disabled={demo.stage === 'resetting'}
               aria-label="Reset evolution demo"
-              data-explain="Delete telemetry, evidence, reasoning, validation, timeline state, and restore ProjectFlow v1.0."
+              data-explain="Delete Darwin telemetry, evidence, reasoning, manifests and execution state, then dispatch the ProjectFlow baseline restore workflow."
             >
               <RotateCcw size={15} />
             </button>
@@ -474,7 +429,7 @@ function App() {
                 )}
                 <a
                   className="primary-action"
-                  href={`${projectFlowBaseUrl}/study`}
+                  href={targetApplicationUrl}
                   target="_blank"
                   rel="noreferrer"
                   data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
@@ -533,21 +488,12 @@ function App() {
           />
 
           {liveTelemetry.execution && (
-            <>
-              <MutationWorkspace
-                analysis={liveTelemetry.execution.analysis}
-                stage={liveExecutionStage}
-                onDecision={() => undefined}
-              />
-              <ValidationWorkspace
-                analysis={liveTelemetry.execution.analysis}
-                diff={liveTelemetry.execution.diff}
-                validation={liveTelemetry.execution.validation}
-                stage={liveExecutionStage}
-                onValidate={() => void liveTelemetry.validateExecution()}
-                onRelease={() => void liveTelemetry.releaseExecution()}
-              />
-            </>
+            <RepositoryExecutionWorkspace
+              execution={liveTelemetry.execution}
+              manifest={liveTelemetry.manifest}
+              releasing={liveTelemetry.releasingExecution}
+              onRelease={() => void liveTelemetry.releaseExecution()}
+            />
           )}
 
           {simulationLab && (demo.stage !== 'idle' || demo.error) && (
@@ -637,9 +583,13 @@ function App() {
                 <StatusRow
                   icon={GitBranch}
                   label="Active genome"
-                  value={`${activeOrganism.genomeVersion} · ${activeOrganism.variant}`}
-                  ready={activeOrganism.variant === 'evolved'}
-                  help="The variant and genome version currently retained by the Darwin evolution state machine."
+                  value={
+                    activeCommit
+                      ? `${activeCommit.slice(0, 12)} · ${liveTelemetry.execution?.status ?? 'measured baseline'}`
+                      : 'awaiting repository snapshot'
+                  }
+                  ready={repository !== undefined}
+                  help="The exact ProjectFlow Git commit currently retained on the tracked branch. Candidate commits remain review-only until their pull request is released."
                 />
               </div>
             </aside>
@@ -656,9 +606,9 @@ function App() {
                       id="variant-summary-title"
                       className="mt-2 text-xl font-semibold"
                     >
-                      Active genome · {activeGenome.version}
+                      Repository genome · {activeCommit?.slice(0, 12) ?? '--'}
                     </h2>
-                    <InfoTip text="The five checked-in ProjectFlow configuration loci currently selected by Darwin. A candidate genome is not shown until a mutation survives the controlled workflow." />
+                    <InfoTip text="The immutable repository snapshot used by GPT and Codex. The active commit changes only after a reviewed pull request is merged." />
                   </div>
                 </div>
                 <Code2 size={19} className="text-mist" />
@@ -671,7 +621,7 @@ function App() {
                 <div className="genome-comparison-header" role="row">
                   <span role="columnheader">Locus</span>
                   <strong className="is-active" role="columnheader">
-                    {organismVariant} · {activeGenome.version}
+                    {liveTelemetry.execution?.status ?? 'baseline'}
                   </strong>
                 </div>
                 {activeGenomeLoci.map((row) => (
@@ -687,7 +637,7 @@ function App() {
                   </div>
                 ))}
                 <div className="genome-comparison-source">
-                  <Code2 size={13} /> Active checked-in genome configuration
+                  <Code2 size={13} /> Live GitHub repository state
                 </div>
               </div>
             </aside>
@@ -733,11 +683,13 @@ function App() {
                       <span className="status-badge">RETAINED</span>
                     </td>
                   </tr>
-                  {evolutionTimeline.length === 0 ? (
+                  {!liveTelemetry.execution ? (
                     <tr className="border-t border-line">
-                      <td className="px-6 py-5 font-mono">v1.0</td>
+                      <td className="px-6 py-5 font-mono">
+                        {repository?.baseSha.slice(0, 12) ?? 'baseline'}
+                      </td>
                       <td className="px-6 py-5 text-mist">
-                        ProjectFlow target application connected
+                        ProjectFlow repository snapshot connected
                       </td>
                       <td className="px-6 py-5 text-mist">Baseline</td>
                       <td className="px-6 py-5 font-mono text-mist">--</td>
@@ -746,13 +698,7 @@ function App() {
                       </td>
                     </tr>
                   ) : (
-                    evolutionTimeline.map((record, index) => (
-                      <FossilRow
-                        key={record.id}
-                        record={record}
-                        current={index === evolutionTimeline.length - 1}
-                      />
-                    ))
+                    <RepositoryFossilRow execution={liveTelemetry.execution} />
                   )}
                 </tbody>
               </table>
@@ -2119,6 +2065,296 @@ const proposalOutcome = (
   return outcomes[status];
 };
 
+const executionStatusLabel: Record<
+  RepositoryMutationExecution['status'],
+  string
+> = {
+  prepared: 'Preparing dispatch',
+  queued: 'Queued in GitHub Actions',
+  codex_running: 'Codex is editing ProjectFlow',
+  validating: 'Repository checks are running',
+  failed: 'Execution failed',
+  pull_request_open: 'Pull request open',
+  preview_ready: 'Preview ready for review',
+  releasing: 'Merging reviewed pull request',
+  released: 'Mutation released',
+};
+
+function RepositoryExecutionWorkspace({
+  execution,
+  manifest,
+  releasing,
+  onRelease,
+}: {
+  execution: RepositoryMutationExecution;
+  manifest: CodexImplementationManifest | null;
+  releasing: boolean;
+  onRelease: () => void;
+}) {
+  const lines = execution.patch?.split('\n') ?? [];
+  const status = execution.status;
+  const codexComplete = [
+    'validating',
+    'pull_request_open',
+    'preview_ready',
+    'releasing',
+    'released',
+  ].includes(status);
+  const validationComplete = [
+    'pull_request_open',
+    'preview_ready',
+    'releasing',
+    'released',
+  ].includes(status);
+  const reviewComplete = ['preview_ready', 'releasing', 'released'].includes(
+    status,
+  );
+
+  return (
+    <section
+      className="mt-8 surface-panel execution-panel"
+      id="validation"
+      aria-labelledby="repository-execution-title"
+    >
+      <div className="panel-heading execution-heading">
+        <div>
+          <p className="section-label">Live repository mutation</p>
+          <div className="heading-with-help">
+            <h2
+              id="repository-execution-title"
+              className="mt-2 text-xl font-semibold"
+            >
+              Codex execution
+            </h2>
+            <InfoTip text="A real GitHub Actions run applies the selected manifest to the exact ProjectFlow commit, enforces repository policy, runs validation, opens a pull request, and deploys a review preview." />
+          </div>
+        </div>
+        <span className={`artifact-badge execution-status-${status}`}>
+          {['prepared', 'queued', 'codex_running', 'validating', 'releasing'].includes(
+            status,
+          ) && <CircleDashed className="is-spinning" size={14} />}
+          {!['prepared', 'queued', 'codex_running', 'validating', 'releasing'].includes(
+            status,
+          ) && <GitBranch size={14} />}
+          {executionStatusLabel[status]}
+        </span>
+      </div>
+
+      <div className="execution-steps" aria-label="Repository execution progress">
+        <ExecutionStep index="01" label="Manifest" state="complete" />
+        <ExecutionStep
+          index="02"
+          label="Codex"
+          state={codexComplete ? 'complete' : status === 'failed' ? 'pending' : 'active'}
+        />
+        <ExecutionStep
+          index="03"
+          label="Checks"
+          state={
+            validationComplete
+              ? 'complete'
+              : status === 'validating'
+                ? 'active'
+                : 'pending'
+          }
+        />
+        <ExecutionStep
+          index="04"
+          label="Review"
+          state={reviewComplete ? 'complete' : status === 'pull_request_open' ? 'active' : 'pending'}
+        />
+        <ExecutionStep
+          index="05"
+          label="Release"
+          state={status === 'released' ? 'complete' : status === 'releasing' ? 'active' : 'pending'}
+        />
+      </div>
+
+      <div className="repository-run-summary">
+        <div>
+          <span>Repository</span>
+          <a href={execution.repository.url} target="_blank" rel="noreferrer">
+            {execution.repository.fullName} <ExternalLink size={12} />
+          </a>
+        </div>
+        <div>
+          <span>Immutable base</span>
+          <code>{execution.baseSha.slice(0, 12)}</code>
+        </div>
+        <div>
+          <span>Candidate commit</span>
+          <code>{execution.headSha?.slice(0, 12) ?? 'pending'}</code>
+        </div>
+        <div>
+          <span>Branch</span>
+          <code>{execution.branch}</code>
+        </div>
+      </div>
+
+      <div className="repository-links" aria-label="Repository artifacts">
+        {execution.workflowUrl && (
+          <a href={execution.workflowUrl} target="_blank" rel="noreferrer">
+            <Activity size={14} /> Workflow run <ExternalLink size={12} />
+          </a>
+        )}
+        {execution.pullRequestUrl && (
+          <a href={execution.pullRequestUrl} target="_blank" rel="noreferrer">
+            <GitBranch size={14} /> Pull request #{execution.pullRequestNumber}{' '}
+            <ExternalLink size={12} />
+          </a>
+        )}
+        {execution.previewUrl && (
+          <a href={execution.previewUrl} target="_blank" rel="noreferrer">
+            <Rocket size={14} /> Open mutation preview <ExternalLink size={12} />
+          </a>
+        )}
+      </div>
+
+      {execution.error && (
+        <div className="execution-error" role="alert">
+          <AlertTriangle size={17} />
+          <div>
+            <strong>Repository execution stopped</strong>
+            <span>{execution.error}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="execution-layout">
+        <div className="diff-column">
+          <div className="artifact-heading">
+            <div>
+              <span>Real Git patch</span>
+              <strong>
+                {execution.baseSha.slice(0, 8)} →{' '}
+                {execution.headSha?.slice(0, 8) ?? 'Codex working'}
+              </strong>
+            </div>
+            <span>{lines.length ? `${lines.length} lines` : 'pending'}</span>
+          </div>
+          {lines.length ? (
+            <pre className="diff-viewer" aria-label="ProjectFlow repository diff">
+              <code>
+                {lines.map((line, index) => (
+                  <span
+                    className={
+                      line.startsWith('+') && !line.startsWith('+++')
+                        ? 'diff-addition'
+                        : line.startsWith('-') && !line.startsWith('---')
+                          ? 'diff-removal'
+                          : line.startsWith('@@')
+                            ? 'diff-hunk'
+                            : ''
+                    }
+                    key={`${index}-${line}`}
+                  >
+                    <i>{String(index + 1).padStart(2, '0')}</i>
+                    {line || ' '}
+                  </span>
+                ))}
+              </code>
+            </pre>
+          ) : (
+            <div className="validation-ready repository-waiting">
+              <CircleDashed className={status === 'failed' ? '' : 'is-spinning'} size={22} />
+              <strong>{executionStatusLabel[status]}</strong>
+              <span>
+                The diff appears here only after Codex has produced a real patch.
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="validation-column">
+          <div className="artifact-heading">
+            <div>
+              <span>Repository validation</span>
+              <strong>{execution.checks.length} live checks</strong>
+            </div>
+            <span>{execution.changedFiles.length} files</span>
+          </div>
+
+          <div className="validation-checks">
+            {execution.checks.map((check) => (
+              <details key={check.name} open={check.status === 'failed'}>
+                <summary>
+                  {check.status === 'passed' ? (
+                    <CheckCircle2 size={15} />
+                  ) : check.status === 'failed' ? (
+                    <AlertTriangle size={15} />
+                  ) : (
+                    <CircleDashed
+                      className={check.status === 'running' ? 'is-spinning' : ''}
+                      size={15}
+                    />
+                  )}
+                  <span>{check.name}</span>
+                  <strong>
+                    {check.durationMs === null
+                      ? check.status
+                      : `${(check.durationMs / 1_000).toFixed(1)}s`}
+                  </strong>
+                </summary>
+                <pre>{check.output}</pre>
+              </details>
+            ))}
+          </div>
+
+          {execution.changedFiles.length > 0 && (
+            <div className="changed-file-list">
+              <span>Changed within manifest</span>
+              {execution.changedFiles.map((file) => (
+                <code key={file}>{file}</code>
+              ))}
+            </div>
+          )}
+
+          {execution.codex.finalMessage && (
+            <details className="codex-run-message">
+              <summary>
+                <BrainCircuit size={15} /> Codex implementation report
+              </summary>
+              <pre>{execution.codex.finalMessage}</pre>
+            </details>
+          )}
+
+          {manifest && (
+            <div className="manifest-execution-brief">
+              <span>Approved implementation brief</span>
+              <p>{manifest.brief}</p>
+              <code>{manifest.evidenceCitations.join(' · ')}</code>
+            </div>
+          )}
+
+          <div className="validation-actions">
+            {status === 'preview_ready' && (
+              <button
+                className="approve-action"
+                type="button"
+                onClick={onRelease}
+                data-explain="Squash-merge the exact reviewed ProjectFlow pull request. GitHub then deploys the retained commit from main."
+              >
+                <Rocket size={16} /> Release reviewed mutation
+              </button>
+            )}
+            {(status === 'releasing' || releasing) && (
+              <button className="approve-action" type="button" disabled>
+                <CircleDashed className="is-spinning" size={16} /> Merging pull request
+              </button>
+            )}
+            {status === 'released' && (
+              <div className="release-confirmation">
+                <CheckCircle2 size={17} /> Mutation survived selection at{' '}
+                <code>{execution.headSha?.slice(0, 12)}</code>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ValidationWorkspace({
   analysis,
   diff,
@@ -2365,35 +2601,34 @@ function FitnessEvidence({
   );
 }
 
-function FossilRow({
-  record,
-  current,
+function RepositoryFossilRow({
+  execution,
 }: {
-  record: EvolutionRecord;
-  current: boolean;
+  execution: RepositoryMutationExecution;
 }) {
-  const failed = record.outcome === 'failed_selection';
+  const failed = execution.status === 'failed';
+  const retained = execution.status === 'released';
   return (
     <tr className="border-t border-line">
-      <td className="px-6 py-5 font-mono">{record.version}</td>
-      <td className="px-6 py-5 text-mist">
-        {record.outcome === 'baseline'
-          ? 'ProjectFlow baseline measured'
-          : 'Promote global task discovery'}
+      <td className="px-6 py-5 font-mono">
+        {execution.headSha?.slice(0, 12) ?? execution.branch}
       </td>
       <td className="px-6 py-5 text-mist">
-        {record.outcome === 'baseline'
-          ? 'Baseline'
-          : record.outcome === 'survived'
-            ? 'Survived selection'
-            : 'Failed selection'}
+        {execution.manifestId} · {execution.changedFiles.length} changed files
+      </td>
+      <td className="px-6 py-5 text-mist">
+        {retained
+          ? 'Survived selection'
+          : failed
+            ? 'Failed selection'
+            : executionStatusLabel[execution.status]}
       </td>
       <td className="px-6 py-5 font-mono text-mist">
-        {record.fitness.score.toFixed(1)}
+        {retained ? 'Post-release measurement pending' : '--'}
       </td>
       <td className="px-6 py-5 text-right">
         <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
-          {failed ? 'REJECTED' : current ? 'CURRENT' : 'RETAINED'}
+          {failed ? 'REJECTED' : retained ? 'CURRENT' : 'CANDIDATE'}
         </span>
       </td>
     </tr>

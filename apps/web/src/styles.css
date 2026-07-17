@@ -2451,7 +2451,7 @@ a:focus-visible {
 
 .execution-steps {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 1px;
   border-bottom: 1px solid #2b302d;
   background: #2b302d;
@@ -2507,6 +2507,94 @@ a:focus-visible {
 
 .execution-layout {
   display: grid;
+}
+
+.repository-run-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid #2b302d;
+  background: #2b302d;
+}
+
+.repository-run-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 14px 18px;
+  background: #151816;
+}
+
+.repository-run-summary span,
+.changed-file-list > span,
+.manifest-execution-brief > span {
+  color: #778078;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.repository-run-summary code,
+.repository-run-summary a {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+  color: #c5ccc7;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9px;
+}
+
+.repository-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid #2b302d;
+  padding: 12px 18px;
+}
+
+.repository-links a {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #39433d;
+  padding: 0 10px;
+  color: #b9f36b;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.repository-links a:hover {
+  border-color: #718f4c;
+  background: #20291b;
+}
+
+.execution-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  border-bottom: 1px solid #754a42;
+  padding: 14px 18px;
+  background: rgb(117 74 66 / 13%);
+  color: #ef9a89;
+}
+
+.execution-error div {
+  display: grid;
+  gap: 4px;
+}
+
+.execution-error strong {
+  font-size: 11px;
+}
+
+.execution-error span {
+  color: #c69a91;
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .diff-column,
@@ -2683,6 +2771,66 @@ a:focus-visible {
   font-size: 8px;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.changed-file-list,
+.manifest-execution-brief {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  border-left: 2px solid #46503e;
+  padding: 12px 14px;
+  background: #101311;
+}
+
+.changed-file-list code,
+.manifest-execution-brief code {
+  overflow-wrap: anywhere;
+  color: #a7b0aa;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 8px;
+}
+
+.manifest-execution-brief p {
+  color: #c5ccc7;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.codex-run-message {
+  margin-top: 18px;
+  border: 1px solid #2b302d;
+  background: #101311;
+}
+
+.codex-run-message summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: #b9f36b;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.codex-run-message pre {
+  max-height: 240px;
+  overflow: auto;
+  border-top: 1px solid #2b302d;
+  padding: 12px;
+  color: #a7b0aa;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 8px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.repository-waiting {
+  margin-right: -24px;
+  margin-bottom: -24px;
+  margin-left: -24px;
 }
 
 .fitness-evidence {
@@ -3157,6 +3305,35 @@ html[data-theme='light'] .mutation-scorecard > div {
   background: #f7fafc;
 }
 
+html[data-theme='light'] .repository-run-summary,
+html[data-theme='light'] .repository-run-summary > div,
+html[data-theme='light'] .repository-links,
+html[data-theme='light'] .codex-run-message,
+html[data-theme='light'] .codex-run-message pre,
+html[data-theme='light'] .changed-file-list,
+html[data-theme='light'] .manifest-execution-brief {
+  border-color: #d7e0e8;
+  background: #f7fafc;
+}
+
+html[data-theme='light'] .repository-run-summary code,
+html[data-theme='light'] .repository-run-summary a,
+html[data-theme='light'] .manifest-execution-brief p,
+html[data-theme='light'] .codex-run-message pre,
+html[data-theme='light'] .changed-file-list code {
+  color: #263746;
+}
+
+html[data-theme='light'] .repository-links a {
+  border-color: #b7cbd9;
+  color: #087f5b;
+}
+
+html[data-theme='light'] .repository-links a:hover {
+  border-color: #7bc6aa;
+  background: #ecfdf5;
+}
+
 html[data-theme='light'] .evidence-quality-band {
   border-color: #ead7a2;
   background: #fffbeb;
@@ -3478,9 +3655,22 @@ html[data-theme='light'] .error-band {
     grid-template-columns: repeat(5, minmax(190px, 1fr));
     overflow-x: auto;
   }
+
+  .repository-run-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .execution-steps {
+    grid-template-columns: repeat(5, minmax(145px, 1fr));
+    overflow-x: auto;
+  }
 }
 
 @media (max-width: 639px) {
+  .repository-run-summary {
+    grid-template-columns: 1fr;
+  }
+
   [data-explain]::after,
   .nav-item[data-explain]::after,
   .info-tip [role='tooltip'] {

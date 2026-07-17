@@ -911,7 +911,7 @@ export const handleRequest = async (
       execution = updateRepositoryExecution(execution, {
         status: 'released',
         headSha: releasedSha,
-        previewUrl: execution.repository.productionUrl,
+        previewUrl: execution.repository.studyUrl,
       });
       await telemetryRepository.saveRepositoryExecution(execution);
       return json(RepositoryMutationExecutionSchema.parse(execution));

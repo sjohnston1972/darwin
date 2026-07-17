@@ -4,6 +4,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 
 const timestamp = '2026-07-16T12:00:00.000Z';
+const repository = {
+  owner: 'sjohnston1972',
+  name: 'projectflow',
+  fullName: 'sjohnston1972/projectflow',
+  url: 'https://github.com/sjohnston1972/projectflow',
+  branch: 'main',
+  baseSha: 'd'.repeat(40),
+  sourceHash: 'e'.repeat(64),
+  capturedAt: timestamp,
+  mutablePaths: ['apps/projectflow/src/App.tsx'],
+  protectedPaths: ['.github/**'],
+  contextPaths: ['apps/projectflow/src/App.tsx'],
+  validationCommands: ['npm run verify'],
+  maximumChangedFiles: 4,
+  maximumChangedLines: 1200,
+  productionUrl: 'https://sjohnston1972.github.io/projectflow/',
+  studyUrl: 'https://sjohnston1972.github.io/projectflow/?study=true',
+} as const;
 const evidence = {
   evidenceId: 'evidence-measured-test',
   evidenceHash: 'a'.repeat(64),
@@ -149,10 +167,11 @@ const analysis = {
   evidenceId: evidence.evidenceId,
   evidenceHash: evidence.evidenceHash,
   cacheKey: 'b'.repeat(64),
-  promptVersion: '2.0.0',
+  promptVersion: '3.0.0',
   mode: 'live',
   model: 'gpt-5.6',
   createdAt: timestamp,
+  repository,
   evidenceAssessment: {
     summary: 'One measured journey suggests capacity labels need clarity.',
     quality: evidence.quality,
@@ -221,15 +240,16 @@ const manifest = {
   mutationId: analysis.selectedMutation.id,
   mutationIds: [analysis.selectedMutation.id],
   evidenceHash: evidence.evidenceHash,
-  promptVersion: '2.0.0',
-  repositoryCommit: 'test-commit',
+  promptVersion: '3.0.0',
+  repositoryCommit: repository.baseSha,
+  repository,
   createdAt: timestamp,
   brief: analysis.selectedMutation.codexBrief,
   evidenceCitations: ['EV-001'],
   allowedPaths: ['apps/projectflow/src/App.tsx'],
-  protectedPaths: ['workers/api/src/persistence'],
+  protectedPaths: ['.github/**'],
   acceptanceCriteria: analysis.selectedMutation.acceptanceCriteria,
-  validationCommands: ['npm test'],
+  validationCommands: ['npm run verify'],
 } as const;
 
 const baselineFitness = {
@@ -329,57 +349,61 @@ const installApi = (latestAnalysis: unknown = null) => {
         if (init?.method !== 'POST' && !liveExecution)
           return response(null, 204);
         liveExecution ??= {
+          executionId: 'execution-measured-test',
           manifestId: manifest.manifestId,
-          stage: 'approved',
-          analysis: executionAnalysis,
-          diff: executionDiff,
-          validation: null,
-          organism: {
-            variant: 'baseline',
-            genomeVersion: 'v1.0',
-            evolutionCycles: 0,
-            activeMutationId: null,
-            updatedAt: timestamp,
+          analysisId: analysis.analysisId,
+          repository,
+          status: 'preview_ready',
+          branch: 'darwin/evolution-measured-test',
+          baseSha: repository.baseSha,
+          headSha: 'f'.repeat(40),
+          workflowRunId: 123,
+          workflowUrl:
+            'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+          pullRequestNumber: 7,
+          pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
+          previewUrl:
+            'https://sjohnston1972.github.io/projectflow/?study=true&execution=test',
+          patch: '@@ live repository patch @@\n-old behavior\n+measured behavior',
+          changedFiles: ['apps/projectflow/src/App.tsx'],
+          checks: [
+            {
+              name: 'npm run verify',
+              status: 'passed',
+              durationMs: 1200,
+              output: 'Typecheck, tests, and build passed.',
+            },
+          ],
+          codex: {
+            threadId: null,
+            finalMessage: 'Implemented the approved measured mutation.',
+            inputTokens: null,
+            cachedInputTokens: null,
+            outputTokens: null,
           },
-          record: null,
+          error: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          completedAt: null,
         };
         return response(liveExecution, 201);
       }
-      if (url.endsWith(`/${executionProposal.id}/validate`)) {
-        const proposal = { ...executionProposal, status: 'validated' };
-        liveExecution = {
-          ...liveExecution,
-          stage: 'validated',
-          analysis: { ...executionAnalysis, proposal },
-          validation,
-        };
-        return response({ proposal, validation });
+      if (url.endsWith('/api/repository-executions/execution-measured-test')) {
+        return response(liveExecution);
       }
-      if (url.endsWith(`/${executionProposal.id}/release`)) {
-        const proposal = { ...executionProposal, status: 'released' };
-        const organism = {
-          variant: 'evolved',
-          genomeVersion: 'v1.1',
-          evolutionCycles: 1,
-          activeMutationId: executionProposal.id,
-          updatedAt: timestamp,
-        };
-        const record = {
-          id: 'record-survived-measured-test',
-          version: 'v1.1',
-          mutationId: executionProposal.id,
-          outcome: 'survived',
-          fitness: evolvedFitness,
-          recordedAt: timestamp,
-        };
+      if (
+        url.endsWith(
+          '/api/repository-executions/execution-measured-test/release',
+        )
+      ) {
         liveExecution = {
           ...liveExecution,
-          stage: 'released',
-          analysis: { ...executionAnalysis, proposal },
-          organism,
-          record,
+          status: 'released',
+          headSha: '1'.repeat(40),
+          previewUrl: repository.studyUrl,
+          completedAt: timestamp,
         };
-        return response({ proposal, organism, record });
+        return response(liveExecution);
       }
       if (url.includes('/codex-manifest')) {
         const requestBody =
@@ -471,7 +495,7 @@ describe('Darwin control room', () => {
     expect(screen.getByText('Helping your software evolve.')).toBeVisible();
     expect(
       screen.getByRole('link', { name: /Open measured study/ }),
-    ).toHaveAttribute('href', expect.stringContaining('/study'));
+    ).toHaveAttribute('href', expect.stringContaining('study=true'));
     expect(screen.getByRole('link', { name: 'Target application' })).toEqual(
       expect.objectContaining({
         target: '_blank',
@@ -479,7 +503,7 @@ describe('Darwin control room', () => {
     );
     expect(
       screen.getByRole('link', { name: 'Target application' }),
-    ).toHaveAttribute('href', expect.stringContaining('variant=baseline'));
+    ).toHaveAttribute('href', expect.not.stringContaining('variant='));
     expect(
       screen.queryByText('Observe 10,000 interactions'),
     ).not.toBeInTheDocument();
@@ -494,7 +518,7 @@ describe('Darwin control room', () => {
       screen.queryByRole('heading', { name: 'Standalone ProjectFlow' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: 'Active genome · v1.0' }),
+      screen.getByRole('heading', { name: 'Repository genome · --' }),
     ).toBeVisible();
     expect(screen.queryByText('Evolved · v1.1')).not.toBeInTheDocument();
     document
@@ -584,23 +608,18 @@ describe('Darwin control room', () => {
     expect(
       await screen.findByText('MANIFEST manifest-measured-test'),
     ).toBeVisible();
-    expect(await screen.findByText('Mutation execution')).toBeVisible();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Run recorded validation' }),
-    );
+    expect(await screen.findByText('Codex execution')).toBeVisible();
     expect(
-      await screen.findByRole('button', { name: 'Release evolved genome' }),
+      await screen.findByRole('button', { name: 'Release reviewed mutation' }),
     ).toBeVisible();
     fireEvent.click(
-      screen.getByRole('button', { name: 'Release evolved genome' }),
+      screen.getByRole('button', { name: 'Release reviewed mutation' }),
     );
-    expect(
-      (await screen.findAllByText('Mutation survived selection')).length,
-    ).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText('Mutation released')).toBeVisible();
     await waitFor(() =>
       expect(
         screen.getByRole('link', { name: 'Target application' }),
-      ).toHaveAttribute('href', expect.stringContaining('variant=evolved')),
+      ).toHaveAttribute('href', repository.studyUrl),
     );
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -619,20 +638,16 @@ describe('Darwin control room', () => {
     );
   });
 
-  it('does not expose the evolved target before a release', async () => {
+  it('does not expose a baked variant selector in the target view', async () => {
     window.history.replaceState({}, '', '/?view=target&variant=evolved');
     installApi();
     render(<App />);
 
+    expect(screen.queryByText(/Baseline v1\.0/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Evolved v1\.1/)).not.toBeInTheDocument();
     expect(
-      await screen.findByRole('button', { name: /Baseline v1\.0/ }),
-    ).toBeVisible();
-    expect(
-      screen.queryByRole('button', { name: /Evolved v1\.1/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByTitle('ProjectFlow baseline application'),
-    ).toHaveAttribute('src', expect.stringContaining('variant=baseline'));
+      screen.getByTitle('ProjectFlow target application'),
+    ).toHaveAttribute('src', expect.not.stringContaining('variant='));
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {

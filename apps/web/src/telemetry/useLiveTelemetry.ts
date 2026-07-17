@@ -2,14 +2,12 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
-  ManifestExecutionResponseSchema,
-  MutationReleaseResponseSchema,
-  MutationValidationResponseSchema,
+  RepositoryMutationExecutionSchema,
   StudyEventsResponseSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
-  type ManifestExecutionResponse,
+  type RepositoryMutationExecution,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
 import { useEffect, useRef, useState } from 'react';
@@ -31,7 +29,7 @@ export interface LiveTelemetryState {
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
-  execution: ManifestExecutionResponse | null;
+  execution: RepositoryMutationExecution | null;
   implementing: boolean;
   preparingManifest: boolean;
   releasingExecution: boolean;
@@ -40,8 +38,6 @@ export interface LiveTelemetryState {
   sessionCounts: Record<string, number>;
   startControlledEvolution: (mutationIds: string[]) => Promise<void>;
   status: 'loading' | 'live' | 'offline';
-  validateExecution: () => Promise<void>;
-  validatingExecution: boolean;
   releaseExecution: () => Promise<void>;
 }
 
@@ -62,11 +58,9 @@ export function useLiveTelemetry(): LiveTelemetryState {
     null,
   );
   const [preparingManifest, setPreparingManifest] = useState(false);
-  const [execution, setExecution] = useState<ManifestExecutionResponse | null>(
-    null,
-  );
+  const [execution, setExecution] =
+    useState<RepositoryMutationExecution | null>(null);
   const [implementing, setImplementing] = useState(false);
-  const [validatingExecution, setValidatingExecution] = useState(false);
   const [releasingExecution, setReleasingExecution] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
@@ -140,7 +134,9 @@ export function useLiveTelemetry(): LiveTelemetryState {
       if (executionResponse.status === 204 || !executionResponse.ok) return;
       if (active && initialGeneration === resetGeneration.current) {
         setExecution(
-          ManifestExecutionResponseSchema.parse(await executionResponse.json()),
+          RepositoryMutationExecutionSchema.parse(
+            await executionResponse.json(),
+          ),
         );
       }
     };
@@ -151,6 +147,31 @@ export function useLiveTelemetry(): LiveTelemetryState {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    if (!execution || ['failed', 'released'].includes(execution.status)) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/repository-executions/${execution.executionId}`,
+        );
+        if (!response.ok) return;
+        const latest = RepositoryMutationExecutionSchema.parse(
+          await response.json(),
+        );
+        if (active) setExecution(latest);
+      } catch {
+        // The telemetry poll will surface broad API availability separately.
+      }
+    };
+    const interval = window.setInterval(() => void poll(), 3_000);
+    void poll();
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [execution?.executionId, execution?.status]);
 
   const generateEvidence = async () => {
     setGenerating(true);
@@ -237,12 +258,20 @@ export function useLiveTelemetry(): LiveTelemetryState {
       const executionPayload = (await executionResponse.json()) as {
         message?: string;
       };
+      const parsedExecution = RepositoryMutationExecutionSchema.safeParse(
+        executionPayload,
+      );
+      if (parsedExecution.success) setExecution(parsedExecution.data);
       if (!executionResponse.ok) {
         throw new Error(
-          executionPayload.message ?? 'Controlled implementation failed.',
+          parsedExecution.success
+            ? (parsedExecution.data.error ?? 'Repository execution failed.')
+            : (executionPayload.message ?? 'Controlled implementation failed.'),
         );
       }
-      setExecution(ManifestExecutionResponseSchema.parse(executionPayload));
+      if (!parsedExecution.success) {
+        throw new Error('Repository execution returned an invalid payload.');
+      }
     } catch (error) {
       setError(
         error instanceof Error
@@ -255,67 +284,27 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
-  const validateExecution = async () => {
-    if (!execution) return;
-    setValidatingExecution(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/mutations/${execution.analysis.proposal.id}/validate`,
-        { method: 'POST' },
-      );
-      const payload = (await response.json()) as { message?: string };
-      if (!response.ok) {
-        throw new Error(payload.message ?? 'Mutation validation failed.');
-      }
-      const result = MutationValidationResponseSchema.parse(payload);
-      setExecution((current) =>
-        current
-          ? {
-              ...current,
-              stage:
-                result.proposal.status === 'validated'
-                  ? 'validated'
-                  : current.stage,
-              analysis: { ...current.analysis, proposal: result.proposal },
-              validation: result.validation,
-            }
-          : current,
-      );
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : 'Mutation validation failed.',
-      );
-    } finally {
-      setValidatingExecution(false);
-    }
-  };
-
   const releaseExecution = async () => {
     if (!execution) return;
     setReleasingExecution(true);
     setError(null);
     try {
       const response = await fetch(
-        `${apiBaseUrl}/api/mutations/${execution.analysis.proposal.id}/release`,
+        `${apiBaseUrl}/api/repository-executions/${execution.executionId}/release`,
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
-      if (!response.ok) {
-        throw new Error(payload.message ?? 'Mutation release failed.');
-      }
-      const result = MutationReleaseResponseSchema.parse(payload);
-      setExecution((current) =>
-        current
-          ? {
-              ...current,
-              stage: 'released',
-              analysis: { ...current.analysis, proposal: result.proposal },
-              organism: result.organism,
-              record: result.record,
-            }
-          : current,
+      const parsedExecution = RepositoryMutationExecutionSchema.safeParse(
+        payload,
       );
+      if (parsedExecution.success) setExecution(parsedExecution.data);
+      if (!response.ok) {
+        throw new Error(
+          parsedExecution.success
+            ? (parsedExecution.data.error ?? 'Mutation release failed.')
+            : (payload.message ?? 'Mutation release failed.'),
+        );
+      }
     } catch (error) {
       setError(
         error instanceof Error ? error.message : 'Mutation release failed.',
@@ -341,7 +330,6 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setAnalysing(false);
     setPreparingManifest(false);
     setImplementing(false);
-    setValidatingExecution(false);
     setReleasingExecution(false);
     setStatus('live');
   };
@@ -369,7 +357,5 @@ export function useLiveTelemetry(): LiveTelemetryState {
     sessionCounts,
     startControlledEvolution,
     status,
-    validateExecution,
-    validatingExecution,
   };
 }
