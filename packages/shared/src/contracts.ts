@@ -887,6 +887,23 @@ export const GenomeHistoryResponseSchema = z.object({
   executions: z.array(RepositoryMutationExecutionSchema),
 });
 
+export const ObservationArchiveSchema = z.object({
+  archiveId: StudyIdentifierSchema,
+  evidence: EvidencePackSchema,
+  analysis: EvidenceAnalysisSchema,
+  execution: RepositoryMutationExecutionSchema.pick({
+    executionId: true,
+    manifestId: true,
+    status: true,
+    createdAt: true,
+    completedAt: true,
+  }),
+});
+
+export const ObservationArchivesResponseSchema = z.object({
+  archives: z.array(ObservationArchiveSchema),
+});
+
 export const RepositoryExecutionCallbackSchema =
   RepositoryMutationExecutionSchema.pick({
     status: true,
@@ -978,6 +995,10 @@ export type CodexImplementationManifest = z.infer<
 export type CodexManifestRequest = z.infer<typeof CodexManifestRequestSchema>;
 export type EvolutionCycle = z.infer<typeof EvolutionCycleSchema>;
 export type GenomeHistoryResponse = z.infer<typeof GenomeHistoryResponseSchema>;
+export type ObservationArchive = z.infer<typeof ObservationArchiveSchema>;
+export type ObservationArchivesResponse = z.infer<
+  typeof ObservationArchivesResponseSchema
+>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;

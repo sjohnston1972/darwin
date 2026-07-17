@@ -331,6 +331,27 @@ const installApi = (
           executions: liveExecution ? [liveExecution] : [],
         });
       }
+      if (url.endsWith('/api/observations/archives')) {
+        const released = liveExecution?.status === 'released';
+        return response({
+          archives: released
+            ? [
+                {
+                  archiveId: 'execution-measured-test',
+                  evidence,
+                  analysis,
+                  execution: {
+                    executionId: 'execution-measured-test',
+                    manifestId: manifest.manifestId,
+                    status: 'released',
+                    createdAt: timestamp,
+                    completedAt: timestamp,
+                  },
+                },
+              ]
+            : [],
+        });
+      }
       if (url.includes('/evidence/latest')) return response(evidence);
       if (url.includes('/evidence-analysis/latest'))
         return latestAnalysis ? response(latestAnalysis) : response(null, 204);
@@ -667,6 +688,22 @@ describe('Darwin control room', () => {
       screen.getByRole('button', { name: 'Release reviewed mutation' }),
     );
     expect(await screen.findByText('Mutation workspace')).toBeVisible();
+    window.history.replaceState({}, '', '/?view=observations');
+    rerender(<App />);
+    expect(
+      await screen.findByRole('heading', { name: 'Observation archive' }),
+    ).toBeVisible();
+    const observationArtifact = document.querySelector<HTMLDetailsElement>(
+      '#observation-execution-measured-test',
+    );
+    expect(observationArtifact?.open).toBe(false);
+    fireEvent.click(
+      observationArtifact!.querySelector(':scope > summary') as HTMLElement,
+    );
+    expect(await screen.findByText('Evidence assessment')).toBeVisible();
+    expect(
+      screen.getAllByText('Reveal capacity context', { exact: false }).length,
+    ).toBeGreaterThanOrEqual(2);
     window.history.replaceState({}, '', '/?view=genome');
     rerender(<App />);
     const executionArtifact = await waitFor(() => {

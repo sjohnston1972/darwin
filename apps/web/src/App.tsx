@@ -4,6 +4,7 @@ import {
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
+  type ObservationArchive,
   type RepositoryMutationExecution,
   type RepositoryRollback,
   type StoredTelemetryEvent,
@@ -531,11 +532,18 @@ function App() {
           )}
 
           {activeView === 'Observations' && (
-            <LiveTelemetryPanel
-              telemetry={liveTelemetry}
-              analysisConfig={health.analysis}
-              mode="observations"
-            />
+            <>
+              <LiveTelemetryPanel
+                telemetry={liveTelemetry}
+                analysisConfig={health.analysis}
+                mode="observations"
+              />
+              {liveTelemetry.observationArchives.length > 0 && (
+                <ObservationArchivePanel
+                  archives={liveTelemetry.observationArchives}
+                />
+              )}
+            </>
           )}
 
           {activeView === 'Mutations' &&
@@ -2270,6 +2278,130 @@ function MutationWorkspaceReset({
         <Dna size={16} /> Open Genome
       </a>
     </section>
+  );
+}
+
+function ObservationArchivePanel({
+  archives,
+}: {
+  archives: ObservationArchive[];
+}) {
+  return (
+    <section
+      className="mt-8 surface-panel observation-archive"
+      aria-labelledby="observation-archive-title"
+    >
+      <div className="panel-heading">
+        <div>
+          <p className="section-label">Retained evidence</p>
+          <div className="heading-with-help">
+            <h2
+              id="observation-archive-title"
+              className="mt-2 text-xl font-semibold"
+            >
+              Observation archive
+            </h2>
+            <InfoTip text="Evidence is archived here once it has driven a completed controlled mutation. The active study above contains only the next measurement cycle." />
+          </div>
+        </div>
+        <Database size={19} className="text-mist" />
+      </div>
+      {archives.map((archive) => (
+        <ObservationArchiveArtifact key={archive.archiveId} archive={archive} />
+      ))}
+    </section>
+  );
+}
+
+function ObservationArchiveArtifact({
+  archive,
+}: {
+  archive: ObservationArchive;
+}) {
+  const { analysis, evidence, execution } = archive;
+  const failed = execution.status === 'failed';
+  const signalCount = evidence.frictionSignals.length;
+  return (
+    <details
+      className="fossil-artifact observation-artifact"
+      id={`observation-${archive.archiveId}`}
+    >
+      <summary>
+        <div className="fossil-artifact-summary">
+          <div>
+            <span>Evidence</span>
+            <strong>{evidence.evidenceId}</strong>
+          </div>
+          <div>
+            <span>Measured scope</span>
+            <strong>
+              {evidence.study.sourceEventCount.toLocaleString('en-US')} events
+              {' · '}
+              {evidence.study.sessions} sessions
+            </strong>
+          </div>
+          <div>
+            <span>Evidence quality</span>
+            <strong>
+              {evidence.quality.strength} {evidence.quality.score}/100
+            </strong>
+          </div>
+          <div>
+            <span>Used by</span>
+            <strong>{analysis.selectedMutation.title}</strong>
+          </div>
+          <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
+            {failed ? 'FAILED' : 'ARCHIVED'}
+          </span>
+        </div>
+        <ChevronRight className="fossil-artifact-chevron" size={18} />
+      </summary>
+      <div className="fossil-artifact-detail observation-archive-detail">
+        <div className="observation-archive-stats">
+          <div>
+            <span>Participants</span>
+            <strong>{evidence.study.participants}</strong>
+          </div>
+          <div>
+            <span>Task attempts</span>
+            <strong>{evidence.study.attempts}</strong>
+          </div>
+          <div>
+            <span>Selection pressures</span>
+            <strong>{signalCount}</strong>
+          </div>
+          <div>
+            <span>Reasoned with</span>
+            <strong>{analysis.model}</strong>
+          </div>
+        </div>
+        <div className="observation-archive-copy">
+          <div>
+            <span className="section-label">Evidence assessment</span>
+            <p>{analysis.evidenceAssessment.summary}</p>
+          </div>
+          <div>
+            <span className="section-label">Selected mutation</span>
+            <strong>{analysis.selectedMutation.title}</strong>
+            <p>{analysis.selectedMutation.hypothesis}</p>
+          </div>
+        </div>
+        <div className="observation-archive-signals">
+          <span className="section-label">Retained signals</span>
+          {evidence.frictionSignals.map((signal) => (
+            <div key={signal.evidenceId}>
+              <strong>
+                {signal.severity} · {signal.summary}
+              </strong>
+              <span>
+                {signal.support.events} events across {signal.support.sessions}{' '}
+                sessions
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </details>
   );
 }
 

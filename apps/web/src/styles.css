@@ -2974,6 +2974,90 @@ a:focus-visible {
   background: #181b19;
 }
 
+.observation-archive-detail {
+  display: grid;
+  gap: 22px;
+  padding: 22px 24px;
+}
+
+.observation-archive-stats,
+.observation-archive-copy {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid #2b302d;
+  background: #2b302d;
+}
+
+.observation-archive-stats > div,
+.observation-archive-copy > div {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  background: #181b19;
+}
+
+.observation-archive-stats span,
+.observation-archive-copy .section-label,
+.observation-archive-signals > .section-label {
+  color: #778078;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.observation-archive-stats strong,
+.observation-archive-copy strong {
+  color: #c5ccc7;
+  font-size: 13px;
+}
+
+.observation-archive-copy {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.observation-archive-copy p {
+  margin: 0;
+  color: #9aa39d;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.observation-archive-signals {
+  display: grid;
+  gap: 1px;
+  border: 1px solid #2b302d;
+  background: #2b302d;
+}
+
+.observation-archive-signals > .section-label {
+  padding: 12px 14px;
+  background: #151816;
+}
+
+.observation-archive-signals > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 13px 14px;
+  background: #181b19;
+}
+
+.observation-archive-signals strong {
+  color: #c5ccc7;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.observation-archive-signals > div > span {
+  color: #84918a;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .rollback-workspace {
   border-top: 1px solid #2b302d;
   background: #121513;
@@ -3768,6 +3852,37 @@ html[data-theme='light'] .fossil-artifact-detail {
   border-color: #cbd8e2;
 }
 
+html[data-theme='light'] .observation-archive-stats,
+html[data-theme='light'] .observation-archive-copy,
+html[data-theme='light'] .observation-archive-signals {
+  border-color: #cbd8e2;
+  background: #cbd8e2;
+}
+
+html[data-theme='light'] .observation-archive-stats > div,
+html[data-theme='light'] .observation-archive-copy > div,
+html[data-theme='light'] .observation-archive-signals > div,
+html[data-theme='light'] .observation-archive-signals > .section-label {
+  background: #f7fafc;
+}
+
+html[data-theme='light'] .observation-archive-stats span,
+html[data-theme='light'] .observation-archive-copy .section-label,
+html[data-theme='light'] .observation-archive-signals > .section-label,
+html[data-theme='light'] .observation-archive-signals > div > span {
+  color: #5f7485;
+}
+
+html[data-theme='light'] .observation-archive-stats strong,
+html[data-theme='light'] .observation-archive-copy strong,
+html[data-theme='light'] .observation-archive-signals strong {
+  color: #263746;
+}
+
+html[data-theme='light'] .observation-archive-copy p {
+  color: #536b7d;
+}
+
 html[data-theme='light'] .status-badge,
 html[data-theme='light'] .artifact-badge {
   border-color: #52743d;
@@ -4107,6 +4222,18 @@ html[data-theme='light'] .error-band {
     display: none;
   }
 
+  .observation-artifact > summary {
+    min-height: 94px;
+  }
+
+  .observation-artifact .fossil-artifact-summary > div {
+    gap: 6px;
+  }
+
+  .observation-artifact .fossil-artifact-summary > div > span {
+    display: block;
+  }
+
   .observation-layout {
     grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
   }
@@ -4188,6 +4315,19 @@ html[data-theme='light'] .error-band {
 
   .fossil-artifact-summary > .status-badge {
     justify-self: start;
+  }
+
+  .observation-archive-stats,
+  .observation-archive-copy {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .observation-archive-signals > div {
+    grid-template-columns: 1fr;
+  }
+
+  .observation-archive-signals > div > span {
+    white-space: normal;
   }
 }
 

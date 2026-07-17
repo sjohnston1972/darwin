@@ -5,6 +5,7 @@ import {
   EvidenceAnalysisSchema,
   EvidencePackSchema,
   GenomeHistoryResponseSchema,
+  ObservationArchivesResponseSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
@@ -194,6 +195,39 @@ export const handleRequest = async (
         executions: await telemetryRepository.listRepositoryExecutions(),
       }),
     );
+  }
+
+  if (request.method === 'GET' && pathname === '/api/observations/archives') {
+    const executions = (await telemetryRepository.listRepositoryExecutions()).filter(
+      (execution) => ['released', 'failed'].includes(execution.status),
+    );
+    const archives = (
+      await Promise.all(
+        executions.map(async (execution) => {
+          const analysis = await telemetryRepository.getEvidenceAnalysis(
+            execution.analysisId,
+          );
+          if (!analysis) return null;
+          const evidence = await telemetryRepository.getEvidence(
+            analysis.evidenceId,
+          );
+          if (!evidence) return null;
+          return {
+            archiveId: execution.executionId,
+            evidence,
+            analysis,
+            execution: {
+              executionId: execution.executionId,
+              manifestId: execution.manifestId,
+              status: execution.status,
+              createdAt: execution.createdAt,
+              completedAt: execution.completedAt,
+            },
+          };
+        }),
+      )
+    ).filter((archive) => archive !== null);
+    return json(ObservationArchivesResponseSchema.parse({ archives }));
   }
 
   if (request.method === 'GET' && pathname === '/api/target-connection') {

@@ -3,11 +3,13 @@ import {
   EvidenceAnalysisSchema,
   EvidencePackSchema,
   GenomeHistoryResponseSchema,
+  ObservationArchivesResponseSchema,
   RepositoryMutationExecutionSchema,
   StudyEventsResponseSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
+  type ObservationArchive,
   type RepositoryMutationExecution,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
@@ -32,6 +34,7 @@ export interface LiveTelemetryState {
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
+  observationArchives: ObservationArchive[];
   execution: RepositoryMutationExecution | null;
   implementing: boolean;
   preparingManifest: boolean;
@@ -72,6 +75,9 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [genomeExecutions, setGenomeExecutions] = useState<
     RepositoryMutationExecution[]
   >([]);
+  const [observationArchives, setObservationArchives] = useState<
+    ObservationArchive[]
+  >([]);
   const [implementing, setImplementing] = useState(false);
   const [releasingExecution, setReleasingExecution] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
@@ -85,6 +91,15 @@ export function useLiveTelemetry(): LiveTelemetryState {
     const history = GenomeHistoryResponseSchema.parse(await response.json());
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
     setGenomeExecutions(history.executions);
+  };
+
+  const refreshObservationArchives = async () => {
+    const response = await fetch(`${apiBaseUrl}/api/observations/archives`);
+    if (!response.ok) return;
+    const result = ObservationArchivesResponseSchema.parse(
+      await response.json(),
+    );
+    setObservationArchives(result.archives);
   };
 
   const resetCurrentCycleMeasurements = () => {
@@ -101,6 +116,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   useEffect(() => {
     let active = true;
     void refreshGenome().catch(() => undefined);
+    void refreshObservationArchives().catch(() => undefined);
     const load = async () => {
       const generation = resetGeneration.current;
       try {
@@ -350,6 +366,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
         if (parsedExecution.data.status === 'released') {
           resetCurrentCycleMeasurements();
           await refreshGenome();
+          await refreshObservationArchives();
           setExecution(null);
         }
       }
@@ -456,6 +473,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setExecution(null);
     setGenomeEvolutionCount(0);
     setGenomeExecutions([]);
+    setObservationArchives([]);
     setError(null);
     setGenerating(false);
     setAnalysing(false);
@@ -504,6 +522,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     genomeExecutions,
     implementing,
     manifest,
+    observationArchives,
     participantCount,
     preparingManifest,
     releaseExecution,

@@ -5,6 +5,7 @@ import {
   EvidenceAnalysisSchema,
   GenomeHistoryResponseSchema,
   HealthResponseSchema,
+  ObservationArchivesResponseSchema,
   ParticipantWorkspaceResponseSchema,
   RepositoryMutationExecutionSchema,
   SimulationSummarySchema,
@@ -783,6 +784,20 @@ describe('Darwin API', () => {
     expect(genome.evolutionCycle.startedAt).not.toBeNull();
     expect(genome.executions).toHaveLength(1);
     expect(genome.executions[0]?.executionId).toBe(execution.executionId);
+
+    const observationArchivesResponse = await handleRequest(
+      new Request('http://localhost/api/observations/archives'),
+    );
+    const observationArchives = ObservationArchivesResponseSchema.parse(
+      await observationArchivesResponse.json(),
+    );
+    expect(observationArchives.archives).toHaveLength(1);
+    expect(observationArchives.archives[0]?.execution.executionId).toBe(
+      execution.executionId,
+    );
+    expect(observationArchives.archives[0]?.evidence.evidenceId).toBe(
+      first.evidenceId,
+    );
 
     const nextCycleEventsResponse = await handleRequest(
       new Request(

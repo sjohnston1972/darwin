@@ -53,6 +53,7 @@ export interface TelemetryRepository {
   ): Promise<void>;
   saveEvidence(pack: EvidencePack): Promise<void>;
   getLatestEvidence(studyId: string): Promise<EvidencePack | null>;
+  getEvidence(evidenceId: string): Promise<EvidencePack | null>;
   saveEvidenceAnalysis(
     studyId: string,
     analysis: EvidenceAnalysis,
@@ -90,6 +91,7 @@ export interface TelemetryRepository {
 const eventStore = new Map<string, StoredTelemetryEvent>();
 const workspaceStore = new Map<string, ProjectFlowWorkspace>();
 const evidenceStore = new Map<string, EvidencePack>();
+const evidenceByIdStore = new Map<string, EvidencePack>();
 const evidenceAnalysisStore = new Map<
   string,
   { studyId: string; analysis: EvidenceAnalysis }
@@ -200,10 +202,15 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
 
   async saveEvidence(pack: EvidencePack) {
     evidenceStore.set(pack.study.studyId, pack);
+    evidenceByIdStore.set(pack.evidenceId, pack);
   }
 
   async getLatestEvidence(studyId: string) {
     return evidenceStore.get(studyId) ?? null;
+  }
+
+  async getEvidence(evidenceId: string) {
+    return evidenceByIdStore.get(evidenceId) ?? null;
   }
 
   async saveEvidenceAnalysis(studyId: string, analysis: EvidenceAnalysis) {
@@ -300,6 +307,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     eventStore.clear();
     workspaceStore.clear();
     evidenceStore.clear();
+    evidenceByIdStore.clear();
     evidenceAnalysisStore.clear();
     manifestStore.clear();
     repositoryExecutionStore.clear();
@@ -497,6 +505,16 @@ export class D1TelemetryRepository implements TelemetryRepository {
          LIMIT 1`,
       )
       .bind(studyId)
+      .first<{ evidence_pack_json: string }>();
+    return row ? (JSON.parse(row.evidence_pack_json) as EvidencePack) : null;
+  }
+
+  async getEvidence(evidenceId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT evidence_pack_json FROM analysis_runs WHERE evidence_id = ? LIMIT 1`,
+      )
+      .bind(evidenceId)
       .first<{ evidence_pack_json: string }>();
     return row ? (JSON.parse(row.evidence_pack_json) as EvidencePack) : null;
   }
