@@ -673,30 +673,6 @@ function App() {
                 ))}
               </section>
 
-              <section className="mt-8 grid gap-3 md:grid-cols-2">
-                <a
-                  className="surface-panel p-5"
-                  href={dashboardRoutes.Observations}
-                >
-                  <Radar size={18} className="text-signal" />
-                  <p className="mt-5 text-sm font-semibold">Observations</p>
-                  <p className="mt-2 text-xs leading-5 text-mist">
-                    Inspect live sessions, semantic events, and evidence
-                    quality.
-                  </p>
-                </a>
-                <a
-                  className="surface-panel p-5"
-                  href={dashboardRoutes.Mutations}
-                >
-                  <FlaskConical size={18} className="text-signal" />
-                  <p className="mt-5 text-sm font-semibold">Mutations</p>
-                  <p className="mt-2 text-xs leading-5 text-mist">
-                    Ask GPT to reason, select candidates, and review Codex
-                    output.
-                  </p>
-                </a>
-              </section>
             </>
           )}
 
