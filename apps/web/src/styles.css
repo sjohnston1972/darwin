@@ -2427,52 +2427,6 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
-.target-open-action {
-  min-height: 38px;
-  padding-inline: 13px;
-}
-
-.target-app-summary {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(260px, 1.4fr) minmax(
-      180px,
-      0.8fr
-    );
-  align-items: center;
-  gap: 24px;
-  min-height: 94px;
-  padding: 18px 24px;
-}
-
-.target-app-summary > div {
-  display: grid;
-  gap: 5px;
-}
-
-.target-app-summary span {
-  color: #7e8982;
-  font-size: 9px;
-  text-transform: uppercase;
-}
-
-.target-app-summary strong {
-  font-size: 15px;
-}
-
-.target-app-summary p {
-  color: #98a39c;
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.target-app-summary code {
-  overflow: hidden;
-  color: #738078;
-  font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .organism-preview-page {
   min-height: 100vh;
   padding: 16px;
@@ -2612,11 +2566,6 @@ a:focus-visible {
   .evolution-guide ol {
     grid-template-columns: repeat(5, minmax(190px, 1fr));
     overflow-x: auto;
-  }
-
-  .target-app-summary {
-    grid-template-columns: 1fr;
-    gap: 10px;
   }
 }
 

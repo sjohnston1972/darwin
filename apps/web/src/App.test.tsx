@@ -197,7 +197,7 @@ const manifest = {
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
-const installApi = () => {
+const installApi = (latestAnalysis: unknown = null) => {
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input.toString();
     if (url.includes('/events?limit=50')) {
@@ -208,7 +208,8 @@ const installApi = () => {
       });
     }
     if (url.includes('/evidence/latest')) return response(evidence);
-    if (url.includes('/evidence-analysis/latest')) return response(null, 204);
+    if (url.includes('/evidence-analysis/latest'))
+      return latestAnalysis ? response(latestAnalysis) : response(null, 204);
     if (url.endsWith('/analyse-evidence')) return response(analysis, 201);
     if (url.includes('/codex-manifest')) return response(manifest, 201);
     if (url.endsWith('/api/health')) {
@@ -275,6 +276,12 @@ describe('Darwin control room', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/Deterministic mock/i)).not.toBeInTheDocument();
     expect(
+      screen.queryByText('Live mutation portfolio ready'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Standalone ProjectFlow' }),
+    ).not.toBeInTheDocument();
+    expect(
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
     expect(screen.getAllByText('14').length).toBeGreaterThan(0);
@@ -307,5 +314,22 @@ describe('Darwin control room', () => {
         { method: 'POST' },
       ),
     );
+  });
+
+  it('does not restore reasoning produced from an older evidence pack', async () => {
+    installApi({
+      ...analysis,
+      evidenceId: 'evidence-stale-test',
+      evidenceHash: 'd'.repeat(64),
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText('Evidence pack evidence-measured-test'),
+    ).toBeVisible();
+    expect(
+      screen.queryByText('Reveal capacity context'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask gpt-5.6' })).toBeEnabled();
   });
 });

@@ -68,35 +68,47 @@ export function useLiveTelemetry(): LiveTelemetryState {
     };
     void load();
     const initialGeneration = resetGeneration.current;
-    void fetch(
-      `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
-    )
-      .then(async (response) => {
-        if (response.status === 204 || !response.ok) return;
-        if (active && initialGeneration === resetGeneration.current)
-          setEvidence(EvidencePackSchema.parse(await response.json()));
-      })
-      .catch(() => undefined);
-    void fetch(
-      `${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest?optional=true`,
-    )
-      .then(async (response) => {
-        if (response.status === 204 || !response.ok) return;
-        const result = EvidenceAnalysisSchema.parse(await response.json());
-        if (!active || initialGeneration !== resetGeneration.current) return;
-        setAnalysis(result);
-        return fetch(
-          `${apiBaseUrl}/api/evidence-analyses/${result.analysisId}/codex-manifest`,
+    const loadDerivedState = async () => {
+      const evidenceResponse = await fetch(
+        `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
+      );
+      if (evidenceResponse.status === 204 || !evidenceResponse.ok) return;
+      const latestEvidence = EvidencePackSchema.parse(
+        await evidenceResponse.json(),
+      );
+      if (!active || initialGeneration !== resetGeneration.current) return;
+      setEvidence(latestEvidence);
+
+      const analysisResponse = await fetch(
+        `${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest?optional=true`,
+      );
+      if (analysisResponse.status === 204 || !analysisResponse.ok) return;
+      const latestAnalysis = EvidenceAnalysisSchema.parse(
+        await analysisResponse.json(),
+      );
+      if (
+        latestAnalysis.evidenceId !== latestEvidence.evidenceId ||
+        latestAnalysis.evidenceHash !== latestEvidence.evidenceHash ||
+        !active ||
+        initialGeneration !== resetGeneration.current
+      ) {
+        return;
+      }
+      setAnalysis(latestAnalysis);
+
+      const manifestResponse = await fetch(
+        `${apiBaseUrl}/api/evidence-analyses/${latestAnalysis.analysisId}/codex-manifest`,
+      );
+      if (!manifestResponse.ok) return;
+      if (active && initialGeneration === resetGeneration.current) {
+        setManifest(
+          CodexImplementationManifestSchema.parse(
+            await manifestResponse.json(),
+          ),
         );
-      })
-      .then(async (response) => {
-        if (!response?.ok) return;
-        if (active && initialGeneration === resetGeneration.current)
-          setManifest(
-            CodexImplementationManifestSchema.parse(await response.json()),
-          );
-      })
-      .catch(() => undefined);
+      }
+    };
+    void loadDerivedState().catch(() => undefined);
     const interval = window.setInterval(() => void load(), 2_000);
     return () => {
       active = false;

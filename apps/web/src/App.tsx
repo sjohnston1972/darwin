@@ -28,7 +28,6 @@ import {
   GitBranch,
   GitCompareArrows,
   LayoutDashboard,
-  Maximize2,
   Menu,
   MousePointer2,
   Network,
@@ -282,14 +281,6 @@ function App() {
     );
   }
 
-  useEffect(() => {
-    if (window.location.hash !== '#target-application') return;
-
-    requestAnimationFrame(() => {
-      document.getElementById('target-application')?.scrollIntoView();
-    });
-  }, []);
-
   return (
     <div className="min-h-screen bg-carbon text-white">
       <aside className={navigationOpen ? 'sidebar sidebar-open' : 'sidebar'}>
@@ -453,16 +444,16 @@ function App() {
                   <Radar size={17} /> Open measured study
                 </a>
               </div>
-              <span className="demo-status status-idle">
-                <Activity size={15} />
-                {liveTelemetry.analysis
-                  ? 'Live mutation portfolio ready'
-                  : liveTelemetry.evidence
+              {!liveTelemetry.analysis && (
+                <span className="demo-status status-idle">
+                  <Activity size={15} />
+                  {liveTelemetry.evidence
                     ? `${liveTelemetry.evidence.frictionSignals.length} pressures ready for GPT`
                     : liveTelemetry.count
                       ? `${liveTelemetry.count} measured events`
                       : 'Awaiting measured behavior'}
-              </span>
+                </span>
+              )}
             </div>
           </section>
 
@@ -530,71 +521,6 @@ function App() {
               onRelease={() => void demo.release()}
             />
           )}
-
-          <section className="mt-8 surface-panel" id="target-application">
-            <div className="panel-heading organism-heading">
-              <div>
-                <p className="section-label">Target application</p>
-                <div className="heading-with-help">
-                  <h2 className="mt-2 text-xl font-semibold">
-                    Standalone ProjectFlow
-                  </h2>
-                  <InfoTip text="This opens the real standalone ProjectFlow application from apps/projectflow in a dedicated view. It is the same application that emits live telemetry." />
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div
-                  className="variant-control"
-                  role="group"
-                  aria-label="ProjectFlow variant"
-                >
-                  <button
-                    className={
-                      organismVariant === 'baseline' ? 'is-active' : ''
-                    }
-                    type="button"
-                    onClick={() => setOrganismVariant('baseline')}
-                    aria-pressed={organismVariant === 'baseline'}
-                    data-explain="Open ProjectFlow v1.0 with the original dashboard-first navigation and project-scoped task discovery."
-                  >
-                    Baseline <span>v1.0</span>
-                  </button>
-                  <button
-                    className={organismVariant === 'evolved' ? 'is-active' : ''}
-                    type="button"
-                    onClick={() => setOrganismVariant('evolved')}
-                    aria-pressed={organismVariant === 'evolved'}
-                    data-explain="Open ProjectFlow v1.1 with My Work, global search, quick-create, and consolidated Insights."
-                  >
-                    Evolved <span>v1.1</span>
-                  </button>
-                </div>
-                <a
-                  className="primary-action target-open-action"
-                  href={`/?view=target&variant=${organismVariant}`}
-                  aria-label={`Open ProjectFlow ${organismVariant} target application`}
-                  data-explain="Open the selected real ProjectFlow variant in a full-width dedicated view."
-                >
-                  <Maximize2 size={17} /> Open application
-                </a>
-              </div>
-            </div>
-            <div className="target-app-summary">
-              <div>
-                <span>Selected genome</span>
-                <strong>
-                  {organismVariant === 'baseline'
-                    ? 'Baseline v1.0'
-                    : 'Evolved v1.1'}
-                </strong>
-              </div>
-              <p>
-                Open the target separately to inspect the full product without
-                compressing the control-room workflow.
-              </p>
-              <code>{projectFlowBaseUrl}</code>
-            </div>
-          </section>
 
           <section className="mt-8 grid gap-8 lg:grid-cols-2">
             <aside
