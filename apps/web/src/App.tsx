@@ -470,7 +470,16 @@ function App() {
               execution={liveTelemetry.execution}
               manifest={liveTelemetry.manifest}
               releasing={liveTelemetry.releasingExecution}
+              retrying={liveTelemetry.implementing}
               onRelease={() => void liveTelemetry.releaseExecution()}
+              onRetry={() =>
+                void liveTelemetry.startControlledEvolution(
+                  liveTelemetry.manifest?.mutationIds ??
+                    (liveTelemetry.manifest
+                      ? [liveTelemetry.manifest.mutationId]
+                      : []),
+                )
+              }
             />
           )}
 
@@ -1223,7 +1232,11 @@ function LiveTelemetryPanel({
                       implementationCandidatesSelected.length === 0
                     }
                     onClick={() => {
-                      if (telemetry.execution && manifestMatchesSelection) {
+                      if (
+                        telemetry.execution &&
+                        telemetry.execution.status !== 'failed' &&
+                        manifestMatchesSelection
+                      ) {
                         document
                           .getElementById('validation')
                           ?.scrollIntoView?.({
@@ -1261,9 +1274,12 @@ function LiveTelemetryPanel({
                       ? 'Preparing manifest'
                       : telemetry.implementing
                         ? 'Applying mutation'
-                        : telemetry.execution && manifestMatchesSelection
-                          ? 'View implementation'
-                          : 'Start controlled evolution'}
+                        : telemetry.execution?.status === 'failed' &&
+                            manifestMatchesSelection
+                          ? 'Retry controlled evolution'
+                          : telemetry.execution && manifestMatchesSelection
+                            ? 'View implementation'
+                            : 'Start controlled evolution'}
                   </button>
                 </div>
                 {telemetry.manifest && manifestMatchesSelection && (
@@ -1583,12 +1599,16 @@ function RepositoryExecutionWorkspace({
   execution,
   manifest,
   releasing,
+  retrying,
   onRelease,
+  onRetry,
 }: {
   execution: RepositoryMutationExecution;
   manifest: CodexImplementationManifest | null;
   releasing: boolean;
+  retrying: boolean;
   onRelease: () => void;
+  onRetry: () => void;
 }) {
   const lines = execution.patch?.split('\n') ?? [];
   const status = execution.status;
@@ -1867,6 +1887,22 @@ function RepositoryExecutionWorkspace({
           )}
 
           <div className="validation-actions">
+            {status === 'failed' && (
+              <button
+                className="approve-action"
+                type="button"
+                onClick={onRetry}
+                disabled={retrying}
+                data-explain="Start a fresh authenticated GitHub Actions run from the same immutable manifest after an infrastructure or validation failure."
+              >
+                {retrying ? (
+                  <CircleDashed className="is-spinning" size={16} />
+                ) : (
+                  <RotateCcw size={16} />
+                )}
+                {retrying ? 'Retrying repository run' : 'Retry repository run'}
+              </button>
+            )}
             {status === 'preview_ready' && (
               <button
                 className="approve-action"
@@ -1932,7 +1968,7 @@ function RepositoryFossilRow({
         {retained
           ? 'Survived selection'
           : failed
-            ? 'Failed selection'
+            ? 'Execution failed'
             : executionStatusLabel[execution.status]}
       </td>
       <td className="px-6 py-5 font-mono text-mist">
@@ -1940,7 +1976,7 @@ function RepositoryFossilRow({
       </td>
       <td className="px-6 py-5 text-right">
         <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
-          {failed ? 'REJECTED' : retained ? 'CURRENT' : 'CANDIDATE'}
+          {failed ? 'EXECUTION FAILED' : retained ? 'CURRENT' : 'CANDIDATE'}
         </span>
       </td>
     </tr>

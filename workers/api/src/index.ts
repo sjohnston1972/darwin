@@ -570,7 +570,7 @@ export const handleRequest = async (
         ? json(RepositoryMutationExecutionSchema.parse(existing))
         : new Response(null, { status: 204, headers: corsHeaders });
     }
-    if (existing) {
+    if (existing && existing.status !== 'failed') {
       return json(RepositoryMutationExecutionSchema.parse(existing));
     }
     if (!env?.GITHUB_TOKEN || !env.DARWIN_CALLBACK_TOKEN) {

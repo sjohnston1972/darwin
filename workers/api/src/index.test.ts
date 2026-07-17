@@ -609,6 +609,30 @@ describe('Darwin API', () => {
       );
       return { response, body: await response.json() };
     };
+    const failedExecution = RepositoryMutationExecutionSchema.parse(
+      (
+        await callback({
+          status: 'failed',
+          error: 'Transient workflow failure.',
+        })
+      ).body,
+    );
+    expect(failedExecution.status).toBe('failed');
+
+    const retryResponse = await handleRequest(
+      new Request(executionPath, { method: 'POST' }),
+      {
+        GITHUB_TOKEN: 'github-test-token',
+        DARWIN_CALLBACK_TOKEN: 'callback-test-token',
+      },
+    );
+    execution = RepositoryMutationExecutionSchema.parse(
+      await retryResponse.json(),
+    );
+    expect(retryResponse.status).toBe(201);
+    expect(execution.status).toBe('queued');
+    expect(execution.error).toBeNull();
+
     execution = RepositoryMutationExecutionSchema.parse(
       (
         await callback({
