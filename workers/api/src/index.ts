@@ -209,7 +209,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.20.0',
+      version: '0.20.1',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -342,12 +342,12 @@ export const handleRequest = async (
       ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
       : 50;
     const events = await telemetryRepository.listEvents(studyId, limit);
-    const count = await telemetryRepository.countEvents(studyId);
+    const summary = await telemetryRepository.summarizeEvents(studyId);
     return json(
       StudyEventsResponseSchema.parse({
         studyId,
         events,
-        count,
+        ...summary,
       }),
     );
   }

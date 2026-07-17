@@ -7,7 +7,7 @@ import './projectflow/projectflow.css';
 
 const storedTheme = localStorage.getItem('darwin-theme');
 document.documentElement.dataset.theme =
-  storedTheme === 'light' ? 'light' : 'dark';
+  storedTheme === 'dark' ? 'dark' : 'light';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

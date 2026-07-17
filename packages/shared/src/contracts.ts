@@ -355,6 +355,9 @@ export const StudyEventsResponseSchema = z.object({
   studyId: StudyIdentifierSchema,
   events: z.array(StoredTelemetryEventSchema),
   count: z.number().int().nonnegative(),
+  sessionCounts: z.record(z.string(), z.number().int().nonnegative()),
+  participantCount: z.number().int().nonnegative(),
+  behaviorSignalCount: z.number().int().nonnegative(),
 });
 
 export const StudySessionResponseSchema = z.object({

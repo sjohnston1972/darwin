@@ -151,7 +151,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.20.0');
+    expect(body.version).toBe('0.20.1');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -261,6 +261,9 @@ describe('Darwin API', () => {
       eventId: studyEvent.eventId,
       source: 'real_user',
     });
+    expect(events.count).toBe(1);
+    expect(events.sessionCounts).toEqual({ 'session-api-test': 1 });
+    expect(events.participantCount).toBe(1);
 
     const sessionResponse = await handleRequest(
       new Request(

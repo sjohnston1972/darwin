@@ -12,8 +12,10 @@ import { useEffect, useRef, useState } from 'react';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const studyId = 'projectflow-baseline-study';
+const eventWindowLimit = 200;
 
 export interface LiveTelemetryState {
+  behaviorSignalCount: number;
   count: number;
   clearError: () => void;
   analysis: EvidenceAnalysis | null;
@@ -27,7 +29,9 @@ export interface LiveTelemetryState {
   manifest: CodexImplementationManifest | null;
   prepareCodexManifest: (mutationId?: string) => Promise<void>;
   preparingManifest: boolean;
+  participantCount: number;
   resetState: () => void;
+  sessionCounts: Record<string, number>;
   status: 'loading' | 'live' | 'offline';
 }
 
@@ -35,6 +39,11 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [events, setEvents] = useState<StoredTelemetryEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
+  const [sessionCounts, setSessionCounts] = useState<Record<string, number>>(
+    {},
+  );
+  const [participantCount, setParticipantCount] = useState(0);
+  const [behaviorSignalCount, setBehaviorSignalCount] = useState(0);
   const [analysis, setAnalysis] = useState<EvidenceAnalysis | null>(null);
   const [analysing, setAnalysing] = useState(false);
   const [evidence, setEvidence] = useState<EvidencePack | null>(null);
@@ -52,13 +61,16 @@ export function useLiveTelemetry(): LiveTelemetryState {
       const generation = resetGeneration.current;
       try {
         const response = await fetch(
-          `${apiBaseUrl}/api/studies/${studyId}/events?limit=50`,
+          `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}`,
         );
         if (!response.ok) throw new Error('Live telemetry request failed.');
         const result = StudyEventsResponseSchema.parse(await response.json());
         if (active && generation === resetGeneration.current) {
           setEvents(result.events);
           setCount(result.count);
+          setSessionCounts(result.sessionCounts);
+          setParticipantCount(result.participantCount);
+          setBehaviorSignalCount(result.behaviorSignalCount);
           setStatus('live');
         }
       } catch {
@@ -195,6 +207,9 @@ export function useLiveTelemetry(): LiveTelemetryState {
     resetGeneration.current += 1;
     setEvents([]);
     setCount(0);
+    setSessionCounts({});
+    setParticipantCount(0);
+    setBehaviorSignalCount(0);
     setEvidence(null);
     setAnalysis(null);
     setManifest(null);
@@ -209,6 +224,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     analysis,
     analyseEvidence,
     analysing,
+    behaviorSignalCount,
     clearError: () => setError(null),
     count,
     evidence,
@@ -217,9 +233,11 @@ export function useLiveTelemetry(): LiveTelemetryState {
     generateEvidence,
     generating,
     manifest,
+    participantCount,
     prepareCodexManifest,
     preparingManifest,
     resetState,
+    sessionCounts,
     status,
   };
 }

@@ -201,11 +201,14 @@ const installApi = (latestAnalysis: unknown = null) => {
   const fetchMock = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('/events?limit=50')) {
+      if (url.includes('/events?limit=200')) {
         return response({
           studyId: 'projectflow-baseline-study',
           events: [],
           count: 14,
+          sessionCounts: { 'session-test': 14 },
+          participantCount: 1,
+          behaviorSignalCount: 8,
         });
       }
       if (url.includes('/evidence/latest')) return response(evidence);
@@ -283,7 +286,7 @@ afterEach(() => {
 
 describe('Darwin control room', () => {
   it('starts with the measured ProjectFlow workflow, not a synthetic demo', async () => {
-    installApi();
+    const fetchMock = installApi();
     render(<App />);
 
     expect(
@@ -320,6 +323,11 @@ describe('Darwin control room', () => {
     ).toBeVisible();
     expect(screen.getAllByText('14').length).toBeGreaterThan(0);
     expect(screen.getByText('directional')).toBeVisible();
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/events?limit=200'),
+      ),
+    );
   });
 
   it('shows live GPT pressure clusters, ranked mutations, and Codex handoff', async () => {

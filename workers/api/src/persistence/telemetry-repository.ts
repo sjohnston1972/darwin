@@ -26,13 +26,20 @@ export interface TelemetryInsertResult {
   duplicates: number;
 }
 
+export interface TelemetryEventSummary {
+  count: number;
+  sessionCounts: Record<string, number>;
+  participantCount: number;
+  behaviorSignalCount: number;
+}
+
 export interface TelemetryRepository {
   insertEvents(
     events: StudyTelemetryEvent[],
     receivedAt: string,
   ): Promise<TelemetryInsertResult>;
   listEvents(studyId: string, limit: number): Promise<StoredTelemetryEvent[]>;
-  countEvents(studyId: string): Promise<number>;
+  summarizeEvents(studyId: string): Promise<TelemetryEventSummary>;
   listSession(
     studyId: string,
     sessionId: string,
@@ -82,6 +89,15 @@ let demoStateStore: PersistedDemoState | null = null;
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
 
+const behaviorSignalEventTypes = new Set<StudyTelemetryEvent['eventType']>([
+  'hover_ended',
+  'interaction_signal',
+  'drag_attempted',
+  'touch_cancelled',
+  'browser_navigation',
+  'viewport_zoom_changed',
+]);
+
 export class InMemoryTelemetryRepository implements TelemetryRepository {
   async insertEvents(events: StudyTelemetryEvent[], receivedAt: string) {
     let accepted = 0;
@@ -116,9 +132,26 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
       .sort((left, right) => left.sequence - right.sequence);
   }
 
-  async countEvents(studyId: string) {
-    return [...eventStore.values()].filter((event) => event.studyId === studyId)
-      .length;
+  async summarizeEvents(studyId: string) {
+    const events = [...eventStore.values()].filter(
+      (event) => event.studyId === studyId,
+    );
+    const sessionCounts = events.reduce<Record<string, number>>(
+      (counts, event) => {
+        counts[event.sessionId] = (counts[event.sessionId] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    );
+    return {
+      count: events.length,
+      sessionCounts,
+      participantCount: new Set(events.map((event) => event.participantId))
+        .size,
+      behaviorSignalCount: events.filter((event) =>
+        behaviorSignalEventTypes.has(event.eventType),
+      ).length,
+    };
   }
 
   async getWorkspace(studyId: string, participantId: string) {
@@ -279,16 +312,43 @@ export class D1TelemetryRepository implements TelemetryRepository {
     }));
   }
 
-  async countEvents(studyId: string) {
-    const row = await this.database
-      .prepare(
-        `SELECT COUNT(*) AS count
+  async summarizeEvents(studyId: string) {
+    const [totals, sessions] = await Promise.all([
+      this.database
+        .prepare(
+          `SELECT COUNT(*) AS count,
+                COUNT(DISTINCT participant_id) AS participant_count,
+                SUM(CASE WHEN event_type IN (
+                  'hover_ended', 'interaction_signal', 'drag_attempted',
+                  'touch_cancelled', 'browser_navigation', 'viewport_zoom_changed'
+                ) THEN 1 ELSE 0 END) AS behavior_signal_count
          FROM telemetry_events
          WHERE study_id = ?`,
-      )
-      .bind(studyId)
-      .first<{ count: number }>();
-    return row?.count ?? 0;
+        )
+        .bind(studyId)
+        .first<{
+          count: number;
+          participant_count: number;
+          behavior_signal_count: number;
+        }>(),
+      this.database
+        .prepare(
+          `SELECT session_id, COUNT(*) AS count
+           FROM telemetry_events
+           WHERE study_id = ?
+           GROUP BY session_id`,
+        )
+        .bind(studyId)
+        .all<{ session_id: string; count: number }>(),
+    ]);
+    return {
+      count: totals?.count ?? 0,
+      sessionCounts: Object.fromEntries(
+        sessions.results.map((row) => [row.session_id, row.count]),
+      ),
+      participantCount: totals?.participant_count ?? 0,
+      behaviorSignalCount: totals?.behavior_signal_count ?? 0,
+    };
   }
 
   async getWorkspace(studyId: string, participantId: string) {

@@ -156,18 +156,32 @@ a:focus-visible {
   transform: translate(0, -50%);
 }
 
-.topbar .icon-button[data-explain]::after,
-.target-header-actions .icon-button[data-explain]::after {
-  right: 0;
-  left: auto;
-  transform: translate(0, 4px);
+.controlled-mode-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  outline: 0;
 }
 
-.topbar .icon-button[data-explain]:hover::after,
-.topbar .icon-button[data-explain]:focus-visible::after,
-.target-header-actions .icon-button[data-explain]:hover::after,
-.target-header-actions .icon-button[data-explain]:focus-visible::after {
-  transform: translate(0, 0);
+@media (min-width: 640px) {
+  .topbar .icon-button[data-explain]::after,
+  .target-header-actions .icon-button[data-explain]::after,
+  .controlled-mode-status[data-explain]::after {
+    top: calc(100% + 9px);
+    right: 0;
+    bottom: auto;
+    left: auto;
+    transform: translate(0, -4px);
+  }
+
+  .topbar .icon-button[data-explain]:hover::after,
+  .topbar .icon-button[data-explain]:focus-visible::after,
+  .target-header-actions .icon-button[data-explain]:hover::after,
+  .target-header-actions .icon-button[data-explain]:focus-visible::after,
+  .controlled-mode-status[data-explain]:hover::after,
+  .controlled-mode-status[data-explain]:focus-visible::after {
+    transform: translate(0, 0);
+  }
 }
 
 .info-tip {
@@ -391,6 +405,19 @@ a:focus-visible {
 
 .start-action-wrap {
   position: relative;
+}
+
+@media (min-width: 640px) {
+  .start-action-wrap .primary-action[data-explain]::after {
+    right: 0;
+    left: auto;
+    transform: translate(0, 4px);
+  }
+
+  .start-action-wrap .primary-action[data-explain]:hover::after,
+  .start-action-wrap .primary-action[data-explain]:focus-visible::after {
+    transform: translate(0, 0);
+  }
 }
 
 .start-here-cue {
@@ -2824,6 +2851,17 @@ html[data-theme='light'] .outcome-comparison .outcome-delta,
 html[data-theme='light'] .outcome-conclusion {
   border-color: #a7dec9;
   background: #ecfdf5;
+}
+
+html[data-theme='light'] .event-kind {
+  color: #176247;
+  border: 1px solid #b5dfcd;
+  font-weight: 650;
+}
+
+html[data-theme='light'] .session-index button span {
+  color: #087f5b;
+  font-weight: 650;
 }
 
 html[data-theme='light'] .event-trace-row code,

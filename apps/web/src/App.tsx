@@ -376,12 +376,15 @@ function App() {
             <ChevronRight className="hidden sm:block" size={14} />
             <span className="font-mono text-white">ProjectFlow</span>
           </div>
-          <div
-            className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist"
-            data-explain="Controlled mode requires human approval and uses a bounded target, diff, validation workflow, and explicit release step."
-          >
-            <ShieldCheck size={15} className="text-signal" />
-            <span>Controlled mode</span>
+          <div className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist">
+            <span
+              className="controlled-mode-status"
+              data-explain="Controlled mode requires human approval and uses a bounded target, diff, validation workflow, and explicit release step."
+              tabIndex={0}
+            >
+              <ShieldCheck size={15} className="text-signal" />
+              <span>Controlled mode</span>
+            </span>
             <ThemeToggle theme={theme} onChange={setTheme} />
             <button
               className="icon-button"
@@ -867,19 +870,6 @@ function LiveTelemetryPanel({
   const visibleEvents = selectedSession
     ? telemetry.events.filter((event) => event.sessionId === selectedSession)
     : telemetry.events;
-  const participants = new Set(
-    telemetry.events.map((event) => event.participantId),
-  ).size;
-  const behaviorSignals = telemetry.events.filter((event) =>
-    [
-      'hover_ended',
-      'interaction_signal',
-      'drag_attempted',
-      'touch_cancelled',
-      'browser_navigation',
-      'viewport_zoom_changed',
-    ].includes(event.eventType),
-  ).length;
   const configuredModel = analysisConfig?.model ?? 'gpt-5.6';
   const liveModelAvailable = analysisConfig?.liveModelAvailable ?? false;
   const implementationCandidates = telemetry.analysis
@@ -949,25 +939,25 @@ function LiveTelemetryPanel({
       )}
 
       <div className="evidence-stats" aria-label="Real study counts">
-        <div data-explain="Every persisted semantic event currently returned for this study.">
+        <div data-explain="Every persisted semantic event in this study, counted across the full database rather than only the recent trace window.">
           <Database size={16} />
           <span>Raw events</span>
           <strong>{telemetry.count}</strong>
         </div>
-        <div data-explain="Distinct ordered browser sessions in the current event sample.">
+        <div data-explain="Distinct ordered browser sessions across the full persisted study.">
           <Network size={16} />
           <span>Sessions</span>
-          <strong>{sessions.length}</strong>
+          <strong>{Object.keys(telemetry.sessionCounts).length}</strong>
         </div>
-        <div data-explain="Anonymous participant identifiers represented in the current sample.">
+        <div data-explain="Anonymous participant identifiers represented across the full persisted study.">
           <Users size={16} />
           <span>Participants</span>
-          <strong>{participants}</strong>
+          <strong>{telemetry.participantCount}</strong>
         </div>
         <div data-explain="Hover hesitation, rage click, false affordance, indecision, drag expectation, browser Back, zoom-readability, and touch-conflict observations.">
           <MousePointer2 size={16} />
           <span>Behavior signals</span>
-          <strong>{behaviorSignals}</strong>
+          <strong>{telemetry.behaviorSignalCount}</strong>
         </div>
       </div>
 
@@ -978,19 +968,19 @@ function LiveTelemetryPanel({
               className={selectedSession === null ? 'is-active' : ''}
               type="button"
               onClick={() => setSelectedSession(null)}
+              data-explain="All persisted events in this study. The detailed trace remains responsive by polling and displaying only the latest 200 records."
             >
-              All recent events <span>{telemetry.events.length}</span>
+              All captured events <span>{telemetry.count}</span>
             </button>
             {sessions.map((session) => {
-              const count = telemetry.events.filter(
-                (event) => event.sessionId === session,
-              ).length;
+              const count = telemetry.sessionCounts[session] ?? 0;
               return (
                 <button
                   className={selectedSession === session ? 'is-active' : ''}
                   key={session}
                   type="button"
                   onClick={() => setSelectedSession(session)}
+                  data-explain="All persisted events in this session. Selecting it filters the detailed trace to its latest loaded records."
                 >
                   {shortId(session)} <span>{count}</span>
                 </button>
