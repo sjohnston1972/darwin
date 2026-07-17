@@ -182,6 +182,7 @@ const manifest = {
   manifestHash: 'c'.repeat(64),
   analysisId: analysis.analysisId,
   mutationId: analysis.selectedMutation.id,
+  mutationIds: [analysis.selectedMutation.id],
   evidenceHash: evidence.evidenceHash,
   promptVersion: '2.0.0',
   repositoryCommit: 'test-commit',
@@ -218,18 +219,27 @@ const installApi = (latestAnalysis: unknown = null) => {
       if (url.includes('/codex-manifest')) {
         const requestBody =
           typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-        const candidate = [
+        const candidates = [
           analysis.selectedMutation,
           ...analysis.alternatives,
-        ].find((entry) => entry.id === requestBody.mutationId);
+        ].filter((entry) => requestBody.mutationIds?.includes(entry.id));
         return response(
-          candidate
+          candidates.length
             ? {
                 ...manifest,
-                mutationId: candidate.id,
-                brief: candidate.codexBrief,
-                evidenceCitations: candidate.evidenceIds,
-                acceptanceCriteria: candidate.acceptanceCriteria,
+                mutationId: candidates[0]!.id,
+                mutationIds: candidates.map((candidate) => candidate.id),
+                brief: candidates
+                  .map((candidate) => candidate.codexBrief)
+                  .join('\n\n'),
+                evidenceCitations: [
+                  ...new Set(
+                    candidates.flatMap((candidate) => candidate.evidenceIds),
+                  ),
+                ],
+                acceptanceCriteria: candidates.flatMap(
+                  (candidate) => candidate.acceptanceCriteria,
+                ),
               }
             : manifest,
           201,
@@ -282,6 +292,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   document.documentElement.dataset.theme = 'dark';
+  window.history.replaceState({}, '', '/');
 });
 
 describe('Darwin control room', () => {
@@ -296,6 +307,14 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: /Open measured study/ }),
     ).toHaveAttribute('href', expect.stringContaining('/study'));
+    expect(screen.getByRole('link', { name: 'Target application' })).toEqual(
+      expect.objectContaining({
+        target: '_blank',
+      }),
+    );
+    expect(
+      screen.getByRole('link', { name: 'Target application' }),
+    ).toHaveAttribute('href', expect.stringContaining('variant=baseline'));
     expect(
       screen.queryByText('Observe 10,000 interactions'),
     ).not.toBeInTheDocument();
@@ -356,11 +375,24 @@ describe('Darwin control room', () => {
       expect.stringContaining('Support: 1 events'),
     );
 
-    const alternative = screen.getByRole('radio', {
+    const primary = screen.getByRole('checkbox', { name: 'Implement' });
+    const alternative = screen.getByRole('checkbox', {
       name: /Replace bars with a table/,
     });
+    const secondAlternative = screen.getByRole('checkbox', {
+      name: /Add a capacity preview/,
+    });
+    await waitFor(() => expect(primary).toBeChecked());
+    fireEvent.click(primary);
+    expect(primary).not.toBeChecked();
     fireEvent.click(alternative);
     expect(alternative).toBeChecked();
+    fireEvent.click(alternative);
+    expect(alternative).not.toBeChecked();
+    fireEvent.click(alternative);
+    fireEvent.click(secondAlternative);
+    expect(alternative).toBeChecked();
+    expect(secondAlternative).toBeChecked();
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare manifest' }));
     expect(
@@ -376,9 +408,27 @@ describe('Darwin control room', () => {
       expect.stringContaining('/codex-manifest'),
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ mutationId: 'capacity-table' }),
+        body: JSON.stringify({
+          mutationIds: ['capacity-table', 'capacity-preview'],
+        }),
       }),
     );
+  });
+
+  it('does not expose the evolved target before a release', async () => {
+    window.history.replaceState({}, '', '/?view=target&variant=evolved');
+    installApi();
+    render(<App />);
+
+    expect(
+      await screen.findByRole('button', { name: /Baseline v1\.0/ }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /Evolved v1\.1/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTitle('ProjectFlow baseline application'),
+    ).toHaveAttribute('src', expect.stringContaining('variant=baseline'));
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {

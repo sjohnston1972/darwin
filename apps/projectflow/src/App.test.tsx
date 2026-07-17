@@ -4,6 +4,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from './App';
 
 describe('standalone ProjectFlow', () => {
+  it('explains the product on the default dashboard', () => {
+    render(<App />);
+
+    expect(
+      screen.getByText(
+        'ProjectFlow is a task management platform for creating projects, assigning tasks, and coordinating work with project members.',
+      ),
+    ).toBeVisible();
+  });
+
   beforeEach(() => {
     localStorage.clear();
     window.history.replaceState({}, '', '/');

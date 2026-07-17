@@ -598,19 +598,39 @@ export async function buildCodexManifest(
   analysis: EvidenceAnalysis,
   repositoryCommit: string,
   createdAt = new Date().toISOString(),
-  mutation: EvidenceMutationCandidate = analysis.selectedMutation,
+  mutationSelection:
+    | EvidenceMutationCandidate
+    | EvidenceMutationCandidate[] = analysis.selectedMutation,
 ): Promise<CodexImplementationManifest> {
+  const mutations = Array.isArray(mutationSelection)
+    ? mutationSelection
+    : [mutationSelection];
+  const mutationIds = mutations.map((mutation) => mutation.id);
+  const brief =
+    mutations.length === 1
+      ? mutations[0]!.codexBrief
+      : mutations
+          .map(
+            (mutation, index) =>
+              `${index + 1}. ${mutation.title}\n${mutation.codexBrief}`,
+          )
+          .join('\n\n');
   const payload = {
     analysisId: analysis.analysisId,
-    mutationId: mutation.id,
+    mutationId: mutationIds[0]!,
+    mutationIds,
     evidenceHash: analysis.evidenceHash,
     promptVersion: evidencePromptVersion,
     repositoryCommit,
-    brief: mutation.codexBrief,
-    evidenceCitations: mutation.evidenceIds,
+    brief,
+    evidenceCitations: [
+      ...new Set(mutations.flatMap((mutation) => mutation.evidenceIds)),
+    ],
     allowedPaths: [...codexAllowedPaths],
     protectedPaths: [...codexProtectedPaths],
-    acceptanceCriteria: mutation.acceptanceCriteria,
+    acceptanceCriteria: [
+      ...new Set(mutations.flatMap((mutation) => mutation.acceptanceCriteria)),
+    ],
     validationCommands: ['npm run typecheck', 'npm run test', 'npm run build'],
   };
   const manifestHash = await sha256(canonicalStringify(payload));

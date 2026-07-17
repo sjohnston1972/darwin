@@ -336,6 +336,7 @@ describe('evidence-backed reasoning v2', () => {
       '2026-07-16T13:02:00.000Z',
     );
     expect(first.manifestHash).toBe(second.manifestHash);
+    expect(first.mutationIds).toEqual([analysis.selectedMutation.id]);
     expect(JSON.stringify(first)).not.toContain('journeys');
     expect(first.protectedPaths).toContain('workers/api/src/evidence/**');
   });

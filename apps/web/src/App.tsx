@@ -41,7 +41,8 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
 import type { ProjectFlowVariant } from './projectflow/data';
@@ -116,14 +117,12 @@ function App() {
   const simulationLab =
     import.meta.env.DEV &&
     new URLSearchParams(window.location.search).get('lab') === 'simulation';
-  const [organismVariant, setOrganismVariant] = useState<ProjectFlowVariant>(
-    () =>
-      new URLSearchParams(window.location.search).get('variant') === 'evolved'
-        ? 'evolved'
-        : 'baseline',
-  );
+  const [organismVariant, setOrganismVariant] =
+    useState<ProjectFlowVariant>('baseline');
   const demo = useEvolutionDemo();
   const liveTelemetry = useLiveTelemetry();
+  const evolvedGenomeAvailable =
+    demo.organism.variant === 'evolved' && liveTelemetry.manifest !== null;
   const resetDemo = async () => {
     if (await demo.reset()) liveTelemetry.resetState();
   };
@@ -214,9 +213,19 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (targetOnly) return;
-    setOrganismVariant(demo.organism.variant);
-  }, [demo.organism.variant, targetOnly]);
+    if (targetOnly) {
+      const requestedVariant = new URLSearchParams(window.location.search).get(
+        'variant',
+      );
+      setOrganismVariant(
+        evolvedGenomeAvailable && requestedVariant === 'evolved'
+          ? 'evolved'
+          : 'baseline',
+      );
+      return;
+    }
+    setOrganismVariant(evolvedGenomeAvailable ? 'evolved' : 'baseline');
+  }, [evolvedGenomeAvailable, targetOnly]);
 
   const activeGenome = projectFlowGenomes[organismVariant];
   const activeGenomeLoci = [
@@ -239,6 +248,7 @@ function App() {
   if (targetOnly) {
     return (
       <div className="organism-preview-page">
+        <GlobalExplainTooltip />
         <header>
           <a href="/" className="flex items-center gap-3">
             <DarwinMark />
@@ -258,13 +268,15 @@ function App() {
               >
                 Baseline <span>v1.0</span>
               </button>
-              <button
-                className={organismVariant === 'evolved' ? 'is-active' : ''}
-                type="button"
-                onClick={() => setOrganismVariant('evolved')}
-              >
-                Evolved <span>v1.1</span>
-              </button>
+              {evolvedGenomeAvailable && (
+                <button
+                  className={organismVariant === 'evolved' ? 'is-active' : ''}
+                  type="button"
+                  onClick={() => setOrganismVariant('evolved')}
+                >
+                  Evolved <span>{demo.organism.genomeVersion}</span>
+                </button>
+              )}
             </div>
             <ThemeToggle theme={theme} onChange={setTheme} />
           </div>
@@ -280,6 +292,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-carbon text-white">
+      <GlobalExplainTooltip />
       <aside className={navigationOpen ? 'sidebar sidebar-open' : 'sidebar'}>
         <div className="flex h-20 items-center justify-between border-b border-line px-5">
           <a
@@ -311,10 +324,14 @@ function App() {
                   className={active ? 'nav-item nav-item-active' : 'nav-item'}
                   href={
                     label === 'Target application'
-                      ? `/?view=target&variant=${organismVariant}`
+                      ? `${projectFlowBaseUrl}/?variant=${organismVariant}`
                       : active
                         ? '#top'
                         : `#${label.toLowerCase().replace(' ', '-')}`
+                  }
+                  target={label === 'Target application' ? '_blank' : undefined}
+                  rel={
+                    label === 'Target application' ? 'noreferrer' : undefined
                   }
                   onClick={() => setNavigationOpen(false)}
                   data-explain={help}
@@ -750,10 +767,125 @@ function ThemeToggle({
 
 function InfoTip({ text }: { text: string }) {
   return (
-    <span className="info-tip" tabIndex={0} aria-label={text}>
+    <span
+      className="info-tip"
+      tabIndex={0}
+      aria-label={text}
+      data-explain={text}
+    >
       <CircleHelp size={14} aria-hidden="true" />
-      <span role="tooltip">{text}</span>
     </span>
+  );
+}
+
+interface ExplainTooltipState {
+  target: HTMLElement;
+  text: string;
+}
+
+interface ExplainTooltipPosition {
+  left: number;
+  top: number;
+}
+
+function GlobalExplainTooltip() {
+  const [tooltip, setTooltip] = useState<ExplainTooltipState | null>(null);
+  const [position, setPosition] = useState<ExplainTooltipPosition | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let activeTarget: HTMLElement | null = null;
+    const explainTarget = (eventTarget: EventTarget | null) =>
+      eventTarget instanceof Element
+        ? eventTarget.closest<HTMLElement>('[data-explain]')
+        : null;
+    const show = (event: Event) => {
+      const target = explainTarget(event.target);
+      const text = target?.dataset.explain?.trim();
+      if (!target || !text || target === activeTarget) return;
+      activeTarget = target;
+      setPosition(null);
+      setTooltip({ target, text });
+    };
+    const hide = (event: Event) => {
+      if (!activeTarget) return;
+      const relatedTarget =
+        'relatedTarget' in event
+          ? (event as FocusEvent | PointerEvent).relatedTarget
+          : null;
+      if (
+        relatedTarget instanceof Node &&
+        activeTarget.contains(relatedTarget)
+      ) {
+        return;
+      }
+      activeTarget = null;
+      setTooltip(null);
+      setPosition(null);
+    };
+    const dismiss = () => {
+      activeTarget = null;
+      setTooltip(null);
+      setPosition(null);
+    };
+
+    document.addEventListener('pointerover', show, true);
+    document.addEventListener('pointerout', hide, true);
+    document.addEventListener('focusin', show, true);
+    document.addEventListener('focusout', hide, true);
+    window.addEventListener('resize', dismiss);
+    window.addEventListener('scroll', dismiss, true);
+    return () => {
+      document.removeEventListener('pointerover', show, true);
+      document.removeEventListener('pointerout', hide, true);
+      document.removeEventListener('focusin', show, true);
+      document.removeEventListener('focusout', hide, true);
+      window.removeEventListener('resize', dismiss);
+      window.removeEventListener('scroll', dismiss, true);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!tooltip || !tooltipRef.current || window.innerWidth < 640) return;
+    const targetRect = tooltip.target.getBoundingClientRect();
+    const tooltipRect = tooltipRef.current.getBoundingClientRect();
+    const gutter = 12;
+    const gap = 9;
+    const halfWidth = tooltipRect.width / 2;
+    const left = Math.min(
+      window.innerWidth - gutter - halfWidth,
+      Math.max(gutter + halfWidth, targetRect.left + targetRect.width / 2),
+    );
+    const preferredTop = targetRect.top - tooltipRect.height - gap;
+    const top =
+      preferredTop >= gutter
+        ? preferredTop
+        : Math.min(
+            window.innerHeight - gutter - tooltipRect.height,
+            targetRect.bottom + gap,
+          );
+    setPosition({ left, top: Math.max(gutter, top) });
+  }, [tooltip]);
+
+  if (!tooltip) return null;
+  return createPortal(
+    <div
+      className="global-explain-tooltip"
+      ref={tooltipRef}
+      role="tooltip"
+      style={
+        window.innerWidth < 640
+          ? undefined
+          : {
+              left: position?.left ?? 0,
+              top: position?.top ?? 0,
+              visibility: position ? 'visible' : 'hidden',
+            }
+      }
+    >
+      {tooltip.text}
+    </div>,
+    document.body,
   );
 }
 
@@ -864,9 +996,9 @@ function LiveTelemetryPanel({
     ...new Set(telemetry.events.map((event) => event.sessionId)),
   ];
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
-  const [implementationMutationId, setImplementationMutationId] = useState<
-    string | null
-  >(null);
+  const [implementationMutationIds, setImplementationMutationIds] = useState<
+    string[]
+  >([]);
   const visibleEvents = selectedSession
     ? telemetry.events.filter((event) => event.sessionId === selectedSession)
     : telemetry.events;
@@ -875,20 +1007,35 @@ function LiveTelemetryPanel({
   const implementationCandidates = telemetry.analysis
     ? [telemetry.analysis.selectedMutation, ...telemetry.analysis.alternatives]
     : [];
-  const implementationCandidate =
-    implementationCandidates.find(
-      (candidate) => candidate.id === implementationMutationId,
-    ) ?? implementationCandidates[0];
+  const implementationCandidatesSelected = implementationCandidates.filter(
+    (candidate) => implementationMutationIds.includes(candidate.id),
+  );
+  const manifestMutationIds = telemetry.manifest
+    ? (telemetry.manifest.mutationIds ?? [telemetry.manifest.mutationId])
+    : [];
   const manifestMatchesSelection =
-    telemetry.manifest?.mutationId === implementationCandidate?.id;
+    telemetry.manifest !== null &&
+    manifestMutationIds.length === implementationCandidatesSelected.length &&
+    implementationCandidatesSelected.every(
+      (candidate, index) => candidate.id === manifestMutationIds[index],
+    );
+  const toggleImplementationMutation = (mutationId: string) => {
+    setImplementationMutationIds((current) =>
+      current.includes(mutationId)
+        ? current.filter((id) => id !== mutationId)
+        : [...current, mutationId],
+    );
+  };
 
   useEffect(() => {
-    setImplementationMutationId(
-      telemetry.manifest?.mutationId ??
-        telemetry.analysis?.selectedMutation.id ??
-        null,
+    setImplementationMutationIds(
+      telemetry.manifest
+        ? (telemetry.manifest.mutationIds ?? [telemetry.manifest.mutationId])
+        : telemetry.analysis
+          ? [telemetry.analysis.selectedMutation.id]
+          : [],
     );
-  }, [telemetry.analysis?.analysisId, telemetry.manifest?.mutationId]);
+  }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
   return (
     <section className="mt-8 surface-panel live-evidence" id="real-evidence">
@@ -1223,17 +1370,15 @@ function LiveTelemetryPanel({
                     <span>GPT selected</span>
                     <label className="mutation-choice-control">
                       <input
-                        checked={
-                          implementationMutationId ===
-                          telemetry.analysis.selectedMutation.id
-                        }
-                        name="implementation-mutation"
+                        checked={implementationMutationIds.includes(
+                          telemetry.analysis.selectedMutation.id,
+                        )}
                         onChange={() =>
-                          setImplementationMutationId(
-                            telemetry.analysis?.selectedMutation.id ?? null,
+                          toggleImplementationMutation(
+                            telemetry.analysis!.selectedMutation.id,
                           )
                         }
-                        type="radio"
+                        type="checkbox"
                         value={telemetry.analysis.selectedMutation.id}
                       />
                       <span>Implement</span>
@@ -1313,16 +1458,17 @@ function LiveTelemetryPanel({
                     <span>Alternatives considered · select to implement</span>
                     {telemetry.analysis.alternatives.map((candidate) => (
                       <label
-                        className={`alternative-choice ${implementationMutationId === candidate.id ? 'is-selected' : ''}`}
+                        className={`alternative-choice ${implementationMutationIds.includes(candidate.id) ? 'is-selected' : ''}`}
                         key={candidate.id}
                       >
                         <input
-                          checked={implementationMutationId === candidate.id}
-                          name="implementation-mutation"
+                          checked={implementationMutationIds.includes(
+                            candidate.id,
+                          )}
                           onChange={() =>
-                            setImplementationMutationId(candidate.id)
+                            toggleImplementationMutation(candidate.id)
                           }
-                          type="radio"
+                          type="checkbox"
                           value={candidate.id}
                         />
                         <div>
@@ -1349,8 +1495,10 @@ function LiveTelemetryPanel({
                     <div>
                       <strong>Controlled Codex handoff</strong>
                       <span>
-                        Implementation choice · {implementationCandidate?.title}
-                        . Brief, allow-list, evidence citations and validation
+                        {implementationCandidatesSelected.length
+                          ? `Implementation bundle · ${implementationCandidatesSelected.map((candidate) => candidate.title).join(' + ')}.`
+                          : 'No mutations selected.'}{' '}
+                        Brief, allow-list, evidence citations and validation
                         commands only.
                       </span>
                     </div>
@@ -1358,10 +1506,15 @@ function LiveTelemetryPanel({
                   <button
                     className="secondary-action"
                     type="button"
-                    disabled={telemetry.preparingManifest}
+                    disabled={
+                      telemetry.preparingManifest ||
+                      implementationCandidatesSelected.length === 0
+                    }
                     onClick={() =>
                       void telemetry.prepareCodexManifest(
-                        implementationCandidate?.id,
+                        implementationCandidatesSelected.map(
+                          (candidate) => candidate.id,
+                        ),
                       )
                     }
                   >
@@ -1382,7 +1535,9 @@ function LiveTelemetryPanel({
                     <span>
                       {telemetry.manifest.allowedPaths.length} allowed ·{' '}
                       {telemetry.manifest.protectedPaths.length} protected ·{' '}
-                      {telemetry.manifest.validationCommands.length} checks
+                      {telemetry.manifest.validationCommands.length} checks ·{' '}
+                      {manifestMutationIds.length} mutation
+                      {manifestMutationIds.length === 1 ? '' : 's'}
                     </span>
                   </div>
                 )}

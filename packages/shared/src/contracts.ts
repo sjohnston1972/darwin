@@ -644,6 +644,7 @@ export const CodexImplementationManifestSchema = z.object({
   manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
   analysisId: StudyIdentifierSchema,
   mutationId: StudyIdentifierSchema,
+  mutationIds: z.array(StudyIdentifierSchema).min(1).max(6).optional(),
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0', '2.1.0']),
   repositoryCommit: z.string().min(1),
@@ -656,9 +657,21 @@ export const CodexImplementationManifestSchema = z.object({
   validationCommands: z.array(z.string().min(1)).min(1),
 });
 
-export const CodexManifestRequestSchema = z.object({
-  mutationId: StudyIdentifierSchema.optional(),
-});
+export const CodexManifestRequestSchema = z
+  .object({
+    mutationId: StudyIdentifierSchema.optional(),
+    mutationIds: z
+      .array(StudyIdentifierSchema)
+      .min(1)
+      .max(6)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: 'Mutation IDs must be unique.',
+      })
+      .optional(),
+  })
+  .refine((request) => !(request.mutationId && request.mutationIds), {
+    message: 'Use mutationId or mutationIds, not both.',
+  });
 
 export const OutcomeCohortSchema = z.object({
   cohortId: StudyIdentifierSchema,

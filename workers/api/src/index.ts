@@ -209,7 +209,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.20.1',
+      version: '0.20.2',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -568,12 +568,15 @@ export const handleRequest = async (
         );
       }
       const candidates = [analysis.selectedMutation, ...analysis.alternatives];
-      const mutation = parsed.data.mutationId
-        ? candidates.find(
-            (candidate) => candidate.id === parsed.data.mutationId,
-          )
-        : analysis.selectedMutation;
-      if (!mutation) {
+      const requestedMutationIds =
+        parsed.data.mutationIds ??
+        (parsed.data.mutationId
+          ? [parsed.data.mutationId]
+          : [analysis.selectedMutation.id]);
+      const mutations = candidates.filter((candidate) =>
+        requestedMutationIds.includes(candidate.id),
+      );
+      if (mutations.length !== requestedMutationIds.length) {
         return json(
           {
             error: 'invalid_mutation',
@@ -582,14 +585,23 @@ export const handleRequest = async (
           { status: 400 },
         );
       }
-      if (existing?.mutationId === mutation.id) {
+      const existingMutationIds = existing
+        ? (existing.mutationIds ?? [existing.mutationId])
+        : [];
+      if (
+        existing &&
+        existingMutationIds.length === mutations.length &&
+        mutations.every(
+          (mutation, index) => mutation.id === existingMutationIds[index],
+        )
+      ) {
         return json(CodexImplementationManifestSchema.parse(existing));
       }
       const manifest = await buildCodexManifest(
         analysis,
         env?.DARWIN_REPOSITORY_COMMIT || 'working-tree',
         undefined,
-        mutation,
+        mutations,
       );
       await telemetryRepository.saveCodexManifest(manifest);
       return json(CodexImplementationManifestSchema.parse(manifest), {

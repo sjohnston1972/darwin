@@ -769,7 +769,7 @@ function Dashboard({
       <PageHeading
         eyebrow="Monday, July 16"
         title="Good morning, Alex"
-        description="Here is what is happening across your workspace."
+        description="ProjectFlow is a task management platform for creating projects, assigning tasks, and coordinating work with project members."
       />
       <div className="metric-grid">
         <Metric

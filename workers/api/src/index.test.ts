@@ -151,7 +151,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.20.1');
+    expect(body.version).toBe('0.20.2');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -488,16 +488,19 @@ describe('Darwin API', () => {
       await manifestResponse.json(),
     );
     expect(manifest.repositoryCommit).toBe('c75e37d');
+    expect(manifest.mutationIds).toEqual([first.selectedMutation.id]);
     expect(JSON.stringify(manifest)).not.toContain('participantId');
 
-    const alternative = first.alternatives[0]!;
+    const alternatives = first.alternatives.slice(0, 2);
     const alternativeManifestResponse = await handleRequest(
       new Request(
         `http://localhost/api/evidence-analyses/${first.analysisId}/codex-manifest`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mutationId: alternative.id }),
+          body: JSON.stringify({
+            mutationIds: alternatives.map((alternative) => alternative.id),
+          }),
         },
       ),
       { DARWIN_REPOSITORY_COMMIT: 'c75e37d' },
@@ -506,8 +509,12 @@ describe('Darwin API', () => {
       await alternativeManifestResponse.json(),
     );
     expect(alternativeManifestResponse.status).toBe(201);
-    expect(alternativeManifest.mutationId).toBe(alternative.id);
-    expect(alternativeManifest.brief).toBe(alternative.codexBrief);
+    expect(alternativeManifest.mutationId).toBe(alternatives[0]!.id);
+    expect(alternativeManifest.mutationIds).toEqual(
+      alternatives.map((alternative) => alternative.id),
+    );
+    expect(alternativeManifest.brief).toContain(alternatives[0]!.codexBrief);
+    expect(alternativeManifest.brief).toContain(alternatives[1]!.codexBrief);
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {
