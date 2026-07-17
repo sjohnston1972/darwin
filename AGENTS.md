@@ -19,8 +19,8 @@ Do not attempt to build a general-purpose autonomous platform. Build a polished,
 4. Ask GPT-5.6 for one structured proposal that cites evidence IDs.
 5. Show a controlled Codex implementation with a real repository diff.
 6. Run validation checks and clearly identify automated versus human evidence.
-7. Switch ProjectFlow from the original variant to the evolved variant.
-8. Record the mutation, evidence hash and outcome in the fossil record.
+7. Review and merge the generated ProjectFlow pull request.
+8. Record the evidence hash, real commits and deployment in the fossil record.
 
 The 10,000-event simulation remains an explicitly labelled scale replay. It is
 not the primary evidence that Darwin works and must never be presented as real
@@ -48,11 +48,11 @@ Avoid claiming unsupervised production deployment. The MVP is controlled and hum
 - Vitest for unit tests.
 - Playwright for the critical demo flow if time permits.
 - Zod for validation and shared contracts.
-- OpenAI API integration behind an interface with a deterministic mock mode.
+- OpenAI API integration that fails closed when live reasoning is unavailable.
 
 ## Architecture
-- `apps/web`: Darwin control room and embedded organism preview.
-- `apps/projectflow`: standalone functional ProjectFlow study application.
+- `apps/web`: Darwin control room and external target launcher.
+- `../projectflow`: separately versioned target repository and deployment.
 - `workers/api`: telemetry, simulation, analysis, mutation and timeline API.
 - `packages/shared`: schemas and shared types.
 - `packages/telemetry-client`: privacy-conscious browser instrumentation SDK.
@@ -62,9 +62,9 @@ Avoid claiming unsupervised production deployment. The MVP is controlled and hum
 ## MVP boundaries
 Implement only:
 - one organism: ProjectFlow
-- two UI variants: baseline and evolved
+- one tagged ProjectFlow baseline and live repository mutations
 - four deterministic personas
-- one main mutation: promote global task search and simplify navigation
+- evidence-led mutations selected from live GPT reasoning
 - one mutation approval workflow
 - one fitness model
 - one fossil-record timeline
@@ -72,7 +72,7 @@ Implement only:
 - real and synthetic telemetry stored and displayed as separate evidence classes
 
 Do not build:
-- arbitrary GitHub repository ingestion
+- arbitrary repositories beyond the configured ProjectFlow target
 - autonomous production deployment
 - multi-tenant billing
 - real-user identity or enterprise authentication
@@ -87,12 +87,9 @@ Baseline problems must be visible:
 - Reports as a separate low-usage top-level route
 - task creation takes too many clicks
 
-Evolved version:
-- global search promoted to the top bar
-- `My Work` becomes a primary navigation item
-- Reports moves into `Insights`
-- quick-create task action is globally available
-- dashboard becomes a concise work summary
+No evolved version is checked into Darwin. Codex creates a candidate branch in
+the ProjectFlow repository from the selected live manifest. A candidate exists
+only after that workflow produces a real commit.
 
 ## Telemetry
 Real instrumentation is the primary proof path:
@@ -129,33 +126,27 @@ The simulation must produce evidence supporting the intended mutation without
 hard-coding the final prose. Synthetic events must never be mixed into real-user
 counts, cohorts or measured fitness.
 
-## Fitness model
-Expose a score from 0–100 derived from:
-- task completion rate: 35%
-- navigation efficiency: 25%
-- error rate: 15%
-- feature discovery: 15%
-- median task duration: 10%
-
-Show baseline and evolved values. Keep the calculations deterministic and documented.
+## Selection model
+Keep deterministic evidence quality separate from GPT preference. Candidate
+scores must cite observed EV records, state confidence, tradeoffs and a measured
+validation plan. Do not predict or display invented post-mutation fitness.
 
 ## AI integration
-Create an `EvolutionAnalyzer` interface with:
-- `MockEvolutionAnalyzer`: deterministic and available by default.
-- `OpenAIEvolutionAnalyzer`: calls GPT-5.6 when `OPENAI_API_KEY` is configured.
-
-Require structured JSON output matching the shared `MutationProposal` Zod schema.
-
-The live application must remain fully demoable without an API key.
+Call GPT-5.6 only after a deterministic evidence pack exists. Include the exact
+ProjectFlow repository policy and approved source context from an immutable SHA.
+Require structured JSON matching `EvidenceAnalysisSchema`; reject unavailable,
+invalid or unsupported recommendations instead of substituting mock prose.
 
 ## Codex integration story
 The repository itself is built with Codex. Also include a controlled mutation workflow:
 - proposal produces an implementation brief
-- implementation changes a feature flag/configurable variant or applies a small source patch
-- UI displays the generated diff or a checked-in demo diff
-- validation scripts run against both variants
+- the Worker dispatches ProjectFlow's authenticated GitHub Actions workflow
+- `openai/codex-action` produces a patch in a read-only-content job
+- repository policy gates the patch before a write job creates a commit
+- UI displays only the actual GitHub diff, checks, pull request and preview
 
-Do not fake shell output. Any displayed validation result must be generated by actual scripts or clearly labelled as a recorded Build Week run.
+Do not fake shell output, diffs, versions, validation or fitness. Displayed
+repository results must come from the current GitHub execution.
 
 ## Design direction
 - dark, technical, premium visual language
@@ -179,13 +170,13 @@ Do not fake shell output. Any displayed validation result must be generated by a
 
 ## Implementation sequence
 1. Scaffold workspace and shared schemas.
-2. Build baseline/evolved ProjectFlow variants.
+2. Establish ProjectFlow as a separate tagged baseline repository.
 3. Build seeded telemetry simulation.
 4. Build fitness calculation and analysis summary.
-5. Add mock mutation proposal.
-6. Add optional GPT-5.6 analyzer.
+5. Add live, evidence-citing GPT-5.6 reasoning.
+6. Add repository snapshot and prompt-caching context.
 7. Build Darwin control room and timeline.
-8. Build standalone ProjectFlow, study mode and the telemetry client.
+8. Build ProjectFlow's Codex, validation, pull-request and preview workflow.
 9. Add D1 ingestion and live session traces.
 10. Add deterministic evidence generation and provenance.
 11. Add evidence-citing GPT-5.6 analysis and Codex audit manifests.

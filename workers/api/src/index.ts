@@ -4,16 +4,6 @@ import {
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
-  EvolutionTimelineResponseSchema,
-  EvolutionAnalysisRequestSchema,
-  EvolutionAnalysisResponseSchema,
-  FitnessComparisonSchema,
-  MutationDiffSchema,
-  MutationDecisionResponseSchema,
-  MutationReleaseResponseSchema,
-  MutationValidationResponseSchema,
-  OrganismStateSchema,
-  OutcomeValidationSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
@@ -23,30 +13,12 @@ import {
   StudySessionResponseSchema,
   StudyTelemetryEventSchema,
   TelemetryReceiptSchema,
-  ValidationResultSchema,
-  type EvolutionRecord,
-  type EvidenceAnalysis,
-  type FitnessComparison,
   type HealthResponse,
-  type CodexImplementationManifest,
-  type MutationProposal,
-  type OrganismState,
   type SimulationResult,
 } from '@darwin/shared';
 
-import phase7Artifacts from './fixtures/phase7-artifacts.json';
-import phase12Outcome from './fixtures/phase12-outcome.json';
 import { simulate } from './simulation';
-import {
-  EvolutionAnalysisError,
-  compareFitness,
-  executeEvolutionAnalysis,
-  rankFrictionFindings,
-} from './evolution';
-import {
-  getTelemetryRepository,
-  type PersistedDemoState,
-} from './persistence/telemetry-repository';
+import { getTelemetryRepository } from './persistence/telemetry-repository';
 import { buildEvidencePack } from './evidence';
 import {
   EvidenceReasoningError,
@@ -54,7 +26,6 @@ import {
   analysisCacheKey,
   buildCodexManifest,
 } from './reasoning';
-import { OutcomeValidationError, compareAutomatedOutcomes } from './outcomes';
 import { captureRepositorySnapshot } from './repository/github-source';
 import {
   createRepositoryExecution,
@@ -77,7 +48,6 @@ export interface Env {
   OPENAI_API?: string;
   OPENAI_MODEL: string;
   OPENAI_TIMEOUT_MS: string;
-  DARWIN_REPOSITORY_COMMIT: string;
   PROJECTFLOW_REPOSITORY: string;
   PROJECTFLOW_BRANCH: string;
   PROJECTFLOW_PRODUCTION_URL: string;
@@ -136,61 +106,6 @@ const corsForRequest = (request: Request, env?: Partial<Env>) => {
 };
 
 const simulationStore = new Map<string, SimulationResult>();
-const mutationStore = new Map<string, MutationProposal>();
-const validationStore = new Map<string, unknown>();
-const fitnessStore = new Map<string, FitnessComparison>();
-let timelineStore: EvolutionRecord[] = [];
-const recordedValidation = ValidationResultSchema.parse(
-  phase7Artifacts.validation,
-);
-const recordedDiff = MutationDiffSchema.parse(phase7Artifacts.diff);
-const recordedOutcome = OutcomeValidationSchema.parse(phase12Outcome);
-
-const diffForMutation = (mutationId: string) =>
-  MutationDiffSchema.parse({ ...recordedDiff, mutationId });
-
-const validationForMutation = (mutationId: string) =>
-  ValidationResultSchema.parse({
-    ...recordedValidation,
-    id: `validation-${mutationId.replace(/^mutation-/, '')}`,
-    mutationId,
-  });
-
-const initialOrganismState = (): OrganismState => ({
-  variant: 'baseline',
-  genomeVersion: 'v1.0',
-  evolutionCycles: 0,
-  activeMutationId: null,
-  updatedAt: new Date().toISOString(),
-});
-
-let organismState = initialOrganismState();
-let recordedOutcomeVisible = true;
-
-const demoState = (): PersistedDemoState => ({
-  organism: organismState,
-  timeline: timelineStore,
-  mutations: [...mutationStore.entries()],
-  validations: [...validationStore.entries()],
-  fitness: [...fitnessStore.entries()],
-  recordedOutcomeVisible,
-});
-
-const restoreDemoState = (state: PersistedDemoState) => {
-  organismState = OrganismStateSchema.parse(state.organism);
-  timelineStore = EvolutionTimelineResponseSchema.parse({
-    records: state.timeline,
-  }).records;
-  mutationStore.clear();
-  state.mutations.forEach(([id, proposal]) => mutationStore.set(id, proposal));
-  validationStore.clear();
-  state.validations.forEach(([id, validation]) =>
-    validationStore.set(id, validation),
-  );
-  fitnessStore.clear();
-  state.fitness.forEach(([id, fitness]) => fitnessStore.set(id, fitness));
-  recordedOutcomeVisible = state.recordedOutcomeVisible ?? true;
-};
 
 const simulationFromId = (id: string) => {
   const match = id.match(/^sim-(baseline|evolved)-(-?\d+)$/);
@@ -201,14 +116,8 @@ const simulationFromId = (id: string) => {
   });
 };
 
-export const resetSimulationStore = (showRecordedOutcome = true) => {
+export const resetSimulationStore = () => {
   simulationStore.clear();
-  mutationStore.clear();
-  validationStore.clear();
-  fitnessStore.clear();
-  timelineStore = [];
-  organismState = initialOrganismState();
-  recordedOutcomeVisible = showRecordedOutcome;
 };
 
 export const handleRequest = async (
@@ -236,10 +145,6 @@ export const handleRequest = async (
   }
 
   const telemetryRepository = getTelemetryRepository(env?.DB);
-  if (env?.DB) {
-    const persisted = await telemetryRepository.getDemoState();
-    if (persisted) restoreDemoState(persisted);
-  }
 
   if (request.method === 'GET' && pathname === '/api/health') {
     const response: HealthResponse = {
@@ -279,24 +184,13 @@ export const handleRequest = async (
         );
       }
     }
-    resetSimulationStore(false);
+    resetSimulationStore();
     await telemetryRepository.reset();
-    await telemetryRepository.saveDemoState(demoState());
     return json(
       DemoResetResponseSchema.parse({
         status: 'reset',
-        organism: organismState,
+        repositoryResetDispatched: Boolean(env?.GITHUB_TOKEN),
       }),
-    );
-  }
-
-  if (request.method === 'GET' && pathname === '/api/organism/state') {
-    return json(OrganismStateSchema.parse(organismState));
-  }
-
-  if (request.method === 'GET' && pathname === '/api/evolution/timeline') {
-    return json(
-      EvolutionTimelineResponseSchema.parse({ records: timelineStore }),
     );
   }
 
@@ -453,48 +347,6 @@ export const handleRequest = async (
         );
       }
       throw error;
-    }
-  }
-
-  if (pathname === '/api/outcomes/automated-comparison') {
-    if (request.method === 'GET') {
-      const validation = await telemetryRepository.getLatestOutcomeValidation();
-      const outcome =
-        validation ?? (recordedOutcomeVisible ? recordedOutcome : null);
-      if (!outcome) {
-        return new Response(null, { status: 204, headers: corsHeaders });
-      }
-      return json(OutcomeValidationSchema.parse(outcome));
-    }
-    if (request.method === 'POST') {
-      const baseline = await telemetryRepository.getLatestEvidence(
-        'projectflow-baseline-automated-study',
-      );
-      const evolved = await telemetryRepository.getLatestEvidence(
-        'projectflow-evolved-automated-study',
-      );
-      if (!baseline || !evolved) {
-        return json(
-          {
-            error: 'insufficient_evidence',
-            message: 'Both automated cohort evidence packs are required.',
-          },
-          { status: 409 },
-        );
-      }
-      try {
-        const validation = compareAutomatedOutcomes(baseline, evolved);
-        await telemetryRepository.saveOutcomeValidation(validation);
-        return json(OutcomeValidationSchema.parse(validation), { status: 201 });
-      } catch (error) {
-        if (error instanceof OutcomeValidationError) {
-          return json(
-            { error: 'validation_failed', message: error.message },
-            { status: 422 },
-          );
-        }
-        throw error;
-      }
     }
   }
 
@@ -681,7 +533,7 @@ export const handleRequest = async (
       }
       const manifest = await buildCodexManifest(
         analysis,
-        env?.DARWIN_REPOSITORY_COMMIT || 'working-tree',
+        'repository-bound',
         undefined,
         mutations,
       );
@@ -710,10 +562,9 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    const existing =
-      await telemetryRepository.getRepositoryExecutionByManifest(
-        manifest.manifestId,
-      );
+    const existing = await telemetryRepository.getRepositoryExecutionByManifest(
+      manifest.manifestId,
+    );
     if (request.method === 'GET') {
       return existing
         ? json(RepositoryMutationExecutionSchema.parse(existing))
@@ -1037,266 +888,6 @@ export const handleRequest = async (
         status: 201,
         headers: { Location: `/api/simulations/${result.run.id}` },
       },
-    );
-  }
-
-  if (request.method === 'POST' && pathname === '/api/evolution/analyse') {
-    let input: unknown;
-    try {
-      input = await request.json();
-    } catch {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Request body must be valid JSON.',
-        },
-        { status: 400 },
-      );
-    }
-
-    const parsed = EvolutionAnalysisRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Evolution analysis input failed validation.',
-          issues: parsed.error.issues,
-        },
-        { status: 400 },
-      );
-    }
-
-    const source =
-      simulationStore.get(parsed.data.simulationId) ??
-      simulationFromId(parsed.data.simulationId);
-    if (!source) {
-      return json(
-        { error: 'not_found', message: 'Simulation run was not found.' },
-        { status: 404 },
-      );
-    }
-
-    const baseline =
-      source.run.variant === 'baseline'
-        ? source
-        : simulate({ seed: source.run.seed, variant: 'baseline' });
-    const evolved =
-      source.run.variant === 'evolved'
-        ? source
-        : simulate({ seed: source.run.seed, variant: 'evolved' });
-    simulationStore.set(baseline.run.id, baseline);
-    simulationStore.set(evolved.run.id, evolved);
-
-    const fitness = compareFitness(baseline, evolved);
-    const findings = rankFrictionFindings(baseline);
-
-    try {
-      const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
-      const timeoutMs = Number.isFinite(configuredTimeout)
-        ? Math.min(60_000, Math.max(1_000, configuredTimeout))
-        : 12_000;
-      const analysis = await executeEvolutionAnalysis(
-        { summary: baseline.summary, findings, fitness },
-        {
-          requestedMode: env?.DARWIN_AI_MODE,
-          apiKey: openAIKey(env),
-          model: env?.OPENAI_MODEL,
-          timeoutMs,
-        },
-      );
-      const response = EvolutionAnalysisResponseSchema.parse({
-        mode: analysis.mode,
-        model: analysis.model,
-        fitness,
-        findings,
-        proposal: analysis.proposal,
-      });
-      mutationStore.set(analysis.proposal.id, analysis.proposal);
-      fitnessStore.set(analysis.proposal.id, fitness);
-      if (!timelineStore.some((record) => record.outcome === 'baseline')) {
-        timelineStore.push({
-          id: `record-baseline-${baseline.run.seed}`,
-          version: 'v1.0',
-          outcome: 'baseline',
-          fitness: fitness.baseline,
-          recordedAt: baseline.run.completedAt ?? baseline.run.startedAt,
-        });
-      }
-      await telemetryRepository.saveDemoState(demoState());
-      return json(response);
-    } catch (error) {
-      if (error instanceof EvolutionAnalysisError) {
-        return json(
-          { error: 'analysis_failed', message: error.message },
-          { status: 422 },
-        );
-      }
-      throw error;
-    }
-  }
-
-  const mutationDecisionMatch = pathname.match(
-    /^\/api\/mutations\/([^/]+)\/(approve|reject)$/,
-  );
-  if (request.method === 'POST' && mutationDecisionMatch) {
-    const id = decodeURIComponent(mutationDecisionMatch[1]!);
-    const decision = mutationDecisionMatch[2] as 'approve' | 'reject';
-    const proposal = mutationStore.get(id);
-
-    if (!proposal) {
-      return json(
-        { error: 'not_found', message: 'Mutation proposal was not found.' },
-        { status: 404 },
-      );
-    }
-
-    if (proposal.status !== 'proposed') {
-      return json(
-        {
-          error: 'invalid_state',
-          message: `Mutation proposal has already been ${proposal.status}.`,
-        },
-        { status: 409 },
-      );
-    }
-
-    const decidedProposal: MutationProposal = {
-      ...proposal,
-      status: decision === 'approve' ? 'approved' : 'rejected',
-    };
-    mutationStore.set(id, decidedProposal);
-
-    if (decision === 'reject') {
-      const fitness = fitnessStore.get(id);
-      if (fitness) {
-        timelineStore.push({
-          id: `record-rejected-${id}`,
-          version: 'v1.0',
-          mutationId: id,
-          outcome: 'failed_selection',
-          fitness: fitness.baseline,
-          recordedAt: new Date().toISOString(),
-        });
-      }
-    }
-
-    await telemetryRepository.saveDemoState(demoState());
-
-    return json(
-      MutationDecisionResponseSchema.parse({
-        proposal: decidedProposal,
-        organism: organismState,
-      }),
-    );
-  }
-
-  const mutationDiffMatch = pathname.match(/^\/api\/mutations\/([^/]+)\/diff$/);
-  if (request.method === 'GET' && mutationDiffMatch) {
-    const id = decodeURIComponent(mutationDiffMatch[1]!);
-    if (!mutationStore.has(id)) {
-      return json(
-        { error: 'not_found', message: 'Mutation diff was not found.' },
-        { status: 404 },
-      );
-    }
-    return json(diffForMutation(id));
-  }
-
-  const mutationValidationMatch = pathname.match(
-    /^\/api\/mutations\/([^/]+)\/validate$/,
-  );
-  if (request.method === 'POST' && mutationValidationMatch) {
-    const id = decodeURIComponent(mutationValidationMatch[1]!);
-    const proposal = mutationStore.get(id);
-    if (!proposal) {
-      return json(
-        { error: 'not_found', message: 'Mutation proposal was not found.' },
-        { status: 404 },
-      );
-    }
-    if (proposal.status !== 'approved') {
-      return json(
-        {
-          error: 'invalid_state',
-          message: 'Mutation must be approved before validation.',
-        },
-        { status: 409 },
-      );
-    }
-
-    const validation = validationForMutation(id);
-    validationStore.set(id, validation);
-    const validatedProposal: MutationProposal = {
-      ...proposal,
-      status: validation.status === 'passed' ? 'validated' : 'approved',
-    };
-    mutationStore.set(id, validatedProposal);
-    await telemetryRepository.saveDemoState(demoState());
-    return json(
-      MutationValidationResponseSchema.parse({
-        proposal: validatedProposal,
-        validation,
-      }),
-    );
-  }
-
-  const mutationReleaseMatch = pathname.match(
-    /^\/api\/mutations\/([^/]+)\/release$/,
-  );
-  if (request.method === 'POST' && mutationReleaseMatch) {
-    const id = decodeURIComponent(mutationReleaseMatch[1]!);
-    const proposal = mutationStore.get(id);
-    const validation = validationStore.get(id);
-    if (!proposal) {
-      return json(
-        { error: 'not_found', message: 'Mutation proposal was not found.' },
-        { status: 404 },
-      );
-    }
-    if (
-      proposal.status !== 'validated' ||
-      !validation ||
-      ValidationResultSchema.parse(validation).status !== 'passed'
-    ) {
-      return json(
-        {
-          error: 'invalid_state',
-          message: 'Mutation must pass validation before release.',
-        },
-        { status: 409 },
-      );
-    }
-
-    const releasedProposal: MutationProposal = {
-      ...proposal,
-      status: 'released',
-    };
-    mutationStore.set(id, releasedProposal);
-    organismState = {
-      variant: 'evolved',
-      genomeVersion: 'v1.1',
-      evolutionCycles: 1,
-      activeMutationId: id,
-      updatedAt: new Date().toISOString(),
-    };
-    const fitness = FitnessComparisonSchema.parse(fitnessStore.get(id));
-    const record: EvolutionRecord = {
-      id: `record-survived-${id}`,
-      version: 'v1.1',
-      mutationId: id,
-      outcome: 'survived',
-      fitness: fitness.evolved,
-      recordedAt: new Date().toISOString(),
-    };
-    timelineStore.push(record);
-    await telemetryRepository.saveDemoState(demoState());
-
-    return json(
-      MutationReleaseResponseSchema.parse({
-        proposal: releasedProposal,
-        organism: organismState,
-        record,
-      }),
     );
   }
 

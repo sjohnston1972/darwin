@@ -35,6 +35,7 @@ export interface LiveTelemetryState {
   releasingExecution: boolean;
   participantCount: number;
   resetState: () => void;
+  resetEvolution: () => Promise<boolean>;
   sessionCounts: Record<string, number>;
   startControlledEvolution: (mutationIds: string[]) => Promise<void>;
   status: 'loading' | 'live' | 'offline';
@@ -258,9 +259,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
       const executionPayload = (await executionResponse.json()) as {
         message?: string;
       };
-      const parsedExecution = RepositoryMutationExecutionSchema.safeParse(
-        executionPayload,
-      );
+      const parsedExecution =
+        RepositoryMutationExecutionSchema.safeParse(executionPayload);
       if (parsedExecution.success) setExecution(parsedExecution.data);
       if (!executionResponse.ok) {
         throw new Error(
@@ -294,9 +294,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
-      const parsedExecution = RepositoryMutationExecutionSchema.safeParse(
-        payload,
-      );
+      const parsedExecution =
+        RepositoryMutationExecutionSchema.safeParse(payload);
       if (parsedExecution.success) setExecution(parsedExecution.data);
       if (!response.ok) {
         throw new Error(
@@ -334,6 +333,26 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setStatus('live');
   };
 
+  const resetEvolution = async () => {
+    setError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/demo/reset`, {
+        method: 'POST',
+      });
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'Evolution reset failed.');
+      }
+      resetState();
+      return true;
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : 'Evolution reset failed.',
+      );
+      return false;
+    }
+  };
+
   return {
     analysis,
     analyseEvidence,
@@ -353,6 +372,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     preparingManifest,
     releaseExecution,
     releasingExecution,
+    resetEvolution,
     resetState,
     sessionCounts,
     startControlledEvolution,

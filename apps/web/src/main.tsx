@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 
 import App from './App';
 import './styles.css';
-import './projectflow/projectflow.css';
 
 const storedTheme = localStorage.getItem('darwin-theme');
 document.documentElement.dataset.theme =

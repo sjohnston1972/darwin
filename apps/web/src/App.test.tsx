@@ -252,77 +252,6 @@ const manifest = {
   validationCommands: ['npm run verify'],
 } as const;
 
-const baselineFitness = {
-  score: 61,
-  completionRate: 62,
-  navigationEfficiency: 48,
-  inverseErrorRate: 91,
-  featureDiscovery: 45,
-  inverseTaskDuration: 55,
-};
-const evolvedFitness = {
-  score: 84,
-  completionRate: 91,
-  navigationEfficiency: 78,
-  inverseErrorRate: 96,
-  featureDiscovery: 86,
-  inverseTaskDuration: 77,
-};
-const executionProposal = {
-  id: `mutation-${manifest.manifestHash.slice(0, 12)}`,
-  name: analysis.selectedMutation.title,
-  observation: analysis.evidenceAssessment.summary,
-  evidence: manifest.evidenceCitations,
-  hypothesis: analysis.selectedMutation.hypothesis,
-  implementationSummary: analysis.selectedMutation.change,
-  predictedFitnessGain: 23,
-  confidence: analysis.selectedMutation.confidence,
-  risk: 'low',
-  affectedFiles: manifest.allowedPaths,
-  status: 'approved',
-} as const;
-const executionAnalysis = {
-  mode: 'live',
-  model: 'gpt-5.6',
-  fitness: { baseline: baselineFitness, evolved: evolvedFitness, delta: 23 },
-  findings: [
-    {
-      id: 'capacity-clarity',
-      title: 'Capacity controls require interpretation',
-      description: 'Users hesitate before acting.',
-      impact: 82,
-      confidence: 0.82,
-      evidence: ['EV-001'],
-    },
-  ],
-  proposal: executionProposal,
-} as const;
-const executionDiff = {
-  mutationId: executionProposal.id,
-  source: 'repository_source_comparison',
-  baseRef: 'apps/projectflow/genomes/baseline',
-  targetRef: 'apps/projectflow/genomes/evolved',
-  patch: '@@ controlled genome @@\n-globalSearch: false\n+globalSearch: true',
-  generatedAt: timestamp,
-} as const;
-const validation = {
-  id: 'validation-measured-test',
-  mutationId: executionProposal.id,
-  status: 'passed',
-  source: 'recorded_repository_run',
-  commit: 'test-commit',
-  checks: [
-    {
-      name: 'Unit and UX component tests',
-      status: 'passed',
-      durationMs: 1200,
-      output: 'All tests passed.',
-    },
-  ],
-  fitness: evolvedFitness,
-  recordedAt: timestamp,
-} as const;
-
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
@@ -364,7 +293,8 @@ const installApi = (latestAnalysis: unknown = null) => {
           pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
           previewUrl:
             'https://sjohnston1972.github.io/projectflow/?study=true&execution=test',
-          patch: '@@ live repository patch @@\n-old behavior\n+measured behavior',
+          patch:
+            '@@ live repository patch @@\n-old behavior\n+measured behavior',
           changedFiles: ['apps/projectflow/src/App.tsx'],
           checks: [
             {
@@ -447,27 +377,10 @@ const installApi = (latestAnalysis: unknown = null) => {
           timestamp,
         });
       }
-      if (url.endsWith('/api/organism/state')) {
-        return response({
-          variant: 'baseline',
-          genomeVersion: 'v1.0',
-          evolutionCycles: 0,
-          activeMutationId: null,
-          updatedAt: timestamp,
-        });
-      }
-      if (url.endsWith('/api/evolution/timeline'))
-        return response({ records: [] });
       if (url.endsWith('/api/demo/reset')) {
         return response({
           status: 'reset',
-          organism: {
-            variant: 'baseline',
-            genomeVersion: 'v1.0',
-            evolutionCycles: 0,
-            activeMutationId: null,
-            updatedAt: timestamp,
-          },
+          repositoryResetDispatched: true,
         });
       }
       return response({ error: 'unexpected_test_route', url }, 404);
@@ -639,15 +552,16 @@ describe('Darwin control room', () => {
   });
 
   it('does not expose a baked variant selector in the target view', async () => {
-    window.history.replaceState({}, '', '/?view=target&variant=evolved');
+    window.history.replaceState({}, '', '/?view=target');
     installApi();
     render(<App />);
 
     expect(screen.queryByText(/Baseline v1\.0/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Evolved v1\.1/)).not.toBeInTheDocument();
-    expect(
-      screen.getByTitle('ProjectFlow target application'),
-    ).toHaveAttribute('src', expect.not.stringContaining('variant='));
+    expect(screen.getByTitle('ProjectFlow target application')).toHaveAttribute(
+      'src',
+      expect.not.stringContaining('variant='),
+    );
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {

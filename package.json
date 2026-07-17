@@ -11,9 +11,8 @@
   ],
   "scripts": {
     "bootstrap": "node scripts/bootstrap.mjs",
-    "dev": "concurrently -n api,darwin,projectflow -c green,cyan,yellow \"npm run dev -w @darwin/api\" \"npm run dev -w @darwin/web\" \"npm run dev -w @darwin/projectflow-app\"",
+    "dev": "concurrently -n api,darwin -c green,cyan \"npm run dev -w @darwin/api\" \"npm run dev -w @darwin/web\"",
     "simulate": "npm run simulate -w @darwin/api --",
-    "validate:record": "tsx scripts/record-validation.ts",
     "context:generate": "node scripts/generate-reasoning-context.mjs",
     "context:check": "node scripts/generate-reasoning-context.mjs --check",
     "lint": "eslint . --max-warnings 0",
@@ -21,13 +20,11 @@
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,json}\" \"workers/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,js}\"",
     "typecheck": "npm run context:check && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:e2e:projectflow": "playwright test",
-    "build": "npm run context:generate && npm run build -w @darwin/shared && npm run build -w @darwin/telemetry-client && npm run build -w @darwin/api && npm run build -w @darwin/web && npm run build -w @darwin/projectflow-app",
+    "build": "npm run context:generate && npm run build -w @darwin/shared && npm run build -w @darwin/telemetry-client && npm run build -w @darwin/api && npm run build -w @darwin/web",
     "deploy:migrate": "wrangler d1 migrations apply darwin-telemetry --remote --config workers/api/wrangler.toml",
     "deploy:api": "wrangler deploy --config workers/api/wrangler.toml",
     "deploy:web": "wrangler pages deploy apps/web/dist --project-name=darwin-control-room --branch=main",
-    "deploy:projectflow": "wrangler pages deploy apps/projectflow/dist --project-name=darwin-projectflow --branch=main",
-    "deploy": "npm run build && npm run deploy:migrate && npm run deploy:api && npm run deploy:web && npm run deploy:projectflow",
+    "deploy": "npm run build && npm run deploy:migrate && npm run deploy:api && npm run deploy:web",
     "smoke:production": "tsx scripts/smoke-production.ts"
   },
   "engines": {

@@ -3,15 +3,7 @@ import {
   DemoResetResponseSchema,
   EvidencePackSchema,
   EvidenceAnalysisSchema,
-  EvolutionAnalysisResponseSchema,
-  EvolutionTimelineResponseSchema,
   HealthResponseSchema,
-  MutationDiffSchema,
-  MutationDecisionResponseSchema,
-  MutationReleaseResponseSchema,
-  MutationValidationResponseSchema,
-  OrganismStateSchema,
-  OutcomeValidationSchema,
   ParticipantWorkspaceResponseSchema,
   RepositoryMutationExecutionSchema,
   SimulationSummarySchema,
@@ -41,20 +33,6 @@ const studyEvent = {
   route: '/study/dashboard',
   viewport: 'desktop',
   eventType: 'page_view',
-} as const;
-
-const liveProposal = {
-  id: 'mutation-global-task-discovery-v1',
-  name: 'Promote global task discovery',
-  observation: 'Assigned tasks are difficult to locate.',
-  evidence: ['Measured navigation paths are longer than necessary.'],
-  hypothesis: 'A direct assigned-work route will reduce path length.',
-  implementationSummary: 'Promote My Work and global search.',
-  predictedFitnessGain: 20.8,
-  confidence: 0.86,
-  risk: 'low',
-  affectedFiles: ['apps/projectflow/src/App.tsx'],
-  status: 'proposed',
 } as const;
 
 const candidate = (id: string, total: number) => ({
@@ -148,7 +126,10 @@ const installOpenAIResponse = (output: unknown) =>
       if (url.endsWith(`/${repositorySha}/darwin.target.json`)) {
         return new Response(JSON.stringify(repositoryTarget));
       }
-      if (url.includes(`raw.githubusercontent.com/`) && url.includes(repositorySha)) {
+      if (
+        url.includes(`raw.githubusercontent.com/`) &&
+        url.includes(repositorySha)
+      ) {
         return new Response(
           url.endsWith('/AGENTS.md')
             ? '# ProjectFlow repository constraints'
@@ -226,7 +207,7 @@ describe('Darwin API', () => {
     } as unknown as D1Database;
     const origin = 'https://darwin-control-room.pages.dev';
     const response = await handleWorkerRequest(
-      new Request('http://localhost/api/health', {
+      new Request('http://localhost/api/studies/test/events', {
         headers: { Origin: origin },
       }),
       { ALLOWED_ORIGINS: origin, DB: database },
@@ -270,17 +251,6 @@ describe('Darwin API', () => {
     expect(limited.headers.get('Access-Control-Allow-Origin')).toBe(
       'https://darwin-projectflow.pages.dev',
     );
-  });
-
-  it('serves clearly labelled recorded automation before a live outcome run', async () => {
-    const response = await handleRequest(
-      new Request('http://localhost/api/outcomes/automated-comparison'),
-    );
-    const outcome = OutcomeValidationSchema.parse(await response.json());
-
-    expect(outcome.provenance).toBe('recorded_automated_run');
-    expect(outcome.evidenceClass).toBe('automated');
-    expect(outcome.delta.interactions).toBeLessThan(0);
   });
 
   it('ingests, deduplicates, and exposes ordered real telemetry', async () => {
@@ -419,9 +389,13 @@ describe('Darwin API', () => {
     const latest = EvidencePackSchema.parse(await latestResponse.json());
     expect(latest.evidenceHash).toBe(generated.evidenceHash);
 
-    await handleRequest(
+    const resetResponse = await handleRequest(
       new Request('http://localhost/api/demo/reset', { method: 'POST' }),
     );
+    expect(DemoResetResponseSchema.parse(await resetResponse.json())).toEqual({
+      status: 'reset',
+      repositoryResetDispatched: false,
+    });
     const resetEvidence = await handleRequest(
       new Request(
         'http://localhost/api/studies/projectflow-baseline-study/evidence/latest?optional=true',
@@ -432,12 +406,7 @@ describe('Darwin API', () => {
         'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
       ),
     );
-    const resetOutcome = await handleRequest(
-      new Request('http://localhost/api/outcomes/automated-comparison'),
-    );
-
     expect(resetEvidence.status).toBe(204);
-    expect(resetOutcome.status).toBe(204);
     expect(
       StudyEventsResponseSchema.parse(await resetEvents.json()),
     ).toMatchObject({ count: 0, events: [] });
@@ -544,7 +513,7 @@ describe('Darwin API', () => {
         `http://localhost/api/evidence-analyses/${first.analysisId}/codex-manifest`,
         { method: 'POST' },
       ),
-      { DARWIN_REPOSITORY_COMMIT: 'c75e37d' },
+      {},
     );
     const manifest = CodexImplementationManifestSchema.parse(
       await manifestResponse.json(),
@@ -566,7 +535,7 @@ describe('Darwin API', () => {
           }),
         },
       ),
-      { DARWIN_REPOSITORY_COMMIT: 'c75e37d' },
+      {},
     );
     const alternativeManifest = CodexImplementationManifestSchema.parse(
       await alternativeManifestResponse.json(),
@@ -611,12 +580,9 @@ describe('Darwin API', () => {
     );
     expect(deniedManifestResponse.status).toBe(401);
     const actionManifestResponse = await handleRequest(
-      new Request(
-        manifestAccessPath,
-        {
-          headers: { Authorization: 'Bearer callback-test-token' },
-        },
-      ),
+      new Request(manifestAccessPath, {
+        headers: { Authorization: 'Bearer callback-test-token' },
+      }),
       { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
     );
     const actionManifest = (await actionManifestResponse.json()) as {
@@ -662,8 +628,7 @@ describe('Darwin API', () => {
           status: 'pull_request_open',
           headSha: 'e'.repeat(40),
           pullRequestNumber: 7,
-          pullRequestUrl:
-            'https://github.com/sjohnston1972/projectflow/pull/7',
+          pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
         })
       ).body,
     );
@@ -741,241 +706,5 @@ describe('Darwin API', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: 'invalid_request',
     });
-  });
-
-  it('refuses to invent a simulation proposal when GPT is unavailable', async () => {
-    await handleRequest(
-      new Request('http://localhost/api/simulations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
-      }),
-    );
-    const response = await handleRequest(
-      new Request('http://localhost/api/evolution/analyse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
-      }),
-    );
-    expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toMatchObject({
-      error: 'analysis_failed',
-    });
-  });
-
-  it('returns a schema-valid live analysis when GPT-5.6 mode succeeds', async () => {
-    vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    await handleRequest(
-      new Request('http://localhost/api/simulations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
-      }),
-    );
-    installOpenAIResponse(liveProposal);
-
-    const response = await handleRequest(
-      new Request('http://localhost/api/evolution/analyse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
-      }),
-      liveEnv,
-    );
-    const analysis = EvolutionAnalysisResponseSchema.parse(
-      await response.json(),
-    );
-
-    expect(analysis).toMatchObject({
-      mode: 'live',
-      model: 'gpt-5.6',
-      proposal: { status: 'proposed' },
-    });
-    expect(JSON.stringify(analysis)).not.toContain('sk-test-secret');
-  });
-
-  it('approves, validates, releases, persists the timeline, and resets', async () => {
-    await handleRequest(
-      new Request('http://localhost/api/simulations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
-      }),
-    );
-    installOpenAIResponse(liveProposal);
-    await handleRequest(
-      new Request('http://localhost/api/evolution/analyse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
-      }),
-      liveEnv,
-    );
-
-    const approvalResponse = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/approve',
-        { method: 'POST' },
-      ),
-    );
-    const approval = MutationDecisionResponseSchema.parse(
-      await approvalResponse.json(),
-    );
-
-    expect(approval.proposal.status).toBe('approved');
-    expect(approval.organism).toMatchObject({
-      variant: 'baseline',
-      genomeVersion: 'v1.0',
-      evolutionCycles: 0,
-    });
-
-    const repeatedResponse = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/reject',
-        { method: 'POST' },
-      ),
-    );
-    expect(repeatedResponse.status).toBe(409);
-
-    const diffResponse = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/diff',
-      ),
-    );
-    const diff = MutationDiffSchema.parse(await diffResponse.json());
-    expect(diff.source).toBe('repository_source_comparison');
-    expect(diff.patch).toContain("initialRoute: 'my-work'");
-
-    const earlyReleaseResponse = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/release',
-        { method: 'POST' },
-      ),
-    );
-    expect(earlyReleaseResponse.status).toBe(409);
-
-    const validationResponse = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/validate',
-        { method: 'POST' },
-      ),
-    );
-    const validation = MutationValidationResponseSchema.parse(
-      await validationResponse.json(),
-    );
-    expect(validation.proposal.status).toBe('validated');
-    expect(validation.validation).toMatchObject({
-      status: 'passed',
-      source: 'recorded_repository_run',
-    });
-    expect(validation.validation.checks).toHaveLength(3);
-
-    const releaseResponse = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/release',
-        { method: 'POST' },
-      ),
-    );
-    const release = MutationReleaseResponseSchema.parse(
-      await releaseResponse.json(),
-    );
-    expect(release.proposal.status).toBe('released');
-    expect(release.organism).toMatchObject({
-      variant: 'evolved',
-      genomeVersion: 'v1.1',
-      evolutionCycles: 1,
-    });
-    expect(release.record).toMatchObject({
-      version: 'v1.1',
-      outcome: 'survived',
-    });
-
-    const stateResponse = await handleRequest(
-      new Request('http://localhost/api/organism/state'),
-    );
-    expect(OrganismStateSchema.parse(await stateResponse.json()).variant).toBe(
-      'evolved',
-    );
-
-    const timelineResponse = await handleRequest(
-      new Request('http://localhost/api/evolution/timeline'),
-    );
-    const timeline = EvolutionTimelineResponseSchema.parse(
-      await timelineResponse.json(),
-    );
-    expect(timeline.records.map((record) => record.outcome)).toEqual([
-      'baseline',
-      'survived',
-    ]);
-
-    const reloadedTimelineResponse = await handleRequest(
-      new Request('http://localhost/api/evolution/timeline'),
-    );
-    expect(await reloadedTimelineResponse.json()).toEqual(timeline);
-
-    const resetResponse = await handleRequest(
-      new Request('http://localhost/api/demo/reset', { method: 'POST' }),
-    );
-    const reset = DemoResetResponseSchema.parse(await resetResponse.json());
-    expect(reset.organism).toMatchObject({
-      variant: 'baseline',
-      genomeVersion: 'v1.0',
-      evolutionCycles: 0,
-    });
-
-    const resetTimelineResponse = await handleRequest(
-      new Request('http://localhost/api/evolution/timeline'),
-    );
-    expect(await resetTimelineResponse.json()).toEqual({ records: [] });
-
-    const missingProposalResponse = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/approve',
-        { method: 'POST' },
-      ),
-    );
-    expect(missingProposalResponse.status).toBe(404);
-  });
-
-  it('keeps the baseline active when a mutation fails selection', async () => {
-    await handleRequest(
-      new Request('http://localhost/api/simulations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
-      }),
-    );
-    installOpenAIResponse(liveProposal);
-    await handleRequest(
-      new Request('http://localhost/api/evolution/analyse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ simulationId: 'sim-baseline-1859' }),
-      }),
-      liveEnv,
-    );
-
-    const response = await handleRequest(
-      new Request(
-        'http://localhost/api/mutations/mutation-global-task-discovery-v1/reject',
-        { method: 'POST' },
-      ),
-    );
-    const decision = MutationDecisionResponseSchema.parse(
-      await response.json(),
-    );
-
-    expect(decision.proposal.status).toBe('rejected');
-    expect(decision.organism.variant).toBe('baseline');
-    expect(decision.organism.evolutionCycles).toBe(0);
-
-    const timelineResponse = await handleRequest(
-      new Request('http://localhost/api/evolution/timeline'),
-    );
-    const timeline = EvolutionTimelineResponseSchema.parse(
-      await timelineResponse.json(),
-    );
-    expect(timeline.records.at(-1)?.outcome).toBe('failed_selection');
   });
 });

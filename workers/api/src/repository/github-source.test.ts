@@ -42,9 +42,7 @@ describe('captureRepositorySnapshot', () => {
 
     expect(snapshot.context.baseSha).toBe(commitSha);
     expect(snapshot.context.sourceHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(snapshot.context.mutablePaths).toEqual([
-      'apps/projectflow/src/**',
-    ]);
+    expect(snapshot.context.mutablePaths).toEqual(['apps/projectflow/src/**']);
     expect(snapshot.context.validationCommands).toEqual(['npm run verify']);
     expect(snapshot.developerContext).toContain(`Exact commit: ${commitSha}`);
     expect(snapshot.developerContext).toContain(
@@ -62,9 +60,9 @@ describe('captureRepositorySnapshot', () => {
   });
 
   it('fails closed when repository source cannot be fetched', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response('unavailable', { status: 503 }),
-    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('unavailable', { status: 503 }));
 
     await expect(captureRepositorySnapshot({ fetch: fetcher })).rejects.toThrow(
       'GitHub commit lookup failed with 503',

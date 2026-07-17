@@ -77,7 +77,9 @@ export async function captureRepositorySnapshot(
     { headers },
   );
   if (!commitResponse.ok) {
-    throw new Error(`GitHub commit lookup failed with ${commitResponse.status}.`);
+    throw new Error(
+      `GitHub commit lookup failed with ${commitResponse.status}.`,
+    );
   }
   const { sha: baseSha } = commitResponseSchema.parse(
     await commitResponse.json(),

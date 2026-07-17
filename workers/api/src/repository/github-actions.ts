@@ -55,7 +55,9 @@ export async function mergeEvolutionPullRequest({
   fetch: fetcher = fetch,
 }: MergeEvolutionPullRequestOptions) {
   if (!execution.pullRequestNumber || !execution.headSha) {
-    throw new Error('Repository execution does not have a reviewable pull request.');
+    throw new Error(
+      'Repository execution does not have a reviewable pull request.',
+    );
   }
   const response = await fetcher(
     `https://api.github.com/repos/${execution.repository.fullName}/pulls/${execution.pullRequestNumber}/merge`,
@@ -78,7 +80,9 @@ export async function mergeEvolutionPullRequest({
     payload?.merged !== true ||
     !payload.sha?.match(/^[a-f0-9]{40}$/)
   ) {
-    throw new Error(`GitHub pull request merge failed with HTTP ${response.status}.`);
+    throw new Error(
+      `GitHub pull request merge failed with HTTP ${response.status}.`,
+    );
   }
   return payload.sha;
 }
@@ -105,6 +109,8 @@ export async function dispatchResetWorkflow({
     },
   );
   if (!response.ok) {
-    throw new Error(`GitHub reset dispatch failed with HTTP ${response.status}.`);
+    throw new Error(
+      `GitHub reset dispatch failed with HTTP ${response.status}.`,
+    );
   }
 }

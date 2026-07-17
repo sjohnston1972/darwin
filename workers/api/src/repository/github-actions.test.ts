@@ -10,9 +10,9 @@ import type { CodexImplementationManifest } from '@darwin/shared';
 
 describe('dispatchEvolutionWorkflow', () => {
   it('dispatches the pinned manifest without exposing the callback secret', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(null, { status: 204 }),
-    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
     const execution = createRepositoryExecution({
       manifestId: 'manifest-test',
       manifestHash: 'a'.repeat(64),
@@ -124,9 +124,7 @@ describe('dispatchEvolutionWorkflow', () => {
         fetch: fetcher,
       }),
     ).resolves.toBe('e'.repeat(40));
-    const mergeBody = JSON.parse(
-      String(fetcher.mock.calls[0]?.[1]?.body),
-    );
+    const mergeBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
     expect(mergeBody).toMatchObject({
       sha: 'a'.repeat(40),
       merge_method: 'squash',

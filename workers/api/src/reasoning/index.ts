@@ -666,8 +666,9 @@ export async function buildCodexManifest(
       ...new Set(mutations.flatMap((mutation) => mutation.evidenceIds)),
     ],
     allowedPaths: analysis.repository?.mutablePaths ?? [...codexAllowedPaths],
-    protectedPaths:
-      analysis.repository?.protectedPaths ?? [...codexProtectedPaths],
+    protectedPaths: analysis.repository?.protectedPaths ?? [
+      ...codexProtectedPaths,
+    ],
     acceptanceCriteria: [
       ...new Set(mutations.flatMap((mutation) => mutation.acceptanceCriteria)),
     ],

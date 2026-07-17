@@ -62,7 +62,8 @@ describe('repository execution state', () => {
     const running = updateRepositoryExecution(queued, {
       status: 'codex_running',
       workflowRunId: 123,
-      workflowUrl: 'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+      workflowUrl:
+        'https://github.com/sjohnston1972/projectflow/actions/runs/123',
     });
     expect(running.workflowRunId).toBe(123);
     expect(() =>

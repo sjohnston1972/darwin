@@ -694,47 +694,6 @@ export const CodexManifestRequestSchema = z
     message: 'Use mutationId or mutationIds, not both.',
   });
 
-export const OutcomeCohortSchema = z.object({
-  cohortId: StudyIdentifierSchema,
-  studyId: StudyIdentifierSchema,
-  variant: OrganismVariantSchema,
-  appVersion: z.string().min(1),
-  source: z.literal('automated'),
-  evidenceId: StudyIdentifierSchema,
-  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
-  taskId: StudyIdentifierSchema,
-  attempts: z.number().int().positive(),
-  successes: z.number().int().nonnegative(),
-  completionRate: z.number().min(0).max(1),
-  medianInteractions: z.number().nonnegative(),
-  medianDurationMs: z.number().int().nonnegative(),
-});
-
-export const OutcomeValidationSchema = z.object({
-  validationId: StudyIdentifierSchema,
-  evidenceClass: z.literal('automated'),
-  provenance: z.enum(['live_automated_run', 'recorded_automated_run']),
-  generatedAt: z.string().datetime(),
-  taskId: StudyIdentifierSchema,
-  baseline: OutcomeCohortSchema,
-  evolved: OutcomeCohortSchema,
-  delta: z.object({
-    interactions: z.number(),
-    durationMs: z.number().int(),
-    completionRate: z.number(),
-  }),
-  conclusion: z.string().min(1),
-});
-
-export const FitnessBreakdownSchema = z.object({
-  score: z.number().min(0).max(100),
-  completionRate: z.number().min(0).max(100),
-  navigationEfficiency: z.number().min(0).max(100),
-  inverseErrorRate: z.number().min(0).max(100),
-  featureDiscovery: z.number().min(0).max(100),
-  inverseTaskDuration: z.number().min(0).max(100),
-});
-
 export const SimulationRunSchema = z.object({
   id: z.string().min(1),
   seed: z.number().int(),
@@ -794,137 +753,9 @@ export const SimulationCreateResponseSchema = z.object({
   summary: SimulationSummarySchema,
 });
 
-export const FrictionFindingSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  description: z.string().min(1),
-  impact: z.number().min(0).max(100),
-  confidence: z.number().min(0).max(1),
-  evidence: z.array(z.string().min(1)).min(1),
-});
-
-export const MutationProposalSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  observation: z.string().min(1),
-  evidence: z.array(z.string().min(1)).min(1),
-  hypothesis: z.string().min(1),
-  implementationSummary: z.string().min(1),
-  predictedFitnessGain: z.number(),
-  confidence: z.number().min(0).max(1),
-  risk: z.enum(['low', 'medium', 'high']),
-  affectedFiles: z.array(z.string().min(1)).min(1),
-  status: z.enum(['proposed', 'approved', 'rejected', 'validated', 'released']),
-});
-
-export const FitnessComparisonSchema = z.object({
-  baseline: FitnessBreakdownSchema,
-  evolved: FitnessBreakdownSchema,
-  delta: z.number(),
-});
-
-export const EvolutionAnalysisRequestSchema = z.object({
-  simulationId: z.string().min(1),
-});
-
-export const AnalysisModeSchema = z.literal('live');
-
-export const AnalysisFailureReasonSchema = z.enum([
-  'missing_api_key',
-  'timeout',
-  'api_error',
-  'invalid_response',
-]);
-
-export const EvolutionAnalysisResponseSchema = z.object({
-  mode: AnalysisModeSchema,
-  model: z.string().min(1),
-  fitness: FitnessComparisonSchema,
-  findings: z.array(FrictionFindingSchema).min(1),
-  proposal: MutationProposalSchema,
-});
-
-export const OrganismStateSchema = z.object({
-  variant: OrganismVariantSchema,
-  genomeVersion: z.string().min(1),
-  evolutionCycles: z.number().int().nonnegative(),
-  activeMutationId: z.string().min(1).nullable(),
-  updatedAt: z.string().datetime(),
-  repository: RepositoryContextSchema.optional(),
-  activeCommitSha: z.string().regex(/^[a-f0-9]{40}$/).nullable().optional(),
-  deploymentUrl: z.string().url().nullable().optional(),
-});
-
-export const MutationDecisionResponseSchema = z.object({
-  proposal: MutationProposalSchema,
-  organism: OrganismStateSchema,
-});
-
 export const DemoResetResponseSchema = z.object({
   status: z.literal('reset'),
-  organism: OrganismStateSchema,
-});
-
-export const ValidationResultSchema = z.object({
-  id: z.string().min(1),
-  mutationId: z.string().min(1),
-  status: z.enum(['passed', 'failed']),
-  source: z.enum(['recorded_repository_run', 'github_actions_run']),
-  commit: z.string().min(1),
-  checks: z.array(
-    z.object({
-      name: z.string().min(1),
-      status: z.enum(['passed', 'failed']),
-      durationMs: z.number().int().nonnegative(),
-      output: z.string(),
-    }),
-  ),
-  fitness: FitnessBreakdownSchema,
-  recordedAt: z.string().datetime(),
-});
-
-export const EvolutionRecordSchema = z.object({
-  id: z.string().min(1),
-  version: z.string().min(1),
-  mutationId: z.string().min(1).optional(),
-  outcome: z.enum(['baseline', 'survived', 'failed_selection']),
-  fitness: FitnessBreakdownSchema,
-  recordedAt: z.string().datetime(),
-  repository: RepositoryContextSchema.optional(),
-  baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
-  headSha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
-  pullRequestUrl: z.string().url().optional(),
-  deploymentUrl: z.string().url().optional(),
-});
-
-export const MutationDiffSchema = z.object({
-  mutationId: z.string().min(1),
-  source: z.enum(['repository_source_comparison', 'github_compare']),
-  baseRef: z.string().min(1),
-  targetRef: z.string().min(1),
-  patch: z.string().min(1),
-  generatedAt: z.string().datetime(),
-});
-
-export const MutationValidationResponseSchema = z.object({
-  proposal: MutationProposalSchema,
-  validation: ValidationResultSchema,
-});
-
-export const MutationReleaseResponseSchema = z.object({
-  proposal: MutationProposalSchema,
-  organism: OrganismStateSchema,
-  record: EvolutionRecordSchema,
-});
-
-export const ManifestExecutionResponseSchema = z.object({
-  manifestId: StudyIdentifierSchema,
-  stage: z.enum(['approved', 'validated', 'released']),
-  analysis: EvolutionAnalysisResponseSchema,
-  diff: MutationDiffSchema,
-  validation: ValidationResultSchema.nullable(),
-  organism: OrganismStateSchema,
-  record: EvolutionRecordSchema.nullable(),
+  repositoryResetDispatched: z.boolean(),
 });
 
 export const RepositoryExecutionStatusSchema = z.enum([
@@ -954,7 +785,10 @@ export const RepositoryMutationExecutionSchema = z.object({
   status: RepositoryExecutionStatusSchema,
   branch: z.string().min(1),
   baseSha: z.string().regex(/^[a-f0-9]{40}$/),
-  headSha: z.string().regex(/^[a-f0-9]{40}$/).nullable(),
+  headSha: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
   workflowRunId: z.number().int().positive().nullable(),
   workflowUrl: z.string().url().nullable(),
   pullRequestNumber: z.number().int().positive().nullable(),
@@ -994,10 +828,6 @@ export const RepositoryExecutionCallbackSchema =
   })
     .partial()
     .extend({ status: RepositoryExecutionStatusSchema });
-
-export const EvolutionTimelineResponseSchema = z.object({
-  records: z.array(EvolutionRecordSchema),
-});
 
 export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
@@ -1046,8 +876,6 @@ export type CodexImplementationManifest = z.infer<
   typeof CodexImplementationManifestSchema
 >;
 export type CodexManifestRequest = z.infer<typeof CodexManifestRequestSchema>;
-export type OutcomeCohort = z.infer<typeof OutcomeCohortSchema>;
-export type OutcomeValidation = z.infer<typeof OutcomeValidationSchema>;
 export type SimulationRun = z.infer<typeof SimulationRunSchema>;
 export type SimulationRequest = z.infer<typeof SimulationRequestSchema>;
 export type SimulationMetrics = z.infer<typeof SimulationMetricsSchema>;
@@ -1057,33 +885,7 @@ export type SimulationResult = z.infer<typeof SimulationResultSchema>;
 export type SimulationCreateResponse = z.infer<
   typeof SimulationCreateResponseSchema
 >;
-export type FrictionFinding = z.infer<typeof FrictionFindingSchema>;
-export type MutationProposal = z.infer<typeof MutationProposalSchema>;
-export type FitnessComparison = z.infer<typeof FitnessComparisonSchema>;
-export type EvolutionAnalysisRequest = z.infer<
-  typeof EvolutionAnalysisRequestSchema
->;
-export type AnalysisMode = z.infer<typeof AnalysisModeSchema>;
-export type AnalysisFailureReason = z.infer<typeof AnalysisFailureReasonSchema>;
-export type EvolutionAnalysisResponse = z.infer<
-  typeof EvolutionAnalysisResponseSchema
->;
-export type OrganismState = z.infer<typeof OrganismStateSchema>;
-export type MutationDecisionResponse = z.infer<
-  typeof MutationDecisionResponseSchema
->;
 export type DemoResetResponse = z.infer<typeof DemoResetResponseSchema>;
-export type ValidationResult = z.infer<typeof ValidationResultSchema>;
-export type MutationDiff = z.infer<typeof MutationDiffSchema>;
-export type MutationValidationResponse = z.infer<
-  typeof MutationValidationResponseSchema
->;
-export type MutationReleaseResponse = z.infer<
-  typeof MutationReleaseResponseSchema
->;
-export type ManifestExecutionResponse = z.infer<
-  typeof ManifestExecutionResponseSchema
->;
 export type RepositoryExecutionStatus = z.infer<
   typeof RepositoryExecutionStatusSchema
 >;
@@ -1095,10 +897,5 @@ export type RepositoryMutationExecution = z.infer<
 >;
 export type RepositoryExecutionCallback = z.infer<
   typeof RepositoryExecutionCallbackSchema
->;
-export type FitnessBreakdown = z.infer<typeof FitnessBreakdownSchema>;
-export type EvolutionRecord = z.infer<typeof EvolutionRecordSchema>;
-export type EvolutionTimelineResponse = z.infer<
-  typeof EvolutionTimelineResponseSchema
 >;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;

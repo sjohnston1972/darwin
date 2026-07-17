@@ -2,25 +2,11 @@ import type {
   CodexImplementationManifest,
   EvidenceAnalysis,
   EvidencePack,
-  EvolutionRecord,
-  FitnessComparison,
-  MutationProposal,
-  OrganismState,
-  OutcomeValidation,
   ProjectFlowWorkspace,
   RepositoryMutationExecution,
   StoredTelemetryEvent,
   StudyTelemetryEvent,
 } from '@darwin/shared';
-
-export interface PersistedDemoState {
-  organism: OrganismState;
-  timeline: EvolutionRecord[];
-  mutations: Array<[string, MutationProposal]>;
-  validations: Array<[string, unknown]>;
-  fitness: Array<[string, FitnessComparison]>;
-  recordedOutcomeVisible: boolean;
-}
 
 export interface TelemetryInsertResult {
   accepted: number;
@@ -81,10 +67,6 @@ export interface TelemetryRepository {
   getRepositoryExecutionByAnalysis(
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
-  saveOutcomeValidation(validation: OutcomeValidation): Promise<void>;
-  getLatestOutcomeValidation(): Promise<OutcomeValidation | null>;
-  saveDemoState(state: PersistedDemoState): Promise<void>;
-  getDemoState(): Promise<PersistedDemoState | null>;
   reset(): Promise<void>;
 }
 
@@ -97,8 +79,6 @@ const evidenceAnalysisStore = new Map<
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
-let outcomeValidationStore: OutcomeValidation | null = null;
-let demoStateStore: PersistedDemoState | null = null;
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -247,22 +227,6 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     );
   }
 
-  async saveOutcomeValidation(validation: OutcomeValidation) {
-    outcomeValidationStore = validation;
-  }
-
-  async getLatestOutcomeValidation() {
-    return outcomeValidationStore;
-  }
-
-  async saveDemoState(state: PersistedDemoState) {
-    demoStateStore = state;
-  }
-
-  async getDemoState() {
-    return demoStateStore;
-  }
-
   async reset() {
     eventStore.clear();
     workspaceStore.clear();
@@ -270,8 +234,6 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     evidenceAnalysisStore.clear();
     manifestStore.clear();
     repositoryExecutionStore.clear();
-    outcomeValidationStore = null;
-    demoStateStore = null;
   }
 }
 
@@ -609,59 +571,6 @@ export class D1TelemetryRepository implements TelemetryRepository {
 
   async getRepositoryExecutionByAnalysis(analysisId: string) {
     return this.findRepositoryExecution('analysis_id', analysisId);
-  }
-
-  async saveOutcomeValidation(validation: OutcomeValidation) {
-    await this.database
-      .prepare(
-        `INSERT INTO outcome_validations (
-          validation_id, generated_at, baseline_evidence_hash,
-          evolved_evidence_hash, validation_json
-        ) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(validation_id) DO UPDATE SET
-          generated_at = excluded.generated_at,
-          validation_json = excluded.validation_json`,
-      )
-      .bind(
-        validation.validationId,
-        validation.generatedAt,
-        validation.baseline.evidenceHash,
-        validation.evolved.evidenceHash,
-        JSON.stringify(validation),
-      )
-      .run();
-  }
-
-  async getLatestOutcomeValidation() {
-    const row = await this.database
-      .prepare(
-        `SELECT validation_json
-         FROM outcome_validations
-         ORDER BY generated_at DESC
-         LIMIT 1`,
-      )
-      .first<{ validation_json: string }>();
-    return row ? (JSON.parse(row.validation_json) as OutcomeValidation) : null;
-  }
-
-  async saveDemoState(state: PersistedDemoState) {
-    await this.database
-      .prepare(
-        `INSERT INTO demo_state (state_key, state_json, updated_at)
-         VALUES ('primary', ?, ?)
-         ON CONFLICT(state_key) DO UPDATE SET
-           state_json = excluded.state_json,
-           updated_at = excluded.updated_at`,
-      )
-      .bind(JSON.stringify(state), state.organism.updatedAt)
-      .run();
-  }
-
-  async getDemoState() {
-    const row = await this.database
-      .prepare(`SELECT state_json FROM demo_state WHERE state_key = 'primary'`)
-      .first<{ state_json: string }>();
-    return row ? (JSON.parse(row.state_json) as PersistedDemoState) : null;
   }
 
   async reset() {

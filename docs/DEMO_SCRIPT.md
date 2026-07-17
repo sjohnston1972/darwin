@@ -1,62 +1,44 @@
-# Three-Minute Demo Script
+# Three-Minute Demo
 
-## 0:00-0:20 - Premise
+## Prepare
 
-Show Darwin and open the standalone ProjectFlow target application.
+1. Open the Darwin control room in light mode.
+2. Click **Reset evolution demo** and wait for the ProjectFlow reset workflow.
+3. Confirm the counters are empty and no repository candidate is shown.
 
-“Darwin is an autonomous product engineer. It observes how software is actually
-used, converts behaviour into inspectable evidence, and proposes one controlled
-mutation.”
+## Observe
 
-## 0:20-0:50 - Real target application and action
+1. Click **Open measured study**. ProjectFlow opens in a new browser window.
+2. Try to locate assigned work, interact with dashboard tiles, hover ambiguous
+   controls, use browser Back, and increase browser zoom.
+3. Return to Darwin and show the ordered event trace, event detail and session
+   evidence. Explain that semantic target IDs are captured, not page text or
+   cursor trails.
 
-Open standalone ProjectFlow in study mode. The observed workflow starts automatically; find the assigned task and
-follow the awkward baseline path through Projects. Complete the task.
+## Reason
 
-Baseline URL: `/study`. Evolved replay URL: `/study?variant=evolved`.
+1. Generate the deterministic evidence pack.
+2. Click **Ask GPT-5.6**. State clearly that this is the live model invocation.
+3. Expand each ranked pressure cluster and inspect its cited EV chips.
+4. Select one or more mutation candidates. Explain score, confidence,
+   alternatives, validation plan and tradeoffs.
 
-“This is a functional application, not a telemetry animation. The study runner
-gives Darwin ground truth for the task, outcome and duration.”
+## Evolve
 
-## 0:50-1:20 - Evidence chain
+1. Create the manifest and show its immutable ProjectFlow SHA and source hash.
+2. Click **Start controlled evolution**.
+3. Open the linked GitHub Actions run while Codex edits the target repository.
+4. Show the actual changed files, diff, validation checks and Codex summary.
+5. Open the pull request and candidate preview.
 
-Return to Darwin. Show the new real event count, ordered attempt trace and one
-friction signal. Expand the signal to its detector rule and supporting event IDs.
+## Select
 
-“The browser records semantic controls, routes and task outcomes. TypeScript and
-SQL reconstruct attempts and detect friction. No model processes events one by
-one.”
+1. Release the reviewed mutation.
+2. Show the merged commit and deployment in the fossil record.
+3. Repeat the measured behavior against the evolved application to establish
+   whether it survived selection.
 
-## 1:20-1:50 - GPT-5.6 reasoning
+Closing line:
 
-Open the evidence pack, ordered journeys, recurrence counts and coverage score,
-then ask GPT-5.6 for a mutation portfolio.
-
-“GPT-5.6 receives the measured journeys plus the real ProjectFlow source and our
-evolution catalogue. It clusters causal pressures, considers competing explanations,
-and scores several mutations. Every claim must cite a known evidence ID.”
-
-## 1:50-2:20 - Controlled implementation
-
-Approve the proposal and show the Codex implementation manifest, real repository
-diff and recorded validation commands.
-
-“Codex receives the selected brief and allowed files, not thousands of raw
-events. It changes one bounded area, adds tests and stops before deployment.”
-
-## 2:20-2:45 - Evolved workflow
-
-Release ProjectFlow v1.1 and repeat the same task through My Work or global
-search. Show the shorter automated path. If evolved human-study results exist,
-show them separately.
-
-“The workflow is shorter and validated. Automated evidence is labelled as
-automated; it is not presented as a measured user outcome.”
-
-## 2:45-3:00 - Fossil record and vision
-
-Show the fossil record with source event count, evidence hash, proposal, commit,
-diff and validation result.
-
-“Every mutation is traceable, testable and reversible. The recommendation came
-from this measured application session, not a fixture. Helping your software evolve.”
+> Darwin observed real behavior, reasoned over the exact source, and evolved the
+> application through a controlled repository change.

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   HealthResponseSchema,
-  MutationProposalSchema,
+  EvidenceMutationCandidateSchema,
   StudyTelemetryEventSchema,
   TelemetryBatchSchema,
 } from './contracts';
@@ -24,22 +24,41 @@ describe('shared contracts', () => {
     ).toMatchObject({ status: 'ok', service: 'darwin-api' });
   });
 
-  it('rejects mutation confidence outside the supported range', () => {
+  it('rejects live mutation confidence outside the supported range', () => {
     const proposal = {
       id: 'mutation-001',
-      name: 'Promote task discovery',
-      observation: 'Assigned work is difficult to locate.',
-      evidence: ['42% of task workflows backtrack through Projects.'],
+      title: 'Promote task discovery',
+      problem: 'Assigned work is difficult to locate.',
+      evidenceIds: ['EV-001'],
+      pressureClusterIds: ['task-discovery'],
       hypothesis: 'A global entry point will reduce navigation cost.',
-      implementationSummary: 'Promote search and My Work.',
-      predictedFitnessGain: 18,
+      change: 'Promote search and My Work.',
+      predictedImpact: {
+        metric: 'interactions to task',
+        direction: 'decrease',
+        rationale: 'A direct route removes project guessing.',
+      },
       confidence: 1.2,
-      risk: 'low',
-      affectedFiles: ['apps/web/src/App.tsx'],
-      status: 'proposed',
+      scorecard: {
+        evidenceStrength: 80,
+        userImpact: 90,
+        feasibility: 85,
+        validationClarity: 90,
+        total: 86,
+      },
+      scope: ['src/App.tsx'],
+      tradeoffs: ['Adds one primary destination.'],
+      acceptanceCriteria: ['Assigned work is directly reachable.'],
+      validationPlan: {
+        primaryMetric: 'interactions to task',
+        baseline: '8 median interactions',
+        successThreshold: '5 or fewer median interactions',
+        guardrails: ['Existing routes remain available.'],
+      },
+      codexBrief: 'Add a directly reachable assigned-work view.',
     };
 
-    expect(() => MutationProposalSchema.parse(proposal)).toThrow();
+    expect(() => EvidenceMutationCandidateSchema.parse(proposal)).toThrow();
   });
 
   it('accepts an attempt-scoped real study event with provenance', () => {

@@ -3,13 +3,8 @@ import {
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
-  type EvolutionAnalysisResponse,
-  type FitnessBreakdown,
-  type MutationDiff,
   type RepositoryMutationExecution,
-  type SimulationSummary,
   type StoredTelemetryEvent,
-  type ValidationResult,
 } from '@darwin/shared';
 import {
   Activity,
@@ -28,7 +23,6 @@ import {
   FileCheck2,
   ExternalLink,
   FlaskConical,
-  Gauge,
   GitBranch,
   LayoutDashboard,
   Menu,
@@ -41,7 +35,6 @@ import {
   Server,
   ShieldCheck,
   Sun,
-  TrendingUp,
   Users,
   X,
 } from 'lucide-react';
@@ -54,7 +47,6 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
-import { useEvolutionDemo, type DemoStage } from './demo/useEvolutionDemo';
 import {
   useLiveTelemetry,
   type LiveTelemetryState,
@@ -122,10 +114,6 @@ function App() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const targetOnly =
     new URLSearchParams(window.location.search).get('view') === 'target';
-  const simulationLab =
-    import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).get('lab') === 'simulation';
-  const demo = useEvolutionDemo();
   const liveTelemetry = useLiveTelemetry();
   const repository =
     liveTelemetry.execution?.repository ?? liveTelemetry.analysis?.repository;
@@ -155,9 +143,7 @@ function App() {
         },
       ]
     : [];
-  const resetDemo = async () => {
-    if (await demo.reset()) liveTelemetry.resetState();
-  };
+  const resetDemo = () => liveTelemetry.resetEvolution();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -384,7 +370,7 @@ function App() {
               className="icon-button"
               type="button"
               onClick={() => void resetDemo()}
-              disabled={demo.stage === 'resetting'}
+              disabled={false}
               aria-label="Reset evolution demo"
               data-explain="Delete Darwin telemetry, evidence, reasoning, manifests and execution state, then dispatch the ProjectFlow baseline restore workflow."
             >
@@ -450,14 +436,6 @@ function App() {
             </div>
           </section>
 
-          {simulationLab && (
-            <EvolutionGuide
-              stage={demo.stage}
-              analysis={health.analysis}
-              resultMode={demo.analysis?.mode ?? null}
-            />
-          )}
-
           <section
             className="metric-grid"
             aria-label="Target application metrics"
@@ -493,34 +471,6 @@ function App() {
               manifest={liveTelemetry.manifest}
               releasing={liveTelemetry.releasingExecution}
               onRelease={() => void liveTelemetry.releaseExecution()}
-            />
-          )}
-
-          {simulationLab && (demo.stage !== 'idle' || demo.error) && (
-            <ObservationPanel
-              eventCount={demo.eventCount}
-              summary={demo.summary}
-              stage={demo.stage}
-              error={demo.error}
-            />
-          )}
-
-          {simulationLab && demo.analysis && (
-            <MutationWorkspace
-              analysis={demo.analysis}
-              stage={demo.stage}
-              onDecision={(decision) => void demo.decide(decision)}
-            />
-          )}
-
-          {simulationLab && demo.analysis && demo.mutationDiff && (
-            <ValidationWorkspace
-              analysis={demo.analysis}
-              diff={demo.mutationDiff}
-              validation={demo.validation}
-              stage={demo.stage}
-              onValidate={() => void demo.validate()}
-              onRelease={() => void demo.release()}
             />
           )}
 
@@ -717,10 +667,6 @@ function App() {
   );
 }
 
-const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
-  return `${analysis.model} live`;
-};
-
 function DarwinMark() {
   return (
     <img
@@ -874,102 +820,6 @@ function GlobalExplainTooltip() {
       {tooltip.text}
     </div>,
     document.body,
-  );
-}
-
-function EvolutionGuide({
-  stage,
-  analysis,
-  resultMode,
-}: {
-  stage: DemoStage;
-  analysis: ApiHealthState['analysis'];
-  resultMode: EvolutionAnalysisResponse['mode'] | null;
-}) {
-  const rank: Record<DemoStage, number> = {
-    idle: 1,
-    observing: 2,
-    proposal: 3,
-    deciding: 3,
-    approved: 4,
-    validating: 4,
-    validated: 5,
-    releasing: 5,
-    released: 6,
-    rejected: 3,
-    resetting: 1,
-    error: 1,
-  };
-  const current = rank[stage];
-  const modelMode = resultMode ?? analysis?.mode ?? 'live';
-  const model = analysis?.model ?? 'gpt-5.6';
-  const modelLabel = modelMode === 'live' ? 'Live model call' : 'Unavailable';
-  const steps = [
-    {
-      label: 'Observe',
-      detail: '10,000 seeded interactions',
-      help: 'The Worker generates an exact, deterministic sample across four ProjectFlow personas.',
-    },
-    {
-      label: `${model} reasons`,
-      detail: 'One structured call',
-      help: 'After aggregation, the analyzer receives fitness, ranked friction, and ProjectFlow context. GPT is required; an unavailable model produces no recommendation.',
-    },
-    {
-      label: 'Human approval',
-      detail: 'Accept or reject mutation',
-      help: 'Darwin never releases the proposal automatically. A judge or operator must approve the bounded mutation.',
-    },
-    {
-      label: 'Validate',
-      detail: 'Diff and repository checks',
-      help: 'The approved implementation artifact is checked with recorded TypeScript, unit, UX, and build validation.',
-    },
-    {
-      label: 'Retain',
-      detail: 'Release evolved genome',
-      help: 'A passing mutation becomes ProjectFlow v1.1 and is written into the fossil record with its fitness.',
-    },
-  ];
-
-  return (
-    <section className="evolution-guide" aria-label="Guided evolution cycle">
-      <div className="guide-heading">
-        <div>
-          <span className="section-label">Judge path</span>
-          <strong>One controlled evolution cycle</strong>
-        </div>
-        <span
-          className={`guide-model mode-${modelMode}`}
-          data-explain={`${model} is invoked after telemetry has been aggregated. Current configuration: ${modelLabel}.`}
-        >
-          <BrainCircuit size={15} /> {model} · {modelLabel}
-        </span>
-      </div>
-      <ol>
-        {steps.map((step, index) => {
-          const stepNumber = index + 1;
-          const state =
-            current > stepNumber
-              ? 'complete'
-              : current === stepNumber
-                ? 'active'
-                : 'pending';
-          return (
-            <li className={`guide-step is-${state}`} key={step.label}>
-              <span className="guide-index">
-                {state === 'complete' ? <Check size={13} /> : `0${stepNumber}`}
-              </span>
-              <div>
-                <strong>{step.label}</strong>
-                <small>{step.detail}</small>
-              </div>
-              <InfoTip text={step.help} />
-            </li>
-          );
-        })}
-      </ol>
-    </section>
   );
 }
 
@@ -1714,357 +1564,6 @@ const shortId = (value: string) => {
   return suffix.length > 10 ? suffix.slice(0, 10) : suffix;
 };
 
-function ObservationPanel({
-  eventCount,
-  summary,
-  stage,
-  error,
-}: {
-  eventCount: number;
-  summary: SimulationSummary | null;
-  stage: DemoStage;
-  error: string | null;
-}) {
-  const progress = Math.min(100, (eventCount / 10_000) * 100);
-  const eventTypes = summary
-    ? Object.entries(summary.eventTypeCounts)
-        .sort((left, right) => right[1] - left[1])
-        .slice(0, 5)
-    : [];
-  const personas = summary
-    ? Object.entries(summary.personaCounts).sort(
-        (left, right) => right[1] - left[1],
-      )
-    : [];
-
-  return (
-    <section
-      className="mt-8 surface-panel observation-panel"
-      id="observations"
-      aria-labelledby="observation-title"
-      aria-live="polite"
-    >
-      <div className="panel-heading">
-        <div>
-          <p className="section-label">Observation cycle / seed 1859</p>
-          <div className="heading-with-help">
-            <h2 id="observation-title" className="mt-2 text-xl font-semibold">
-              {stage === 'observing'
-                ? 'Reading selection pressure'
-                : error
-                  ? 'Observation interrupted'
-                  : '10,000 interactions observed'}
-            </h2>
-            <InfoTip text="This is the deterministic scale demonstration: exactly 10,000 synthetic interactions across four personas, aggregated into measurable friction and fitness inputs." />
-          </div>
-        </div>
-        <span className="observation-state">
-          <span
-            className={
-              stage === 'observing' ? 'stream-dot' : 'stream-dot complete'
-            }
-          />
-          {stage === 'observing' ? 'LIVE' : error ? 'HALTED' : 'COMPLETE'}
-        </span>
-      </div>
-
-      {error ? (
-        <div className="error-band">
-          <AlertTriangle size={17} />
-          <p>{error}</p>
-        </div>
-      ) : (
-        <div className="observation-layout">
-          <div className="observation-progress">
-            <div className="flex items-end justify-between gap-6">
-              <div>
-                <p className="section-label">Interactions ingested</p>
-                <p className="observation-count">
-                  {eventCount.toLocaleString('en-US')}
-                  <span>/ 10,000</span>
-                </p>
-              </div>
-              <p className="font-mono text-sm text-signal">
-                {progress.toFixed(0)}%
-              </p>
-            </div>
-            <div
-              className="progress-track"
-              role="progressbar"
-              aria-label="Telemetry observation progress"
-              aria-valuemin={0}
-              aria-valuemax={10_000}
-              aria-valuenow={eventCount}
-            >
-              <span style={{ width: `${progress}%` }} />
-            </div>
-
-            <div className="observation-stats">
-              <ObservationStat
-                icon={Users}
-                label="Sessions"
-                value={
-                  summary?.metrics.sessions.toLocaleString('en-US') ?? '---'
-                }
-              />
-              <ObservationStat
-                icon={CheckCircle2}
-                label="Completion"
-                value={
-                  summary
-                    ? `${(summary.metrics.workflowCompletionRate * 100).toFixed(1)}%`
-                    : '---'
-                }
-              />
-              <ObservationStat
-                icon={Gauge}
-                label="Page views / flow"
-                value={
-                  summary?.metrics.averagePageViewsPerWorkflow.toFixed(2) ??
-                  '---'
-                }
-              />
-              <ObservationStat
-                icon={TrendingUp}
-                label="Backtracks / flow"
-                value={
-                  summary?.metrics.averageBacktracksPerWorkflow.toFixed(2) ??
-                  '---'
-                }
-              />
-            </div>
-          </div>
-
-          <div
-            className="telemetry-stream"
-            aria-label="Telemetry aggregate stream"
-          >
-            <div className="stream-heading">
-              <span>Event aggregate</span>
-              <span>Count</span>
-            </div>
-            {eventTypes.map(([eventType, count], index) => (
-              <div className="stream-row" key={eventType}>
-                <span className="stream-index">
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <span>{eventType.replaceAll('_', ' ')}</span>
-                <strong>{count.toLocaleString('en-US')}</strong>
-              </div>
-            ))}
-            {eventTypes.length === 0 && (
-              <div className="stream-placeholder">
-                <CircleDashed size={16} /> Awaiting first batch
-              </div>
-            )}
-            {personas.length > 0 && (
-              <div className="persona-strip">
-                {personas.map(([persona, count]) => (
-                  <span key={persona}>
-                    {persona.replaceAll('_', ' ')}
-                    <strong>{count.toLocaleString('en-US')}</strong>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ObservationStat({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Users;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div>
-      <Icon size={15} />
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function MutationWorkspace({
-  analysis,
-  stage,
-  onDecision,
-}: {
-  analysis: EvolutionAnalysisResponse;
-  stage: DemoStage;
-  onDecision: (decision: 'approve' | 'reject') => void;
-}) {
-  const proposal = analysis.proposal;
-  const pending = proposal.status === 'proposed';
-
-  return (
-    <section
-      className="mt-8 surface-panel"
-      id="mutations"
-      aria-labelledby="mutation-title"
-    >
-      <div className="panel-heading mutation-heading">
-        <div>
-          <p className="section-label">Selection pressure / ranked analysis</p>
-          <div className="heading-with-help">
-            <h2 id="mutation-title" className="mt-2 text-xl font-semibold">
-              One controlled mutation proposed
-            </h2>
-            <InfoTip text="The configured analyzer ranks selection pressure and returns exactly one schema-validated, human-approved mutation proposal." />
-          </div>
-        </div>
-        <div
-          className={`analysis-mode mode-${analysis.mode}`}
-          title={`Analysis model: ${analysis.model}`}
-        >
-          <FlaskConical size={14} />
-          <span>{analysisModeLabel(analysis)}</span>
-        </div>
-      </div>
-
-      <div className="mutation-layout">
-        <div className="pressure-column">
-          <div className="column-heading">
-            <span>Selection pressure</span>
-            <span>Impact</span>
-          </div>
-          {analysis.findings.slice(0, 4).map((finding, index) => (
-            <article className="pressure-row" key={finding.id}>
-              <span className="pressure-rank">
-                {String(index + 1).padStart(2, '0')}
-              </span>
-              <div>
-                <h3>{finding.title}</h3>
-                <p>{finding.evidence[0]}</p>
-                <span>{Math.round(finding.confidence * 100)}% confidence</span>
-              </div>
-              <strong>{finding.impact}</strong>
-            </article>
-          ))}
-        </div>
-
-        <div className="proposal-column">
-          <div className="proposal-kicker">
-            <span>Mutation {proposal.id}</span>
-            <span className={`proposal-status status-${proposal.status}`}>
-              {proposal.status}
-            </span>
-          </div>
-          <h3>{proposal.name}</h3>
-          <p className="proposal-hypothesis">{proposal.hypothesis}</p>
-
-          <div className="fitness-comparison" aria-label="Fitness comparison">
-            <FitnessBar
-              label="Baseline"
-              score={analysis.fitness.baseline.score}
-            />
-            <FitnessBar
-              label="Evolved"
-              score={analysis.fitness.evolved.score}
-            />
-            <div className="fitness-delta">
-              +{analysis.fitness.delta.toFixed(1)}
-              <span>predicted fitness</span>
-            </div>
-          </div>
-
-          <div className="implementation-brief">
-            <p className="section-label">Implementation brief</p>
-            <p>{proposal.implementationSummary}</p>
-            <div>
-              {proposal.affectedFiles.map((file) => (
-                <code key={file}>{file}</code>
-              ))}
-            </div>
-          </div>
-
-          {pending ? (
-            <div className="decision-bar">
-              <p>
-                <ShieldCheck size={15} /> Human approval required
-              </p>
-              <div>
-                <button
-                  className="secondary-action"
-                  type="button"
-                  onClick={() => onDecision('reject')}
-                  disabled={stage === 'deciding'}
-                  data-explain="Reject this proposal, retain ProjectFlow v1.0, and record the failed selection in the fossil record."
-                >
-                  <X size={16} /> Reject
-                </button>
-                <button
-                  className="approve-action"
-                  type="button"
-                  onClick={() => onDecision('approve')}
-                  disabled={stage === 'deciding'}
-                  data-explain="Human approval allows Darwin to reveal the bounded repository diff and proceed to validation. It does not deploy production code."
-                >
-                  {stage === 'deciding' ? (
-                    <CircleDashed className="is-spinning" size={16} />
-                  ) : (
-                    <Check size={16} />
-                  )}
-                  Approve mutation
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className={`decision-outcome outcome-${proposal.status}`}>
-              {proposal.status === 'rejected' ? (
-                <ShieldCheck size={18} />
-              ) : proposal.status === 'released' ? (
-                <Rocket size={18} />
-              ) : (
-                <CheckCircle2 size={18} />
-              )}
-              <div>
-                <strong>{proposalOutcome(proposal.status).title}</strong>
-                <span>{proposalOutcome(proposal.status).description}</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-const proposalOutcome = (
-  status: EvolutionAnalysisResponse['proposal']['status'],
-) => {
-  const outcomes = {
-    proposed: {
-      title: 'Mutation proposed',
-      description: 'Human approval is required.',
-    },
-    approved: {
-      title: 'Mutation approved',
-      description: 'The implementation artifact is ready for validation.',
-    },
-    rejected: {
-      title: 'Mutation failed selection',
-      description: 'ProjectFlow v1.0 remains active.',
-    },
-    validated: {
-      title: 'Mutation validated',
-      description: 'All recorded repository checks passed.',
-    },
-    released: {
-      title: 'Mutation survived selection',
-      description: 'ProjectFlow v1.1 is now the active target application.',
-    },
-  } as const;
-  return outcomes[status];
-};
-
 const executionStatusLabel: Record<
   RepositoryMutationExecution['status'],
   string
@@ -2130,22 +1629,41 @@ function RepositoryExecutionWorkspace({
           </div>
         </div>
         <span className={`artifact-badge execution-status-${status}`}>
-          {['prepared', 'queued', 'codex_running', 'validating', 'releasing'].includes(
-            status,
-          ) && <CircleDashed className="is-spinning" size={14} />}
-          {!['prepared', 'queued', 'codex_running', 'validating', 'releasing'].includes(
-            status,
-          ) && <GitBranch size={14} />}
+          {[
+            'prepared',
+            'queued',
+            'codex_running',
+            'validating',
+            'releasing',
+          ].includes(status) && (
+            <CircleDashed className="is-spinning" size={14} />
+          )}
+          {![
+            'prepared',
+            'queued',
+            'codex_running',
+            'validating',
+            'releasing',
+          ].includes(status) && <GitBranch size={14} />}
           {executionStatusLabel[status]}
         </span>
       </div>
 
-      <div className="execution-steps" aria-label="Repository execution progress">
+      <div
+        className="execution-steps"
+        aria-label="Repository execution progress"
+      >
         <ExecutionStep index="01" label="Manifest" state="complete" />
         <ExecutionStep
           index="02"
           label="Codex"
-          state={codexComplete ? 'complete' : status === 'failed' ? 'pending' : 'active'}
+          state={
+            codexComplete
+              ? 'complete'
+              : status === 'failed'
+                ? 'pending'
+                : 'active'
+          }
         />
         <ExecutionStep
           index="03"
@@ -2161,12 +1679,24 @@ function RepositoryExecutionWorkspace({
         <ExecutionStep
           index="04"
           label="Review"
-          state={reviewComplete ? 'complete' : status === 'pull_request_open' ? 'active' : 'pending'}
+          state={
+            reviewComplete
+              ? 'complete'
+              : status === 'pull_request_open'
+                ? 'active'
+                : 'pending'
+          }
         />
         <ExecutionStep
           index="05"
           label="Release"
-          state={status === 'released' ? 'complete' : status === 'releasing' ? 'active' : 'pending'}
+          state={
+            status === 'released'
+              ? 'complete'
+              : status === 'releasing'
+                ? 'active'
+                : 'pending'
+          }
         />
       </div>
 
@@ -2205,7 +1735,8 @@ function RepositoryExecutionWorkspace({
         )}
         {execution.previewUrl && (
           <a href={execution.previewUrl} target="_blank" rel="noreferrer">
-            <Rocket size={14} /> Open mutation preview <ExternalLink size={12} />
+            <Rocket size={14} /> Open mutation preview{' '}
+            <ExternalLink size={12} />
           </a>
         )}
       </div>
@@ -2233,7 +1764,10 @@ function RepositoryExecutionWorkspace({
             <span>{lines.length ? `${lines.length} lines` : 'pending'}</span>
           </div>
           {lines.length ? (
-            <pre className="diff-viewer" aria-label="ProjectFlow repository diff">
+            <pre
+              className="diff-viewer"
+              aria-label="ProjectFlow repository diff"
+            >
               <code>
                 {lines.map((line, index) => (
                   <span
@@ -2256,10 +1790,14 @@ function RepositoryExecutionWorkspace({
             </pre>
           ) : (
             <div className="validation-ready repository-waiting">
-              <CircleDashed className={status === 'failed' ? '' : 'is-spinning'} size={22} />
+              <CircleDashed
+                className={status === 'failed' ? '' : 'is-spinning'}
+                size={22}
+              />
               <strong>{executionStatusLabel[status]}</strong>
               <span>
-                The diff appears here only after Codex has produced a real patch.
+                The diff appears here only after Codex has produced a real
+                patch.
               </span>
             </div>
           )}
@@ -2284,7 +1822,9 @@ function RepositoryExecutionWorkspace({
                     <AlertTriangle size={15} />
                   ) : (
                     <CircleDashed
-                      className={check.status === 'running' ? 'is-spinning' : ''}
+                      className={
+                        check.status === 'running' ? 'is-spinning' : ''
+                      }
                       size={15}
                     />
                   )}
@@ -2339,202 +1879,14 @@ function RepositoryExecutionWorkspace({
             )}
             {(status === 'releasing' || releasing) && (
               <button className="approve-action" type="button" disabled>
-                <CircleDashed className="is-spinning" size={16} /> Merging pull request
+                <CircleDashed className="is-spinning" size={16} /> Merging pull
+                request
               </button>
             )}
             {status === 'released' && (
               <div className="release-confirmation">
                 <CheckCircle2 size={17} /> Mutation survived selection at{' '}
                 <code>{execution.headSha?.slice(0, 12)}</code>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ValidationWorkspace({
-  analysis,
-  diff,
-  validation,
-  stage,
-  onValidate,
-  onRelease,
-}: {
-  analysis: EvolutionAnalysisResponse;
-  diff: MutationDiff;
-  validation: ValidationResult | null;
-  stage: DemoStage;
-  onValidate: () => void;
-  onRelease: () => void;
-}) {
-  const lines = diff.patch.split('\n');
-  const validationPassed = validation?.status === 'passed';
-
-  return (
-    <section
-      className="mt-8 surface-panel execution-panel"
-      id="validation"
-      aria-labelledby="validation-title"
-    >
-      <div className="panel-heading execution-heading">
-        <div>
-          <p className="section-label">
-            Codex implementation / controlled scope
-          </p>
-          <div className="heading-with-help">
-            <h2 id="validation-title" className="mt-2 text-xl font-semibold">
-              Mutation execution
-            </h2>
-            <InfoTip text="Shows the controlled implementation artifact, actual repository comparison, recorded checks, and measured fitness before release." />
-          </div>
-        </div>
-        <span className="artifact-badge">
-          <Code2 size={14} /> Repository artifact
-        </span>
-      </div>
-
-      <div className="execution-steps" aria-label="Mutation execution progress">
-        <ExecutionStep index="01" label="Brief" state="complete" />
-        <ExecutionStep index="02" label="Diff" state="complete" />
-        <ExecutionStep
-          index="03"
-          label="Validation"
-          state={
-            stage === 'validating'
-              ? 'active'
-              : validationPassed
-                ? 'complete'
-                : 'pending'
-          }
-        />
-        <ExecutionStep
-          index="04"
-          label="Release"
-          state={
-            stage === 'released'
-              ? 'complete'
-              : stage === 'releasing'
-                ? 'active'
-                : 'pending'
-          }
-        />
-      </div>
-
-      <div className="execution-layout">
-        <div className="diff-column">
-          <div className="artifact-heading">
-            <div>
-              <span>Actual source comparison</span>
-              <strong>
-                {diff.baseRef.split('/').at(-1)} →{' '}
-                {diff.targetRef.split('/').at(-1)}
-              </strong>
-            </div>
-            <span>{lines.length} lines</span>
-          </div>
-          <pre className="diff-viewer" aria-label="ProjectFlow mutation diff">
-            <code>
-              {lines.map((line, index) => (
-                <span
-                  className={
-                    line.startsWith('+') && !line.startsWith('+++')
-                      ? 'diff-addition'
-                      : line.startsWith('-') && !line.startsWith('---')
-                        ? 'diff-removal'
-                        : line.startsWith('@@')
-                          ? 'diff-hunk'
-                          : ''
-                  }
-                  key={`${index}-${line}`}
-                >
-                  <i>{String(index + 1).padStart(2, '0')}</i>
-                  {line || ' '}
-                </span>
-              ))}
-            </code>
-          </pre>
-        </div>
-
-        <div className="validation-column">
-          <div className="artifact-heading">
-            <div>
-              <span>Validation evidence</span>
-              <strong>
-                {validation
-                  ? `Recorded repository run · ${validation.commit}`
-                  : 'Awaiting controlled validation'}
-              </strong>
-            </div>
-            {validation && (
-              <span className={`check-summary summary-${validation.status}`}>
-                {validation.status}
-              </span>
-            )}
-          </div>
-
-          {validation ? (
-            <div className="validation-checks">
-              {validation.checks.map((check) => (
-                <details key={check.name}>
-                  <summary>
-                    <CheckCircle2 size={15} />
-                    <span>{check.name}</span>
-                    <strong>{(check.durationMs / 1_000).toFixed(1)}s</strong>
-                  </summary>
-                  <pre>{check.output}</pre>
-                </details>
-              ))}
-            </div>
-          ) : (
-            <div className="validation-ready">
-              <FileCheck2 size={22} />
-              <strong>Recorded checks ready</strong>
-              <span>TypeScript, unit and UX tests, production build</span>
-            </div>
-          )}
-
-          <FitnessEvidence
-            baseline={analysis.fitness.baseline}
-            evolved={analysis.fitness.evolved}
-          />
-
-          <div className="validation-actions">
-            {stage === 'approved' && (
-              <button
-                className="approve-action"
-                type="button"
-                onClick={onValidate}
-                data-explain="Load the recorded repository validation result produced by real TypeScript, unit, UX, and production-build commands."
-              >
-                <FileCheck2 size={16} /> Run recorded validation
-              </button>
-            )}
-            {stage === 'validating' && (
-              <button className="approve-action" type="button" disabled>
-                <CircleDashed className="is-spinning" size={16} /> Validating
-              </button>
-            )}
-            {stage === 'validated' && (
-              <button
-                className="approve-action"
-                type="button"
-                onClick={onRelease}
-                data-explain="Retain the passing v1.1 genome, switch the target variant, and append its outcome to the fossil record."
-              >
-                <Rocket size={16} /> Release evolved genome
-              </button>
-            )}
-            {stage === 'releasing' && (
-              <button className="approve-action" type="button" disabled>
-                <CircleDashed className="is-spinning" size={16} /> Releasing
-              </button>
-            )}
-            {stage === 'released' && (
-              <div className="release-confirmation">
-                <CheckCircle2 size={17} /> Mutation survived selection
               </div>
             )}
           </div>
@@ -2557,46 +1909,6 @@ function ExecutionStep({
     <div className={`execution-step step-${state}`}>
       <span>{state === 'complete' ? <Check size={12} /> : index}</span>
       <strong>{label}</strong>
-    </div>
-  );
-}
-
-const fitnessMetricLabels: Array<[keyof FitnessBreakdown, string]> = [
-  ['completionRate', 'Completion'],
-  ['navigationEfficiency', 'Navigation'],
-  ['inverseErrorRate', 'Error resistance'],
-  ['featureDiscovery', 'Discovery'],
-  ['inverseTaskDuration', 'Task speed'],
-];
-
-function FitnessEvidence({
-  baseline,
-  evolved,
-}: {
-  baseline: FitnessBreakdown;
-  evolved: FitnessBreakdown;
-}) {
-  return (
-    <div className="fitness-evidence">
-      <div className="artifact-heading">
-        <div>
-          <span>Fitness replay</span>
-          <strong>Before / after metrics</strong>
-        </div>
-        <span className="fitness-gain">
-          +{(evolved.score - baseline.score).toFixed(1)}
-        </span>
-      </div>
-      <div className="fitness-evidence-grid">
-        {fitnessMetricLabels.map(([key, label]) => (
-          <div key={key}>
-            <span>{label}</span>
-            <strong>{baseline[key].toFixed(1)}</strong>
-            <ChevronRight size={12} />
-            <strong>{evolved[key].toFixed(1)}</strong>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -2632,18 +1944,6 @@ function RepositoryFossilRow({
         </span>
       </td>
     </tr>
-  );
-}
-
-function FitnessBar({ label, score }: { label: string; score: number }) {
-  return (
-    <div className="fitness-row">
-      <span>{label}</span>
-      <div>
-        <i style={{ width: `${score}%` }} />
-      </div>
-      <strong>{score.toFixed(1)}</strong>
-    </div>
   );
 }
 
