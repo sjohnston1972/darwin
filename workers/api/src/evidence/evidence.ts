@@ -706,7 +706,7 @@ function summarizeTasks(attempts: TaskAttempt[]) {
         attempts: taskAttempts.length,
         successes: successful.length,
         completionRate: successful.length / taskAttempts.length,
-        medianDurationMs: median(
+        medianDurationMs: medianInteger(
           successful.flatMap((attempt) =>
             attempt.durationMs === null ? [] : [attempt.durationMs],
           ),
@@ -761,6 +761,11 @@ function median(values: number[]) {
   return sorted.length % 2
     ? sorted[middle]!
     : (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+function medianInteger(values: number[]) {
+  const value = median(values);
+  return value === null ? null : Math.round(value);
 }
 
 function evidenceClassFor(events: StoredTelemetryEvent[]): EvidenceClass {

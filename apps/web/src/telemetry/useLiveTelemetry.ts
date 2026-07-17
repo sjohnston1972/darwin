@@ -112,12 +112,19 @@ export function useLiveTelemetry(): LiveTelemetryState {
         `${apiBaseUrl}/api/studies/${studyId}/evidence`,
         { method: 'POST' },
       );
-      if (!response.ok) throw new Error('Evidence generation failed.');
-      setEvidence(EvidencePackSchema.parse(await response.json()));
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'Evidence generation failed.');
+      }
+      setEvidence(EvidencePackSchema.parse(payload));
       setAnalysis(null);
       setManifest(null);
-    } catch {
-      setError('Evidence generation failed. Check the API and retry.');
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Evidence generation failed. Check the API and retry.',
+      );
     } finally {
       setGenerating(false);
     }

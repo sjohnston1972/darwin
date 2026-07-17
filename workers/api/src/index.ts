@@ -375,9 +375,28 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
-    const pack = await buildEvidencePack(studyId, events);
-    await telemetryRepository.saveEvidence(pack);
-    return json(EvidencePackSchema.parse(pack), { status: 201 });
+    try {
+      const pack = await buildEvidencePack(studyId, events);
+      await telemetryRepository.saveEvidence(pack);
+      return json(EvidencePackSchema.parse(pack), { status: 201 });
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'issues' in error &&
+        Array.isArray(error.issues)
+      ) {
+        return json(
+          {
+            error: 'evidence_validation_failed',
+            message:
+              'Stored telemetry could not be summarized into a valid evidence pack.',
+          },
+          { status: 422 },
+        );
+      }
+      throw error;
+    }
   }
 
   if (pathname === '/api/outcomes/automated-comparison') {

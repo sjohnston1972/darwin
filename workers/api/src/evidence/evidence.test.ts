@@ -131,6 +131,28 @@ describe('real telemetry evidence engine', () => {
     expect(first.frictionSignals[0]?.supportingEventIds).toContain(id(1));
   });
 
+  it('rounds an even-sample duration median to whole milliseconds', async () => {
+    const secondAttempt = events.map((event, index) => ({
+      ...event,
+      eventId: id(index + 101),
+      sessionId: 'session-evidence-second',
+      participantId: 'participant-evidence-second',
+      sequence: index,
+      ...('taskAttemptId' in event
+        ? { taskAttemptId: 'attempt-evidence-second' }
+        : {}),
+      ...(event.eventType === 'task_completed' ? { durationMs: 9_001 } : {}),
+    })) as StoredTelemetryEvent[];
+
+    const pack = await buildEvidencePack(
+      'projectflow-baseline-study',
+      [...events, ...secondAttempt],
+      '2026-07-16T12:02:00.000Z',
+    );
+
+    expect(pack.tasks[0]?.medianDurationMs).toBe(9_001);
+  });
+
   it('turns derived pointer behavior into compact citable evidence', async () => {
     const richEvents: StoredTelemetryEvent[] = [
       ...events,

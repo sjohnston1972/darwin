@@ -832,6 +832,13 @@ Results:
   search at `74/100`; its scorecard exposed evidence `45`, impact `86`,
   feasibility `88`, and validation clarity `94`. Cached retrieval completed in
   0.20 seconds and produced a constrained Codex manifest with two citations.
+- Fixed evidence generation for even successful-attempt cohorts by rounding the
+  statistical duration median to whole milliseconds before contract validation.
+  The failure previously surfaced as a Worker exception once production held
+  two durations whose midpoint ended in half a millisecond.
+- Evidence-generation validation failures now return a structured API message,
+  and the control room displays that message instead of replacing it with an
+  opaque retry instruction.
 
 Known issues:
 - Evidence from one participant remains directional; Darwin exposes that
