@@ -215,7 +215,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.20.3',
+      version: '0.20.4',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -497,7 +497,7 @@ export const handleRequest = async (
         apiKey: openAIKey(env),
         model,
         timeoutMs: Number.isFinite(configuredTimeout)
-          ? Math.min(60_000, Math.max(1_000, configuredTimeout))
+          ? Math.min(90_000, Math.max(1_000, configuredTimeout))
           : 12_000,
       });
       await telemetryRepository.saveEvidenceAnalysis(studyId, analysis);
