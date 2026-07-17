@@ -28,7 +28,7 @@
     "smoke:production": "tsx scripts/smoke-production.ts"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

@@ -136,7 +136,7 @@ ProjectFlow lives at [`sjohnston1972/projectflow`](https://github.com/sjohnston1
 
 ### Prerequisites
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - npm 10 or newer
 - a Cloudflare account for remote D1/Workers deployment
 - an OpenAI API key for live reasoning
