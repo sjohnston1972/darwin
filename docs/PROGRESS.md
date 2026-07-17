@@ -828,6 +828,10 @@ Results:
   path, returned five mutations, and selected workspace-wide My Work discovery.
 - Prompt `2.1.0` makes the 0-100 score rubric explicit and normalizes any
   model-supplied five-point score before applying Darwin's weighted ranking.
+- Production prompt `2.1.0` selected direct My Work discovery with global task
+  search at `74/100`; its scorecard exposed evidence `45`, impact `86`,
+  feasibility `88`, and validation clarity `94`. Cached retrieval completed in
+  0.20 seconds and produced a constrained Codex manifest with two citations.
 
 Known issues:
 - Evidence from one participant remains directional; Darwin exposes that

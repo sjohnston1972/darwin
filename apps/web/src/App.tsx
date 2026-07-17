@@ -162,6 +162,9 @@ function App() {
   const recentSessions = new Set(
     liveTelemetry.events.map((event) => event.sessionId),
   ).size;
+  const recentParticipants = new Set(
+    liveTelemetry.events.map((event) => event.participantId),
+  ).size;
 
   const metrics = [
     {
@@ -175,9 +178,9 @@ function App() {
     },
     {
       label: 'Measured sessions',
-      help: 'Independent ordered browser journeys represented by the current evidence pack.',
-      value: String(liveTelemetry.evidence?.study.sessions ?? recentSessions),
-      meta: `${liveTelemetry.evidence?.study.participants ?? 0} anonymous participants`,
+      help: 'Independent browser journeys represented by the current live event window.',
+      value: String(recentSessions),
+      meta: `${recentParticipants} anonymous participants`,
       tone: recentSessions ? 'signal' : 'neutral',
     },
     {
