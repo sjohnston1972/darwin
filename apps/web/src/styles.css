@@ -3768,6 +3768,20 @@ html[data-theme='light'] .fossil-artifact-detail {
   border-color: #cbd8e2;
 }
 
+html[data-theme='light'] .status-badge,
+html[data-theme='light'] .artifact-badge {
+  border-color: #52743d;
+  background: #f3faed;
+  color: #3f632c;
+  font-weight: 600;
+}
+
+html[data-theme='light'] .status-badge.is-failed {
+  border-color: #a85a4e;
+  background: #fff4f1;
+  color: #984239;
+}
+
 html[data-theme='light'] .repository-run-summary,
 html[data-theme='light'] .repository-run-summary > div,
 html[data-theme='light'] .repository-links,
@@ -4079,6 +4093,18 @@ html[data-theme='light'] .error-band {
 
   .metric-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .fossil-artifact > summary {
+    min-height: 70px;
+  }
+
+  .fossil-artifact-summary > div {
+    gap: 0;
+  }
+
+  .fossil-artifact-summary > div > span {
+    display: none;
   }
 
   .observation-layout {
