@@ -771,10 +771,18 @@ describe('Darwin control room', () => {
     expect(screen.getByLabelText('GitHub repository')).toHaveValue(
       'sjohnston1972/projectflow',
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Connect ProjectFlow' }),
-    );
+    const connectButton = screen.getByRole('button', {
+      name: 'Connect ProjectFlow',
+    });
+    await waitFor(() => expect(connectButton).toBeEnabled());
+    fireEvent.click(connectButton);
 
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/target-connection'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
     expect(await screen.findByText('Cloudflare runtime')).toBeVisible();
     expect(
       screen.getByText('darwin.target.json', { exact: false }),
