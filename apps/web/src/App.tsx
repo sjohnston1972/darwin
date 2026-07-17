@@ -4,6 +4,7 @@ import {
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
+  type EvidencePack,
   type ObservationArchive,
   type RepositoryMutationExecution,
   type RepositoryRollback,
@@ -136,6 +137,63 @@ const configuredTarget: TargetConnectionRequest = {
   studyUrl: `${projectFlowBaseUrl}/?study=true`,
 };
 
+interface FitnessDelta {
+  completionPoints: number;
+  interactionDelta: number | null;
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const ordered = [...values].sort((left, right) => left - right);
+  const midpoint = Math.floor(ordered.length / 2);
+  return ordered.length % 2
+    ? ordered[midpoint]!
+    : (ordered[midpoint - 1]! + ordered[midpoint]!) / 2;
+}
+
+function compareFitness(
+  baseline: EvidencePack | null,
+  current: EvidencePack | null,
+): FitnessDelta | null {
+  if (!baseline || !current || baseline.evidenceId === current.evidenceId) {
+    return null;
+  }
+
+  const terminalOutcomes = new Set(['success', 'failed', 'abandoned']);
+  const baselineTerminal = baseline.taskAttempts.filter((attempt) =>
+    terminalOutcomes.has(attempt.outcome),
+  );
+  const currentTerminal = current.taskAttempts.filter((attempt) =>
+    terminalOutcomes.has(attempt.outcome),
+  );
+  if (!baselineTerminal.length || !currentTerminal.length) return null;
+
+  const completionRate = (attempts: typeof baselineTerminal) =>
+    attempts.filter((attempt) => attempt.outcome === 'success').length /
+    attempts.length;
+  const baselineInteractions = median(
+    baselineTerminal.map((attempt) => attempt.interactionCount),
+  );
+  const currentInteractions = median(
+    currentTerminal.map((attempt) => attempt.interactionCount),
+  );
+
+  return {
+    completionPoints: Math.round(
+      (completionRate(currentTerminal) - completionRate(baselineTerminal)) *
+        100,
+    ),
+    interactionDelta:
+      baselineInteractions === null || currentInteractions === null
+        ? null
+        : Math.round((currentInteractions - baselineInteractions) * 10) / 10,
+  };
+}
+
+function signedNumber(value: number): string {
+  return `${value > 0 ? '+' : ''}${value}`;
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() =>
     document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
@@ -221,6 +279,70 @@ function App() {
   const recentParticipants = new Set(
     liveTelemetry.events.map((event) => event.participantId),
   ).size;
+  const latestReleasedExecution = liveTelemetry.genomeExecutions.find(
+    (execution) => execution.status === 'released',
+  );
+  const latestArchivedEvidence = latestReleasedExecution
+    ? (liveTelemetry.observationArchives.find(
+        (archive) =>
+          archive.execution.executionId === latestReleasedExecution.executionId,
+      )?.evidence ?? null)
+    : null;
+  const fitnessDelta = compareFitness(
+    latestArchivedEvidence,
+    liveTelemetry.evidence,
+  );
+  const pressureClusters =
+    liveTelemetry.analysis?.evidenceAssessment.pressureClusters ?? [];
+  const highSeveritySignals =
+    liveTelemetry.evidence?.frictionSignals.filter(
+      (signal) => signal.severity === 'high',
+    ).length ?? 0;
+  const releaseForConfidence =
+    liveTelemetry.execution ?? latestReleasedExecution ?? null;
+  const passedChecks = releaseForConfidence?.checks.filter(
+    (check) => check.status === 'passed',
+  ).length;
+  const totalChecks = releaseForConfidence?.checks.length ?? 0;
+  const releaseRolledBack =
+    releaseForConfidence?.rollback?.status === 'released';
+  const releaseConfidence = !releaseForConfidence
+    ? {
+        value: '--',
+        meta: 'No repository mutation to validate',
+        tone: 'neutral',
+      }
+    : releaseRolledBack
+      ? {
+          value: 'REVERTED',
+          meta: 'The retained release was rolled back',
+          tone: 'amber',
+        }
+      : releaseForConfidence.status === 'failed'
+        ? {
+            value: 'HOLD',
+            meta: 'Repository execution requires attention',
+            tone: 'amber',
+          }
+        : totalChecks
+          ? {
+              value:
+                releaseForConfidence.status === 'released' &&
+                passedChecks === totalChecks
+                  ? '100%'
+                  : `${passedChecks}/${totalChecks}`,
+              meta:
+                releaseForConfidence.status === 'released'
+                  ? `${passedChecks}/${totalChecks} repository checks passed`
+                  : `${passedChecks}/${totalChecks} checks passed before release`,
+              tone:
+                passedChecks === totalChecks ? 'signal' : ('amber' as const),
+            }
+          : {
+              value: 'PENDING',
+              meta: 'Repository checks have not reported yet',
+              tone: 'neutral',
+            };
 
   const metrics = [
     {
@@ -254,6 +376,27 @@ function App() {
           : 'amber',
     },
     {
+      label: 'Selection pressure',
+      help: 'Friction that survives evidence parsing. Once GPT reasoning is run, related signals are grouped into pressure clusters that drive mutation choices.',
+      value: liveTelemetry.analysis
+        ? String(pressureClusters.length)
+        : liveTelemetry.evidence
+          ? String(liveTelemetry.evidence.frictionSignals.length)
+          : '--',
+      meta: liveTelemetry.analysis
+        ? `${highSeveritySignals} high-severity signals across GPT clusters`
+        : liveTelemetry.evidence
+          ? `${highSeveritySignals} high-severity signals · GPT grouping pending`
+          : liveTelemetry.behaviorSignalCount
+            ? `${liveTelemetry.behaviorSignalCount} behavioral signals awaiting evidence`
+            : 'Awaiting observed behavior',
+      tone: liveTelemetry.analysis
+        ? 'signal'
+        : liveTelemetry.evidence
+          ? 'amber'
+          : 'neutral',
+    },
+    {
       label: 'Live reasoning',
       help: 'The current measured evidence portfolio produced by the configured OpenAI model. Darwin never substitutes an invented recommendation.',
       value: liveTelemetry.analysis ? 'READY' : '--',
@@ -263,6 +406,36 @@ function App() {
           ? `${health.analysis.model} available`
           : 'Live model unavailable',
       tone: liveTelemetry.analysis ? 'signal' : 'neutral',
+    },
+    {
+      label: 'Fitness delta',
+      help: 'A measured post-release comparison between the archived evidence that informed the retained mutation and the current evidence cycle. Darwin reports completion-rate change only when both samples contain completed task attempts.',
+      value: fitnessDelta
+        ? `${signedNumber(fitnessDelta.completionPoints)} pp`
+        : latestArchivedEvidence
+          ? 'PENDING'
+          : '--',
+      meta: fitnessDelta
+        ? fitnessDelta.interactionDelta === null
+          ? 'Task completion versus archived baseline'
+          : `Median path ${signedNumber(fitnessDelta.interactionDelta)} actions versus baseline`
+        : latestArchivedEvidence
+          ? 'Awaiting completed task attempts in the new cycle'
+          : 'Retain a mutation to establish a baseline',
+      tone: fitnessDelta
+        ? fitnessDelta.completionPoints > 0
+          ? 'signal'
+          : fitnessDelta.completionPoints < 0
+            ? 'amber'
+            : 'neutral'
+        : 'neutral',
+    },
+    {
+      label: 'Release confidence',
+      help: 'A live state derived only from the recorded GitHub repository execution and its validation checks. It does not predict a release outcome.',
+      value: releaseConfidence.value,
+      meta: releaseConfidence.meta,
+      tone: releaseConfidence.tone,
     },
     {
       label: 'Genome evolutions',
@@ -789,7 +962,9 @@ function App() {
                     )
                   }
                   onRollback={() =>
-                    void liveTelemetry.startRollback(genomeExecution.executionId)
+                    void liveTelemetry.startRollback(
+                      genomeExecution.executionId,
+                    )
                   }
                   onReleaseRollback={() =>
                     void liveTelemetry.releaseRollback(
@@ -1026,9 +1201,7 @@ function DashboardSidebar({
             href={dashboardRoutes['System status']}
             onClick={onClose}
             aria-label="Open system status"
-            aria-current={
-              activeView === 'System status' ? 'page' : undefined
-            }
+            aria-current={activeView === 'System status' ? 'page' : undefined}
             title="Open system status"
           >
             <Server size={16} />
@@ -1504,9 +1677,7 @@ function LiveTelemetryPanel({
           </p>
           <div className="heading-with-help">
             <h2 className="mt-2 text-xl font-semibold">
-              {isObservations
-                ? 'Live study evidence'
-                : 'Mutation workspace'}
+              {isObservations ? 'Live study evidence' : 'Mutation workspace'}
             </h2>
             <InfoTip
               text={
@@ -2347,7 +2518,7 @@ function ObservationArchiveArtifact({
             </strong>
           </div>
           <div>
-            <span>Used by</span>
+            <span>Informed mutation</span>
             <strong>{analysis.selectedMutation.title}</strong>
           </div>
           <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
@@ -2381,7 +2552,9 @@ function ObservationArchiveArtifact({
             <p>{analysis.evidenceAssessment.summary}</p>
           </div>
           <div>
-            <span className="section-label">Selected mutation</span>
+            <span className="section-label">
+              Mutation informed by this evidence
+            </span>
             <strong>{analysis.selectedMutation.title}</strong>
             <p>{analysis.selectedMutation.hypothesis}</p>
           </div>

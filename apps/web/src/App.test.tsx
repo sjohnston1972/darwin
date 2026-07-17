@@ -578,6 +578,9 @@ describe('Darwin control room', () => {
     expect(
       screen.queryByRole('heading', { name: 'Repository genome · --' }),
     ).not.toBeInTheDocument();
+    expect(await screen.findByText('Selection pressure')).toBeVisible();
+    expect(screen.getByText('Fitness delta')).toBeVisible();
+    expect(screen.getByText('Release confidence')).toBeVisible();
     const navigation = screen.getByRole('navigation', {
       name: 'Primary navigation',
     });
@@ -693,6 +696,7 @@ describe('Darwin control room', () => {
     expect(
       await screen.findByRole('heading', { name: 'Observation archive' }),
     ).toBeVisible();
+    expect(screen.getByText('Informed mutation')).toBeVisible();
     const observationArtifact = document.querySelector<HTMLDetailsElement>(
       '#observation-execution-measured-test',
     );
@@ -800,10 +804,7 @@ describe('Darwin control room', () => {
     ).toBeVisible();
     expect(
       screen.getByRole('link', { name: 'Open system status' }),
-    ).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    ).toHaveAttribute('aria-current', 'page');
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {
