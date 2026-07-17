@@ -24,6 +24,41 @@ const requireOk = async (response: Response, label: string) => {
   return response;
 };
 
+const expectedSecurityHeaders = {
+  'content-security-policy': [
+    "default-src 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+  ],
+  'permissions-policy': ['camera=()', 'microphone=()', 'geolocation=()'],
+  'referrer-policy': ['no-referrer'],
+  'strict-transport-security': ['max-age=31536000'],
+  'x-content-type-options': ['nosniff'],
+  'x-frame-options': ['DENY'],
+} as const;
+
+const requireSecurityHeaders = (
+  response: Response,
+  label: string,
+  connectSource: string,
+) => {
+  for (const [name, expectedValues] of Object.entries(
+    expectedSecurityHeaders,
+  )) {
+    const value = response.headers.get(name) ?? '';
+    for (const expected of expectedValues) {
+      if (!value.includes(expected)) {
+        throw new Error(`${label} is missing ${name}: ${expected}.`);
+      }
+    }
+  }
+  const policy = response.headers.get('content-security-policy') ?? '';
+  if (!policy.includes(connectSource)) {
+    throw new Error(`${label} is missing CSP directive: ${connectSource}.`);
+  }
+};
+
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
 ).json()) as { status: string; version: string };
@@ -57,11 +92,18 @@ if (
   );
 }
 
-for (const [label, url, title] of [
-  ['Darwin control room', controlRoomUrl, '<title>Darwin'],
-  ['ProjectFlow', projectFlowUrl, '<title>ProjectFlow'],
+for (const [label, url, title, connectSource] of [
+  [
+    'Darwin control room',
+    controlRoomUrl,
+    '<title>Darwin',
+    "connect-src 'self' https://darwin-api.stevie-johnston.workers.dev",
+  ],
+  ['ProjectFlow', projectFlowUrl, '<title>ProjectFlow', "connect-src 'self'"],
 ] as const) {
-  const html = await (await requireOk(await fetch(url), label)).text();
+  const response = await requireOk(await fetch(url), label);
+  requireSecurityHeaders(response, label, connectSource);
+  const html = await response.text();
   if (!html.includes(title)) throw new Error(`${label} HTML title is missing.`);
 }
 
