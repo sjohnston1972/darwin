@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -537,6 +538,7 @@ const installApi = (
 };
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
   document.documentElement.dataset.theme = 'dark';
@@ -866,7 +868,7 @@ describe('Darwin control room', () => {
       await screen.findByRole('heading', { name: 'Live study evidence' }),
     ).toBeVisible();
     expect(
-      screen.getByText('Evidence pack evidence-measured-test'),
+      await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
     expect(screen.getByText('directional')).toBeVisible();
     expect(
