@@ -73,7 +73,7 @@ a:focus-visible {
   align-items: flex-end;
   justify-content: space-between;
   padding: 0 2px 3px;
-  color: #b9f36b;
+  color: #8bd46a;
 }
 
 .brand-mark::after {
@@ -90,27 +90,75 @@ a:focus-visible {
 .growth-stage {
   position: relative;
   z-index: 1;
+  display: block;
   flex: none;
-  stroke-width: 1.8;
+  height: 26px;
+}
+
+.growth-stage::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 1.5px;
+  height: 17px;
+  background: currentcolor;
+  transform: translateX(-50%);
+}
+
+.growth-leaf {
+  position: absolute;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  fill: currentcolor;
+  stroke-width: 1.6;
 }
 
 .growth-stage-one {
   width: 12px;
-  height: 12px;
   opacity: 0.68;
-  transform: rotate(-14deg);
-  transform-origin: bottom center;
+}
+
+.growth-stage-one::after {
+  height: 10px;
+  transform: translateX(-50%) rotate(-10deg);
+  transform-origin: bottom;
+}
+
+.growth-stage-one .growth-leaf {
+  top: 8px;
+  left: 1px;
+  transform: rotate(-24deg);
 }
 
 .growth-stage-two {
-  width: 18px;
-  height: 18px;
+  width: 17px;
   opacity: 0.84;
 }
 
+.growth-stage-two .growth-leaf:first-child,
+.growth-stage-three .growth-leaf:first-child {
+  top: 9px;
+  left: 0;
+  transform: rotate(-32deg);
+}
+
+.growth-stage-two .growth-leaf:last-child,
+.growth-stage-three .growth-leaf:nth-child(2) {
+  top: 5px;
+  right: 0;
+  transform: scaleX(-1) rotate(-28deg);
+}
+
 .growth-stage-three {
-  width: 25px;
-  height: 25px;
+  width: 22px;
+}
+
+.growth-stage-three .growth-leaf:nth-child(3) {
+  top: 0;
+  left: 6px;
+  transform: rotate(-5deg);
 }
 
 .section-label {
@@ -264,6 +312,29 @@ a:focus-visible {
   transform: translate(-50%, 0);
 }
 
+.hero-band .info-tip [role='tooltip'] {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: translate(-50%, -4px);
+}
+
+.hero-band .info-tip:hover [role='tooltip'],
+.hero-band .info-tip:focus-visible [role='tooltip'] {
+  transform: translate(-50%, 0);
+}
+
+.heading-with-help .info-tip [role='tooltip'] {
+  top: calc(100% + 8px);
+  bottom: auto;
+  left: 0;
+  transform: translate(0, -4px);
+}
+
+.heading-with-help .info-tip:hover [role='tooltip'],
+.heading-with-help .info-tip:focus-visible [role='tooltip'] {
+  transform: translate(0, 0);
+}
+
 .icon-button {
   display: grid;
   width: 36px;
@@ -413,8 +484,8 @@ a:focus-visible {
 
 .start-here-cue {
   position: absolute;
-  right: -24px;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 9px);
+  left: 50%;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -423,6 +494,8 @@ a:focus-visible {
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
+  white-space: nowrap;
+  transform: translateX(-50%);
   animation: guide-nudge 1.5s ease-in-out infinite;
 }
 
@@ -2567,7 +2640,7 @@ html[data-theme='light'] .topbar {
 }
 
 html[data-theme='light'] .brand-mark {
-  color: #0284c7;
+  color: #3f8f56;
 }
 
 html[data-theme='light'] .section-label,
@@ -2639,6 +2712,7 @@ html[data-theme='light'] .info-tip:focus-visible {
 
 html[data-theme='light'] .hero-band {
   border-color: #cbd8e2;
+  background: #f9fcfe;
 }
 
 html[data-theme='light'] .hero-band::before {
@@ -2649,12 +2723,13 @@ html[data-theme='light'] .hero-band::before {
 }
 
 html[data-theme='light'] .hero-band::after {
-  background: rgb(244 247 251 / 24%);
+  background: transparent;
 }
 
 html[data-theme='light'] .hero-dna-visual {
-  opacity: 0.2;
-  filter: saturate(0.6) hue-rotate(155deg);
+  opacity: 0.58;
+  filter: invert(1) hue-rotate(165deg) saturate(1.25) contrast(1.12);
+  mix-blend-mode: multiply;
 }
 
 html[data-theme='light'] .start-here-cue,
@@ -2854,7 +2929,7 @@ html[data-theme='light'] .error-band {
 
 @keyframes guide-nudge {
   50% {
-    transform: translate(5px, 3px);
+    transform: translate(-50%, 4px);
   }
 }
 

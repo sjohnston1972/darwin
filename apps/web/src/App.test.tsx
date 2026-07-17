@@ -285,6 +285,13 @@ describe('Darwin control room', () => {
     expect(
       screen.queryByRole('heading', { name: 'Standalone ProjectFlow' }),
     ).not.toBeInTheDocument();
+    document.querySelectorAll('.brand-mark').forEach((mark) => {
+      expect(
+        [...mark.querySelectorAll('.growth-stage')].map(
+          (stage) => stage.querySelectorAll('svg').length,
+        ),
+      ).toEqual([1, 2, 3]);
+    });
     expect(
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();

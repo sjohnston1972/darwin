@@ -11,7 +11,7 @@ import {
 import {
   Activity,
   AlertTriangle,
-  ArrowDownRight,
+  ArrowDown,
   Box,
   BrainCircuit,
   Check,
@@ -28,6 +28,7 @@ import {
   GitBranch,
   GitCompareArrows,
   LayoutDashboard,
+  Leaf,
   Menu,
   Moon,
   MousePointer2,
@@ -37,7 +38,6 @@ import {
   RotateCcw,
   Server,
   ShieldCheck,
-  Sprout,
   Sun,
   TrendingUp,
   Users,
@@ -447,7 +447,7 @@ function App() {
               <div className="start-action-wrap">
                 {!liveTelemetry.count && (
                   <span className="start-here-cue" aria-hidden="true">
-                    Start here <ArrowDownRight size={17} />
+                    Start here <ArrowDown size={15} />
                   </span>
                 )}
                 <a
@@ -760,9 +760,18 @@ const analysisModeLabel = (analysis: EvolutionAnalysisResponse) => {
 function DarwinMark() {
   return (
     <span className="brand-mark" aria-hidden="true">
-      <Sprout className="growth-stage growth-stage-one" />
-      <Sprout className="growth-stage growth-stage-two" />
-      <Sprout className="growth-stage growth-stage-three" />
+      <span className="growth-stage growth-stage-one">
+        <Leaf className="growth-leaf" />
+      </span>
+      <span className="growth-stage growth-stage-two">
+        <Leaf className="growth-leaf" />
+        <Leaf className="growth-leaf" />
+      </span>
+      <span className="growth-stage growth-stage-three">
+        <Leaf className="growth-leaf" />
+        <Leaf className="growth-leaf" />
+        <Leaf className="growth-leaf" />
+      </span>
     </span>
   );
 }
