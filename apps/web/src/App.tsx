@@ -1214,6 +1214,7 @@ function TargetConnectionView({
   }));
   const update = (field: keyof TargetConnectionRequest, value: string) =>
     setRequest((current) => ({ ...current, [field]: value }));
+  const githubUrl = `https://github.com/${request.fullName.trim()}`;
 
   return (
     <div className="target-connect-main">
@@ -1228,20 +1229,6 @@ function TargetConnectionView({
               over source, or prepares a mutation.
             </p>
           </div>
-          <span
-            className={
-              connection
-                ? 'connection-state connection-state-live'
-                : 'connection-state'
-            }
-          >
-            <span className="status-dot" aria-hidden="true" />
-            {loading
-              ? 'Checking connection'
-              : connection
-                ? 'Connected'
-                : 'Not connected'}
-          </span>
         </div>
       </section>
 
@@ -1279,12 +1266,23 @@ function TargetConnectionView({
           </div>
           <label>
             <span>GitHub repository</span>
-            <input
-              aria-label="GitHub repository"
-              value={request.fullName}
-              onChange={(event) => update('fullName', event.target.value)}
-              autoComplete="off"
-            />
+            <div className="connection-input-with-link">
+              <input
+                aria-label="GitHub repository"
+                value={request.fullName}
+                onChange={(event) => update('fullName', event.target.value)}
+                autoComplete="off"
+              />
+              <a
+                aria-label="Open GitHub repository"
+                href={githubUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Open GitHub repository"
+              >
+                <ExternalLink size={16} />
+              </a>
+            </div>
             <small>Owner and repository name</small>
           </label>
           <div className="connection-field-grid">
@@ -1299,26 +1297,48 @@ function TargetConnectionView({
             </label>
             <label>
               <span>Production deployment</span>
-              <input
-                aria-label="Production deployment"
-                type="url"
-                value={request.productionUrl}
-                onChange={(event) =>
-                  update('productionUrl', event.target.value)
-                }
-                autoComplete="off"
-              />
+              <div className="connection-input-with-link">
+                <input
+                  aria-label="Production deployment"
+                  type="url"
+                  value={request.productionUrl}
+                  onChange={(event) =>
+                    update('productionUrl', event.target.value)
+                  }
+                  autoComplete="off"
+                />
+                <a
+                  aria-label="Open production deployment"
+                  href={request.productionUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open production deployment"
+                >
+                  <ExternalLink size={16} />
+                </a>
+              </div>
             </label>
           </div>
           <label>
             <span>Measured study URL</span>
-            <input
-              aria-label="Measured study URL"
-              type="url"
-              value={request.studyUrl}
-              onChange={(event) => update('studyUrl', event.target.value)}
-              autoComplete="off"
-            />
+            <div className="connection-input-with-link">
+              <input
+                aria-label="Measured study URL"
+                type="url"
+                value={request.studyUrl}
+                onChange={(event) => update('studyUrl', event.target.value)}
+                autoComplete="off"
+              />
+              <a
+                aria-label="Open measured study"
+                href={request.studyUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Open measured study"
+              >
+                <ExternalLink size={16} />
+              </a>
+            </div>
             <small>Darwin telemetry is enabled on this application view</small>
           </label>
 
@@ -1356,15 +1376,21 @@ function TargetConnectionView({
               </button>
             </div>
             {connection && (
-              <button
-                className="secondary-action"
-                type="button"
-                disabled={saving}
-                onClick={() => void onDisconnect()}
-                data-explain="Remove the active binding so the repository connection can be demonstrated again. Telemetry and genome history are left unchanged."
-              >
-                <Unplug size={16} /> Disconnect
-              </button>
+              <>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void onDisconnect()}
+                  data-explain="Remove the active binding so the repository connection can be demonstrated again. Telemetry and genome history are left unchanged."
+                >
+                  <Unplug size={16} /> Disconnect
+                </button>
+                <span className="connection-state connection-state-live">
+                  <span className="status-dot" aria-hidden="true" />
+                  {loading || saving ? 'Checking connection' : 'Connected'}
+                </span>
+              </>
             )}
           </div>
         </form>
@@ -1397,62 +1423,6 @@ function TargetConnectionView({
                   </li>
                 ))}
               </ul>
-              <dl className="connection-endpoints">
-                <div>
-                  <dt>Production URL</dt>
-                  <dd>
-                    <a
-                      href={connection.repository.productionUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {connection.repository.productionUrl}{' '}
-                      <ExternalLink size={14} />
-                    </a>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Measured study URL</dt>
-                  <dd>
-                    <a
-                      href={connection.repository.studyUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {connection.repository.studyUrl}{' '}
-                      <ExternalLink size={14} />
-                    </a>
-                  </dd>
-                </div>
-                <div>
-                  <dt>GitHub repository</dt>
-                  <dd>
-                    <a
-                      href={connection.repository.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {connection.repository.url} <ExternalLink size={14} />
-                    </a>
-                  </dd>
-                </div>
-              </dl>
-              <div className="connection-links">
-                <a
-                  href={connection.repository.studyUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open measured study <ExternalLink size={14} />
-                </a>
-                <a
-                  href={connection.repository.productionUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open production application <ExternalLink size={14} />
-                </a>
-              </div>
             </>
           ) : (
             <div className="connection-empty-state">

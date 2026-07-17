@@ -779,18 +779,17 @@ describe('Darwin control room', () => {
     ).toBeVisible();
     expect(screen.getByText('Cloudflare runtime')).toBeVisible();
     expect(
-      screen.getByRole('link', { name: /Open measured study/ }),
-    ).toHaveAttribute('href', repository.studyUrl);
+      screen.getByRole('link', { name: 'Open measured study' }),
+    ).toHaveAttribute('href', 'http://localhost:5174/?study=true');
     expect(
-      screen.getByRole('link', { name: repository.productionUrl }),
-    ).toHaveAttribute('href', repository.productionUrl);
+      screen.getByRole('link', { name: 'Open production deployment' }),
+    ).toHaveAttribute('href', 'http://localhost:5174/');
     expect(
-      screen.getByRole('link', { name: repository.studyUrl }),
-    ).toHaveAttribute('href', repository.studyUrl);
-    expect(screen.getByRole('link', { name: repository.url })).toHaveAttribute(
-      'href',
-      repository.url,
-    );
+      screen.getByRole('link', { name: 'Open GitHub repository' }),
+    ).toHaveAttribute('href', repository.url);
+    expect(
+      screen.getByText('Connected').closest('.connection-actions'),
+    ).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/target-connection'),
       expect.objectContaining({
