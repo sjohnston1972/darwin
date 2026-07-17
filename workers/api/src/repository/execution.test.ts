@@ -71,6 +71,12 @@ describe('repository execution state', () => {
     expect(() =>
       updateRepositoryExecution(running, { status: 'preview_ready' }),
     ).toThrow('codex_running -> preview_ready');
+    expect(() =>
+      updateRepositoryExecution(running, {
+        status: 'codex_running',
+        headSha: 'f'.repeat(40),
+      }),
+    ).toThrow('immutable once recorded');
   });
 
   it('prepares a rollback only from a retained commit and enforces its review path', () => {
@@ -121,5 +127,11 @@ describe('repository execution state', () => {
     expect(() =>
       updateRepositoryRollback(validatingRollback, { status: 'released' }),
     ).toThrow('validating -> released');
+    expect(() =>
+      updateRepositoryRollback(validatingRollback, {
+        status: 'validating',
+        headSha: 'e'.repeat(40),
+      }),
+    ).toThrow('immutable once recorded');
   });
 });

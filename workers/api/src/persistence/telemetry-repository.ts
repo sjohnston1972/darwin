@@ -23,6 +23,13 @@ export interface TelemetryEventSummary {
   behaviorSignalCount: number;
 }
 
+export interface ExecutionCallbackCredential {
+  executionId: string;
+  nonceHash: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
 export interface TelemetryRepository {
   insertEvents(
     events: StudyTelemetryEvent[],
@@ -80,6 +87,17 @@ export interface TelemetryRepository {
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
   listRepositoryExecutions(): Promise<RepositoryMutationExecution[]>;
+  saveExecutionCallbackCredential(
+    credential: ExecutionCallbackCredential,
+  ): Promise<void>;
+  getExecutionCallbackCredential(
+    executionId: string,
+  ): Promise<ExecutionCallbackCredential | null>;
+  consumeExecutionCallbackSignature(
+    executionId: string,
+    signature: string,
+    usedAt: string,
+  ): Promise<boolean>;
   getEvolutionCycle(): Promise<EvolutionCycle>;
   advanceEvolutionCycle(): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
@@ -98,6 +116,8 @@ const evidenceAnalysisStore = new Map<
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
+const callbackCredentialStore = new Map<string, ExecutionCallbackCredential>();
+const callbackSignatureStore = new Set<string>();
 let targetConnectionStore: TargetApplicationConnection | null = null;
 const baselineStudyId = 'projectflow-baseline-study';
 const defaultEvolutionCycle = (): EvolutionCycle => ({
@@ -282,6 +302,33 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     );
   }
 
+  async saveExecutionCallbackCredential(
+    credential: ExecutionCallbackCredential,
+  ) {
+    callbackCredentialStore.set(credential.executionId, credential);
+    for (const key of callbackSignatureStore) {
+      if (key.startsWith(`${credential.executionId}:`)) {
+        callbackSignatureStore.delete(key);
+      }
+    }
+  }
+
+  async getExecutionCallbackCredential(executionId: string) {
+    return callbackCredentialStore.get(executionId) ?? null;
+  }
+
+  async consumeExecutionCallbackSignature(
+    executionId: string,
+    signature: string,
+    usedAt: string,
+  ) {
+    void usedAt;
+    const key = `${executionId}:${signature}`;
+    if (callbackSignatureStore.has(key)) return false;
+    callbackSignatureStore.add(key);
+    return true;
+  }
+
   async getEvolutionCycle() {
     return evolutionCycleStore;
   }
@@ -315,6 +362,8 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     evidenceAnalysisStore.clear();
     manifestStore.clear();
     repositoryExecutionStore.clear();
+    callbackCredentialStore.clear();
+    callbackSignatureStore.clear();
     evolutionCycleStore = defaultEvolutionCycle();
   }
 }
@@ -685,6 +734,74 @@ export class D1TelemetryRepository implements TelemetryRepository {
     );
   }
 
+  async saveExecutionCallbackCredential(
+    credential: ExecutionCallbackCredential,
+  ) {
+    await this.database.batch([
+      this.database
+        .prepare(
+          `INSERT INTO execution_callback_credentials (
+            execution_id, nonce_hash, expires_at, created_at
+           ) VALUES (?, ?, ?, ?)
+           ON CONFLICT(execution_id) DO UPDATE SET
+             nonce_hash = excluded.nonce_hash,
+             expires_at = excluded.expires_at,
+             created_at = excluded.created_at`,
+        )
+        .bind(
+          credential.executionId,
+          credential.nonceHash,
+          credential.expiresAt,
+          credential.createdAt,
+        ),
+      this.database
+        .prepare(
+          `DELETE FROM execution_callback_signatures WHERE execution_id = ?`,
+        )
+        .bind(credential.executionId),
+    ]);
+  }
+
+  async getExecutionCallbackCredential(executionId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT execution_id, nonce_hash, expires_at, created_at
+         FROM execution_callback_credentials
+         WHERE execution_id = ?`,
+      )
+      .bind(executionId)
+      .first<{
+        execution_id: string;
+        nonce_hash: string;
+        expires_at: string;
+        created_at: string;
+      }>();
+    return row
+      ? {
+          executionId: row.execution_id,
+          nonceHash: row.nonce_hash,
+          expiresAt: row.expires_at,
+          createdAt: row.created_at,
+        }
+      : null;
+  }
+
+  async consumeExecutionCallbackSignature(
+    executionId: string,
+    signature: string,
+    usedAt: string,
+  ) {
+    const result = await this.database
+      .prepare(
+        `INSERT OR IGNORE INTO execution_callback_signatures (
+          execution_id, signature, used_at
+         ) VALUES (?, ?, ?)`,
+      )
+      .bind(executionId, signature, usedAt)
+      .run();
+    return (result.meta.changes ?? 0) === 1;
+  }
+
   async getEvolutionCycle() {
     const row = await this.database
       .prepare(`SELECT state_json FROM demo_state WHERE state_key = ?`)
@@ -781,6 +898,8 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM evidence_analyses'),
       this.database.prepare('DELETE FROM codex_manifests'),
       this.database.prepare('DELETE FROM repository_executions'),
+      this.database.prepare('DELETE FROM execution_callback_signatures'),
+      this.database.prepare('DELETE FROM execution_callback_credentials'),
       this.database.prepare('DELETE FROM outcome_validations'),
       this.database.prepare('DELETE FROM demo_state'),
     ]);

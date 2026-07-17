@@ -12,7 +12,7 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - OpenAI and GitHub secrets stay in Worker/provider secret stores.
 - Browser payloads are validated with strict Zod schemas.
 - Synthetic provenance is rejected from measured evidence ingestion.
-- Manifest retrieval and workflow callbacks require a bearer secret.
+- Manifest retrieval and workflow callbacks require an execution-scoped HMAC signature.
 - Repository state transitions are validated.
 - Target-owned policy constrains paths, file/line budgets, and validation commands.
 - Candidate code is reviewed in a pull request and isolated preview.
@@ -23,6 +23,8 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - ProjectFlow sends telemetry and workspace requests through a narrow same-origin Pages Function that HMAC-signs target, deployment origin, timestamp, edge-derived client key, and body.
 - Telemetry accepts only the configured ProjectFlow study, provenance, and application-version formats.
 - The 10,000-event simulation is operator-only, rate/concurrency limited, fixed to the configured seed, and retained as metadata in a four-entry TTL/LRU cache.
+- Repository workflow requests sign the execution, repository, manifest hash, timestamp, nonce, and payload digest; D1 rejects replayed signatures and terminal state rewrites.
+- Callback bodies, patches, output, checks, and changed-file arrays have explicit size limits.
 
 ## Privacy boundary
 
@@ -34,16 +36,15 @@ Participant and session IDs are pseudonymous. They still require access control 
 
 The July 2026 repository audit identified these priority items:
 
-| Issue                                                    | Priority | Risk                                                    |
-| -------------------------------------------------------- | -------- | ------------------------------------------------------- |
-| [#4](https://github.com/sjohnston1972/darwin/issues/4)   | medium   | missing CSP and complete browser headers                |
-| [#18](https://github.com/sjohnston1972/darwin/issues/18) | medium   | no retention/deletion policy                            |
-| [#27](https://github.com/sjohnston1972/darwin/issues/27) | high     | global callback secret and replay/terminal rewrite risk |
-| [#30](https://github.com/sjohnston1972/darwin/issues/30) | medium   | mutable GitHub Action references                        |
+| Issue                                                    | Priority | Risk                                     |
+| -------------------------------------------------------- | -------- | ---------------------------------------- |
+| [#4](https://github.com/sjohnston1972/darwin/issues/4)   | medium   | missing CSP and complete browser headers |
+| [#18](https://github.com/sjohnston1972/darwin/issues/18) | medium   | no retention/deletion policy             |
+| [#30](https://github.com/sjohnston1972/darwin/issues/30) | medium   | mutable GitHub Action references         |
 
 ## Deployment guidance
 
-Until issue #27 and the remaining hardening backlog are resolved:
+Until the remaining hardening backlog is resolved:
 
 - keep the target restricted to the public demo repository;
 - grant the GitHub token only the minimum ProjectFlow permissions;

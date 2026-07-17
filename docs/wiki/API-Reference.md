@@ -104,7 +104,7 @@ Manifest selection body:
 
 ## Repository workflow callbacks
 
-These routes currently require `Authorization: Bearer <DARWIN_CALLBACK_TOKEN>`:
+These routes require an execution-scoped HMAC signature derived from `DARWIN_CALLBACK_TOKEN` and a random nonce issued only for that dispatch:
 
 | Method | Route                                                       | Purpose                               |
 | ------ | ----------------------------------------------------------- | ------------------------------------- |
@@ -112,7 +112,7 @@ These routes currently require `Authorization: Bearer <DARWIN_CALLBACK_TOKEN>`:
 | POST   | `/api/repository-executions/:executionId/callback`          | update mutation execution state       |
 | POST   | `/api/repository-executions/:executionId/rollback/callback` | update rollback state                 |
 
-Per-execution signed callbacks and replay protection are tracked in issue #27.
+The signed canonical request covers method, path, timestamp, execution nonce, execution ID, repository, immutable manifest hash, and payload digest. Credentials expire after 24 hours, request timestamps have a five-minute window, and each mutating signature is consumed once. Replays, cross-execution requests, oversized payloads, and same-state or terminal rewrites are rejected.
 
 ## Synthetic simulation
 
@@ -148,4 +148,4 @@ Unhandled failures return `internal_error` without exposing secrets or provider 
 
 ## Current authentication warning
 
-Operator and target-ingestion boundaries are authenticated; CORS remains defense in depth rather than authorization. Repository workflows still use the shared callback bearer until issue #27 replaces it with execution-scoped signed requests and replay protection. Do not connect private production targets until that work and the retention policy are complete.
+Operator, target-ingestion, and repository-callback boundaries are authenticated; CORS remains defense in depth rather than authorization. Do not connect private production targets until retention, transactionality, and the remaining hardening backlog are complete.

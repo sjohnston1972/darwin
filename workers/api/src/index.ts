@@ -51,6 +51,10 @@ import {
   type OperatorCapability,
   type OperatorIdentity,
 } from './security/auth';
+import {
+  issueExecutionCallbackCredential,
+  verifyExecutionCallback,
+} from './security/callback';
 
 export interface Env {
   DB?: D1Database;
@@ -1022,9 +1026,17 @@ export const handleRequest = async (
     }
     await telemetryRepository.saveRepositoryExecution(execution);
     try {
+      const callbackCredential = await issueExecutionCallbackCredential(
+        execution.executionId,
+      );
+      await telemetryRepository.saveExecutionCallbackCredential(
+        callbackCredential.credential,
+      );
       await dispatchEvolutionWorkflow({
         token: env.GITHUB_TOKEN,
         execution,
+        callbackNonce: callbackCredential.nonce,
+        manifestHash: manifest.manifestHash,
         callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/callback`,
       });
       execution = updateRepositoryExecution(execution, { status: 'queued' });
@@ -1084,15 +1096,29 @@ export const handleRequest = async (
     }
     try {
       const rollback = createRepositoryRollback(execution);
+      const manifest = await telemetryRepository.getCodexManifest(
+        execution.analysisId,
+      );
+      if (!manifest) {
+        throw new Error('The retained execution manifest could not be loaded.');
+      }
       execution = RepositoryMutationExecutionSchema.parse({
         ...execution,
         rollback,
       });
       await telemetryRepository.saveRepositoryExecution(execution);
+      const callbackCredential = await issueExecutionCallbackCredential(
+        execution.executionId,
+      );
+      await telemetryRepository.saveExecutionCallbackCredential(
+        callbackCredential.credential,
+      );
       await dispatchRollbackWorkflow({
         token: env.GITHUB_TOKEN,
         execution,
         rollback,
+        callbackNonce: callbackCredential.nonce,
+        manifestHash: manifest.manifestHash,
         callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/rollback/callback`,
       });
       execution = updateRepositoryRollback(execution, { status: 'queued' });
@@ -1136,44 +1162,41 @@ export const handleRequest = async (
     /^\/api\/repository-executions\/([^/]+)\/manifest$/,
   );
   if (request.method === 'GET' && repositoryManifestMatch) {
-    if (
-      !env?.DARWIN_CALLBACK_TOKEN ||
-      request.headers.get('Authorization') !==
-        `Bearer ${env.DARWIN_CALLBACK_TOKEN}`
-    ) {
-      return json(
-        { error: 'unauthorized', message: 'Callback authorization failed.' },
-        { status: 401 },
-      );
-    }
     const executionId = decodeURIComponent(repositoryManifestMatch[1]!);
     const execution =
       await telemetryRepository.getRepositoryExecution(executionId);
     const manifest = execution
       ? await telemetryRepository.getCodexManifest(execution.analysisId)
       : null;
-    return execution && manifest
-      ? json({ execution, manifest })
-      : json(
-          { error: 'not_found', message: 'Repository manifest not found.' },
-          { status: 404 },
-        );
+    if (!execution || !manifest) {
+      return json(
+        { error: 'not_found', message: 'Repository manifest not found.' },
+        { status: 404 },
+      );
+    }
+    const verification = await verifyExecutionCallback({
+      request,
+      body: '',
+      callbackSecret: env?.DARWIN_CALLBACK_TOKEN,
+      credential:
+        await telemetryRepository.getExecutionCallbackCredential(executionId),
+      executionId,
+      repository: execution.repository.fullName,
+      manifestHash: manifest.manifestHash,
+    });
+    if (!verification.ok) {
+      return json(
+        { error: verification.error, message: verification.message },
+        { status: verification.status },
+      );
+    }
+    return json({ execution, manifest });
   }
 
   const repositoryRollbackCallbackMatch = pathname.match(
     /^\/api\/repository-executions\/([^/]+)\/rollback\/callback$/,
   );
   if (request.method === 'POST' && repositoryRollbackCallbackMatch) {
-    if (
-      !env?.DARWIN_CALLBACK_TOKEN ||
-      request.headers.get('Authorization') !==
-        `Bearer ${env.DARWIN_CALLBACK_TOKEN}`
-    ) {
-      return json(
-        { error: 'unauthorized', message: 'Callback authorization failed.' },
-        { status: 401 },
-      );
-    }
     const executionId = decodeURIComponent(repositoryRollbackCallbackMatch[1]!);
     const execution =
       await telemetryRepository.getRepositoryExecution(executionId);
@@ -1183,9 +1206,48 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+    if (contentLength > 750_000) {
+      return json(
+        { error: 'payload_too_large', message: 'Callback body is too large.' },
+        { status: 413 },
+      );
+    }
+    const body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > 750_000) {
+      return json(
+        { error: 'payload_too_large', message: 'Callback body is too large.' },
+        { status: 413 },
+      );
+    }
+    const manifest = await telemetryRepository.getCodexManifest(
+      execution.analysisId,
+    );
+    if (!manifest) {
+      return json(
+        { error: 'not_found', message: 'Repository manifest not found.' },
+        { status: 404 },
+      );
+    }
+    const verification = await verifyExecutionCallback({
+      request,
+      body,
+      callbackSecret: env?.DARWIN_CALLBACK_TOKEN,
+      credential:
+        await telemetryRepository.getExecutionCallbackCredential(executionId),
+      executionId,
+      repository: execution.repository.fullName,
+      manifestHash: manifest.manifestHash,
+    });
+    if (!verification.ok) {
+      return json(
+        { error: verification.error, message: verification.message },
+        { status: verification.status },
+      );
+    }
     let callback;
     try {
-      callback = RepositoryRollbackCallbackSchema.parse(await request.json());
+      callback = RepositoryRollbackCallbackSchema.parse(JSON.parse(body));
     } catch {
       return json(
         { error: 'invalid_callback', message: 'Callback payload is invalid.' },
@@ -1193,6 +1255,18 @@ export const handleRequest = async (
       );
     }
     try {
+      const signatureAccepted =
+        await telemetryRepository.consumeExecutionCallbackSignature(
+          executionId,
+          verification.signature,
+          new Date().toISOString(),
+        );
+      if (!signatureAccepted) {
+        return json(
+          { error: 'callback_replayed', message: 'Callback replay rejected.' },
+          { status: 409 },
+        );
+      }
       const updated = updateRepositoryRollback(execution, callback);
       await telemetryRepository.saveRepositoryExecution(updated);
       return json(RepositoryMutationExecutionSchema.parse(updated));
@@ -1214,16 +1288,6 @@ export const handleRequest = async (
     /^\/api\/repository-executions\/([^/]+)\/callback$/,
   );
   if (request.method === 'POST' && repositoryCallbackMatch) {
-    if (
-      !env?.DARWIN_CALLBACK_TOKEN ||
-      request.headers.get('Authorization') !==
-        `Bearer ${env.DARWIN_CALLBACK_TOKEN}`
-    ) {
-      return json(
-        { error: 'unauthorized', message: 'Callback authorization failed.' },
-        { status: 401 },
-      );
-    }
     const executionId = decodeURIComponent(repositoryCallbackMatch[1]!);
     const execution =
       await telemetryRepository.getRepositoryExecution(executionId);
@@ -1233,9 +1297,48 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+    if (contentLength > 750_000) {
+      return json(
+        { error: 'payload_too_large', message: 'Callback body is too large.' },
+        { status: 413 },
+      );
+    }
+    const body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > 750_000) {
+      return json(
+        { error: 'payload_too_large', message: 'Callback body is too large.' },
+        { status: 413 },
+      );
+    }
+    const manifest = await telemetryRepository.getCodexManifest(
+      execution.analysisId,
+    );
+    if (!manifest) {
+      return json(
+        { error: 'not_found', message: 'Repository manifest not found.' },
+        { status: 404 },
+      );
+    }
+    const verification = await verifyExecutionCallback({
+      request,
+      body,
+      callbackSecret: env?.DARWIN_CALLBACK_TOKEN,
+      credential:
+        await telemetryRepository.getExecutionCallbackCredential(executionId),
+      executionId,
+      repository: execution.repository.fullName,
+      manifestHash: manifest.manifestHash,
+    });
+    if (!verification.ok) {
+      return json(
+        { error: verification.error, message: verification.message },
+        { status: verification.status },
+      );
+    }
     let callback;
     try {
-      callback = RepositoryExecutionCallbackSchema.parse(await request.json());
+      callback = RepositoryExecutionCallbackSchema.parse(JSON.parse(body));
     } catch {
       return json(
         { error: 'invalid_callback', message: 'Callback payload is invalid.' },
@@ -1243,6 +1346,18 @@ export const handleRequest = async (
       );
     }
     try {
+      const signatureAccepted =
+        await telemetryRepository.consumeExecutionCallbackSignature(
+          executionId,
+          verification.signature,
+          new Date().toISOString(),
+        );
+      if (!signatureAccepted) {
+        return json(
+          { error: 'callback_replayed', message: 'Callback replay rejected.' },
+          { status: 409 },
+        );
+      }
       const updated = updateRepositoryExecution(execution, callback);
       await telemetryRepository.saveRepositoryExecution(updated);
       return json(RepositoryMutationExecutionSchema.parse(updated));

@@ -98,6 +98,11 @@ export const updateRepositoryExecution = (
   updatedAt = new Date().toISOString(),
 ) => {
   const callback = RepositoryExecutionCallbackSchema.parse(rawCallback);
+  if (callback.status === execution.status) {
+    throw new Error(
+      `Repository execution status ${execution.status} is immutable once recorded.`,
+    );
+  }
   if (
     callback.status !== execution.status &&
     !transitions[execution.status].includes(callback.status)
@@ -172,6 +177,11 @@ export const updateRepositoryRollback = (
   }
   const callback = RepositoryRollbackCallbackSchema.parse(rawCallback);
   const rollback = execution.rollback;
+  if (callback.status === rollback.status) {
+    throw new Error(
+      `Repository rollback status ${rollback.status} is immutable once recorded.`,
+    );
+  }
   if (
     callback.status !== rollback.status &&
     !rollbackTransitions[rollback.status].includes(callback.status)

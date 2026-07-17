@@ -227,7 +227,7 @@ The full script, failure branches, and reset checklist are in the [Demo Runbook]
 
 ## Security status
 
-This is a public Build Week proof of life, locked to one configured ProjectFlow target. The control plane requires capability-scoped operator authorization, protected responses are non-cacheable, ProjectFlow submits HMAC-signed telemetry through a narrow same-origin gateway, and the simulator is authenticated and resource-bounded. It is **not ready to connect to a production repository or private customer telemetry** while callback replay protection, retention, CSP, and CI hardening remain open.
+This is a public Build Week proof of life, locked to one configured ProjectFlow target. The control plane requires capability-scoped operator authorization, protected responses are non-cacheable, ProjectFlow submits HMAC-signed telemetry through a narrow same-origin gateway, repository callbacks are execution-scoped and replay-protected, and the simulator is authenticated and resource-bounded. It is **not ready to connect to a production repository or private customer telemetry** while retention, CSP, and CI hardening remain open.
 
 Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [open security issues](https://github.com/sjohnston1972/darwin/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity).
 

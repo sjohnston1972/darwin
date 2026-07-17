@@ -58,6 +58,8 @@ describe('dispatchEvolutionWorkflow', () => {
       execution,
       callbackUrl:
         'https://darwin.example/api/repository-executions/execution-test/callback',
+      callbackNonce: 'callback-nonce',
+      manifestHash: 'a'.repeat(64),
       fetch: fetcher,
     });
 
@@ -72,6 +74,9 @@ describe('dispatchEvolutionWorkflow', () => {
       inputs: {
         execution_id: execution.executionId,
         manifest_id: execution.manifestId,
+        manifest_hash: 'a'.repeat(64),
+        repository: 'sjohnston1972/projectflow',
+        callback_nonce: 'callback-nonce',
       },
     });
   });
@@ -202,6 +207,8 @@ describe('dispatchEvolutionWorkflow', () => {
       rollback,
       callbackUrl:
         'https://darwin.example/api/repository-executions/execution-rollback/rollback/callback',
+      callbackNonce: 'rollback-nonce',
+      manifestHash: 'f'.repeat(64),
       fetch: fetcher,
     });
     expect(String(fetcher.mock.calls[0]?.[0])).toContain(
@@ -211,6 +218,8 @@ describe('dispatchEvolutionWorkflow', () => {
       inputs: {
         rollback_id: rollback.rollbackId,
         released_sha: released.headSha,
+        manifest_hash: 'f'.repeat(64),
+        callback_nonce: 'rollback-nonce',
       },
     });
 

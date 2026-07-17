@@ -119,6 +119,6 @@ Only an explicit release call merges a reviewed pull request. Candidate previews
 
 ## Known architectural hardening
 
-The public Build Week deployment now has capability-scoped operator authorization, HMAC-authenticated ProjectFlow ingestion, and protected read APIs. It is still not a production trust boundary while atomic execution transitions, callback replay protection, deployment-aware evidence cycles, and retention remain open.
+The public Build Week deployment now has capability-scoped operator authorization, HMAC-authenticated ProjectFlow ingestion, protected read APIs, and execution-scoped signed repository callbacks with replay protection. It is still not a production trust boundary while atomic release transactions, deployment-aware evidence cycles, and retention remain open.
 
 See [Security and Privacy](Security-and-Privacy.md) and the [issue backlog](https://github.com/sjohnston1972/darwin/issues).

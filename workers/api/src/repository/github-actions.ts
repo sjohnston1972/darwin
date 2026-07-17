@@ -15,6 +15,8 @@ export interface DispatchEvolutionWorkflowOptions {
   token: string;
   execution: RepositoryMutationExecution;
   callbackUrl: string;
+  callbackNonce: string;
+  manifestHash: string;
   fetch?: typeof fetch;
 }
 
@@ -22,6 +24,8 @@ export async function dispatchEvolutionWorkflow({
   token,
   execution,
   callbackUrl,
+  callbackNonce,
+  manifestHash,
   fetch: fetcher = fetch,
 }: DispatchEvolutionWorkflowOptions) {
   const response = await fetcher(
@@ -34,7 +38,10 @@ export async function dispatchEvolutionWorkflow({
         inputs: {
           execution_id: execution.executionId,
           manifest_id: execution.manifestId,
+          manifest_hash: manifestHash,
+          repository: execution.repository.fullName,
           callback_url: callbackUrl,
+          callback_nonce: callbackNonce,
         },
       }),
     },
@@ -51,6 +58,8 @@ export interface DispatchRollbackWorkflowOptions {
   execution: RepositoryMutationExecution;
   rollback: RepositoryRollback;
   callbackUrl: string;
+  callbackNonce: string;
+  manifestHash: string;
   fetch?: typeof fetch;
 }
 
@@ -59,6 +68,8 @@ export async function dispatchRollbackWorkflow({
   execution,
   rollback,
   callbackUrl,
+  callbackNonce,
+  manifestHash,
   fetch: fetcher = fetch,
 }: DispatchRollbackWorkflowOptions) {
   const response = await fetcher(
@@ -73,7 +84,10 @@ export async function dispatchRollbackWorkflow({
           rollback_id: rollback.rollbackId,
           rollback_branch: rollback.branch,
           released_sha: rollback.revertedSha,
+          manifest_hash: manifestHash,
+          repository: execution.repository.fullName,
           callback_url: callbackUrl,
+          callback_nonce: callbackNonce,
         },
       }),
     },

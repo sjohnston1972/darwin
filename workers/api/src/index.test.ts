@@ -23,6 +23,10 @@ import {
 } from './index';
 import { resetInMemoryTelemetry } from './persistence/telemetry-repository';
 import { signTargetRequestForTest } from './security/auth';
+import {
+  hashCallbackBodyForTest,
+  signExecutionCallbackForTest,
+} from './security/callback';
 
 const studyEvent = {
   schemaVersion: 1,
@@ -143,6 +147,55 @@ const signedTargetRequest = async (
       'X-Darwin-Source-Origin': sourceOrigin,
       'X-Darwin-Client-Key': clientKey,
       'X-Darwin-Signature': overrides.signature ?? signature,
+    },
+    ...(body ? { body } : {}),
+  });
+};
+
+const signedCallbackRequest = async ({
+  path,
+  method,
+  body = '',
+  nonce,
+  executionId,
+  repository,
+  manifestHash,
+  secret = 'callback-test-token',
+  timestamp = String(Date.now()),
+}: {
+  path: string;
+  method: 'GET' | 'POST';
+  body?: string;
+  nonce: string;
+  executionId: string;
+  repository: string;
+  manifestHash: string;
+  secret?: string;
+  timestamp?: string;
+}) => {
+  const bodyDigest = await hashCallbackBodyForTest(body);
+  const signature = await signExecutionCallbackForTest(
+    secret,
+    [
+      method,
+      new URL(path).pathname,
+      timestamp,
+      nonce,
+      executionId,
+      repository,
+      manifestHash,
+      bodyDigest,
+    ].join('\n'),
+  );
+  return new Request(path, {
+    method,
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      'X-Darwin-Timestamp': timestamp,
+      'X-Darwin-Execution-Nonce': nonce,
+      'X-Darwin-Repository': repository,
+      'X-Darwin-Manifest-Hash': manifestHash,
+      'X-Darwin-Signature': signature,
     },
     ...(body ? { body } : {}),
   });
@@ -827,6 +880,19 @@ describe('Darwin API', () => {
     expect(execution.status).toBe('queued');
     expect(execution.baseSha).toBe(repositorySha);
     expect(execution.repository.fullName).toBe('sjohnston1972/projectflow');
+    const latestWorkflowInputs = () => {
+      const dispatch = vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) =>
+          String(input).includes('/actions/workflows/'),
+        )
+        .at(-1);
+      return JSON.parse(String(dispatch?.[1]?.body)).inputs as Record<
+        string,
+        string
+      >;
+    };
+    let callbackNonce = latestWorkflowInputs().callback_nonce!;
 
     const restoredExecutionResponse = await handleRequest(
       new Request(executionPath),
@@ -844,8 +910,13 @@ describe('Darwin API', () => {
     );
     expect(deniedManifestResponse.status).toBe(401);
     const actionManifestResponse = await handleRequest(
-      new Request(manifestAccessPath, {
-        headers: { Authorization: 'Bearer callback-test-token' },
+      await signedCallbackRequest({
+        path: manifestAccessPath,
+        method: 'GET',
+        nonce: callbackNonce,
+        executionId: execution.executionId,
+        repository: execution.repository.fullName,
+        manifestHash: alternativeManifest.manifestHash,
       }),
       { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
     );
@@ -856,23 +927,51 @@ describe('Darwin API', () => {
       alternativeManifest.manifestId,
     );
 
+    const callbackPath = `http://localhost/api/repository-executions/${execution.executionId}/callback`;
+    const callbackRequest = async (
+      body: Record<string, unknown>,
+      timestamp?: string,
+      nonce = callbackNonce,
+    ) => {
+      const callbackBody = JSON.stringify(body);
+      return signedCallbackRequest({
+        path: callbackPath,
+        method: 'POST',
+        body: callbackBody,
+        nonce,
+        executionId: execution.executionId,
+        repository: execution.repository.fullName,
+        manifestHash: alternativeManifest.manifestHash,
+        ...(timestamp ? { timestamp } : {}),
+      });
+    };
     const callback = async (body: Record<string, unknown>) => {
-      const response = await handleRequest(
-        new Request(
-          `http://localhost/api/repository-executions/${execution.executionId}/callback`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: 'Bearer callback-test-token',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-          },
-        ),
-        { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
-      );
+      const response = await handleRequest(await callbackRequest(body), {
+        DARWIN_CALLBACK_TOKEN: 'callback-test-token',
+      });
       return { response, body: await response.json() };
     };
+    const oversizedCallback = await handleRequest(
+      new Request(callbackPath, {
+        method: 'POST',
+        body: 'x'.repeat(750_001),
+      }),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+    );
+    expect(oversizedCallback.status).toBe(413);
+    const crossExecutionCallback = await handleRequest(
+      await callbackRequest({ status: 'failed' }, undefined, 'wrong-nonce'),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+    );
+    expect(crossExecutionCallback.status).toBe(403);
+    const expiredCallback = await handleRequest(
+      await callbackRequest(
+        { status: 'failed' },
+        String(Date.now() - 10 * 60 * 1_000),
+      ),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+    );
+    expect(expiredCallback.status).toBe(401);
     const failedExecution = RepositoryMutationExecutionSchema.parse(
       (
         await callback({
@@ -896,17 +995,30 @@ describe('Darwin API', () => {
     expect(retryResponse.status).toBe(201);
     expect(execution.status).toBe('queued');
     expect(execution.error).toBeNull();
+    callbackNonce = latestWorkflowInputs().callback_nonce!;
 
-    execution = RepositoryMutationExecutionSchema.parse(
-      (
-        await callback({
-          status: 'codex_running',
-          workflowRunId: 123,
-          workflowUrl:
-            'https://github.com/sjohnston1972/projectflow/actions/runs/123',
-        })
-      ).body,
+    const runningCallbackBody = {
+      status: 'codex_running',
+      workflowRunId: 123,
+      workflowUrl:
+        'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+    };
+    const replayTimestamp = String(Date.now());
+    const firstRunningResponse = await handleRequest(
+      await callbackRequest(runningCallbackBody, replayTimestamp),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
     );
+    execution = RepositoryMutationExecutionSchema.parse(
+      await firstRunningResponse.json(),
+    );
+    const replayedRunningResponse = await handleRequest(
+      await callbackRequest(runningCallbackBody, replayTimestamp),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+    );
+    expect(replayedRunningResponse.status).toBe(409);
+    await expect(replayedRunningResponse.json()).resolves.toMatchObject({
+      error: 'callback_replayed',
+    });
     execution = RepositoryMutationExecutionSchema.parse(
       (await callback({ status: 'validating' })).body,
     );
@@ -954,6 +1066,11 @@ describe('Darwin API', () => {
     expect(releaseResponse.status).toBe(200);
     expect(releasedExecution.status).toBe('released');
     expect(releasedExecution.headSha).toBe('f'.repeat(40));
+    const terminalRewrite = await callback({
+      status: 'released',
+      headSha: 'a'.repeat(40),
+    });
+    expect(terminalRewrite.response.status).toBe(409);
 
     const genomeResponse = await handleRequest(
       new Request('http://localhost/api/genome'),
@@ -1008,20 +1125,20 @@ describe('Darwin API', () => {
       status: 'queued',
       revertedSha: 'f'.repeat(40),
     });
+    callbackNonce = latestWorkflowInputs().callback_nonce!;
 
     const rollbackCallback = async (body: Record<string, unknown>) => {
+      const callbackBody = JSON.stringify(body);
       const response = await handleRequest(
-        new Request(
-          `http://localhost/api/repository-executions/${execution.executionId}/rollback/callback`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: 'Bearer callback-test-token',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-          },
-        ),
+        await signedCallbackRequest({
+          path: `http://localhost/api/repository-executions/${execution.executionId}/rollback/callback`,
+          method: 'POST',
+          body: callbackBody,
+          nonce: callbackNonce,
+          executionId: execution.executionId,
+          repository: execution.repository.fullName,
+          manifestHash: alternativeManifest.manifestHash,
+        }),
         { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
       );
       return { response, body: await response.json() };

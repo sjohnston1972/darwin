@@ -802,10 +802,10 @@ export const RepositoryExecutionStatusSchema = z.enum([
 ]);
 
 export const RepositoryExecutionCheckSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(200),
   status: z.enum(['pending', 'running', 'passed', 'failed']),
   durationMs: z.number().int().nonnegative().nullable(),
-  output: z.string(),
+  output: z.string().max(20_000),
 });
 
 export const RepositoryRollbackStatusSchema = z.enum([
@@ -833,10 +833,10 @@ export const RepositoryRollbackSchema = z.object({
   pullRequestNumber: z.number().int().positive().nullable(),
   pullRequestUrl: z.string().url().nullable(),
   previewUrl: z.string().url().nullable(),
-  patch: z.string().nullable(),
-  changedFiles: z.array(z.string().min(1)),
-  checks: z.array(RepositoryExecutionCheckSchema),
-  error: z.string().nullable(),
+  patch: z.string().max(500_000).nullable(),
+  changedFiles: z.array(z.string().min(1).max(500)).max(100),
+  checks: z.array(RepositoryExecutionCheckSchema).max(50),
+  error: z.string().max(4_000).nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   completedAt: z.string().datetime().nullable(),
@@ -859,18 +859,18 @@ export const RepositoryMutationExecutionSchema = z.object({
   pullRequestNumber: z.number().int().positive().nullable(),
   pullRequestUrl: z.string().url().nullable(),
   previewUrl: z.string().url().nullable(),
-  patch: z.string().nullable(),
-  changedFiles: z.array(z.string().min(1)),
-  checks: z.array(RepositoryExecutionCheckSchema),
+  patch: z.string().max(500_000).nullable(),
+  changedFiles: z.array(z.string().min(1).max(500)).max(100),
+  checks: z.array(RepositoryExecutionCheckSchema).max(50),
   codex: z.object({
     threadId: z.string().min(1).nullable(),
-    finalMessage: z.string().nullable(),
+    finalMessage: z.string().max(100_000).nullable(),
     inputTokens: z.number().int().nonnegative().nullable(),
     cachedInputTokens: z.number().int().nonnegative().nullable(),
     outputTokens: z.number().int().nonnegative().nullable(),
   }),
   rollback: RepositoryRollbackSchema.nullable().default(null),
-  error: z.string().nullable(),
+  error: z.string().max(4_000).nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   completedAt: z.string().datetime().nullable(),
