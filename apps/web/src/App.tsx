@@ -130,19 +130,27 @@ function App() {
   const targetConnection = useTargetConnection();
   const liveTelemetry = useLiveTelemetry();
   const repository =
+    targetConnection.connection?.repository ??
     liveTelemetry.execution?.repository ??
     liveTelemetry.analysis?.repository ??
-    targetConnection.connection?.repository;
+    undefined;
   const targetApplicationUrl =
     (liveTelemetry.execution?.previewUrl &&
     ['preview_ready', 'releasing'].includes(liveTelemetry.execution.status)
       ? liveTelemetry.execution.previewUrl
       : (targetConnection.connection?.repository.studyUrl ??
         repository?.studyUrl)) ?? `${projectFlowBaseUrl}/?study=true`;
-  const activeCommit =
-    liveTelemetry.execution?.status === 'released'
+  const executionCommit =
+    liveTelemetry.execution &&
+    ['preview_ready', 'releasing', 'released'].includes(
+      liveTelemetry.execution.status,
+    )
       ? liveTelemetry.execution.headSha
-      : repository?.baseSha;
+      : null;
+  const activeCommit =
+    targetConnection.connection?.repository.baseSha ??
+    executionCommit ??
+    repository?.baseSha;
   const activeGenomeLoci = repository
     ? [
         { locus: 'Repository', value: repository.fullName },

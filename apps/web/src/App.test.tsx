@@ -644,6 +644,20 @@ describe('Darwin control room', () => {
     expect(await screen.findByText('No repository is connected')).toBeVisible();
   });
 
+  it('uses the connected repository snapshot as the active genome', async () => {
+    installApi(null, targetConnection);
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', {
+        name: `Repository genome · ${repository.baseSha.slice(0, 12)}`,
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: /Open measured study/ }),
+    ).toHaveAttribute('href', repository.studyUrl);
+  });
+
   it('does not restore reasoning produced from an older evidence pack', async () => {
     installApi({
       ...analysis,
