@@ -991,7 +991,9 @@ export const RepositoryExecutionCallbackSchema =
     codex: true,
     error: true,
     completedAt: true,
-  }).partial();
+  })
+    .partial()
+    .extend({ status: RepositoryExecutionStatusSchema });
 
 export const EvolutionTimelineResponseSchema = z.object({
   records: z.array(EvolutionRecordSchema),

@@ -6,7 +6,6 @@ import {
   EvolutionAnalysisResponseSchema,
   EvolutionTimelineResponseSchema,
   HealthResponseSchema,
-  ManifestExecutionResponseSchema,
   MutationDiffSchema,
   MutationDecisionResponseSchema,
   MutationReleaseResponseSchema,
@@ -14,6 +13,7 @@ import {
   OrganismStateSchema,
   OutcomeValidationSchema,
   ParticipantWorkspaceResponseSchema,
+  RepositoryMutationExecutionSchema,
   SimulationSummarySchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
@@ -579,55 +579,111 @@ describe('Darwin API', () => {
     const executionPath = `http://localhost/api/evidence-analyses/${first.analysisId}/codex-manifest/execution`;
     const executionResponse = await handleRequest(
       new Request(executionPath, { method: 'POST' }),
-      { DARWIN_DEMO_SEED: '1859' },
+      {
+        GITHUB_TOKEN: 'github-test-token',
+        DARWIN_CALLBACK_TOKEN: 'callback-test-token',
+      },
     );
-    const execution = ManifestExecutionResponseSchema.parse(
+    let execution = RepositoryMutationExecutionSchema.parse(
       await executionResponse.json(),
     );
     expect(executionResponse.status).toBe(201);
-    expect(execution.stage).toBe('approved');
-    expect(execution.analysis.mode).toBe('live');
-    expect(execution.analysis.proposal.evidence).toEqual(
-      alternativeManifest.evidenceCitations,
-    );
-    expect(execution.diff.mutationId).toBe(execution.analysis.proposal.id);
-    expect(execution.organism.variant).toBe('baseline');
+    expect(execution.status).toBe('queued');
+    expect(execution.baseSha).toBe(repositorySha);
+    expect(execution.repository.fullName).toBe('sjohnston1972/projectflow');
 
     const restoredExecutionResponse = await handleRequest(
       new Request(executionPath),
     );
     expect(
-      ManifestExecutionResponseSchema.parse(
+      RepositoryMutationExecutionSchema.parse(
         await restoredExecutionResponse.json(),
-      ).analysis.proposal.id,
-    ).toBe(execution.analysis.proposal.id);
+      ).executionId,
+    ).toBe(execution.executionId);
 
-    const validationResponse = await handleRequest(
+    const manifestAccessPath = `http://localhost/api/repository-executions/${execution.executionId}/manifest`;
+    const deniedManifestResponse = await handleRequest(
+      new Request(manifestAccessPath),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+    );
+    expect(deniedManifestResponse.status).toBe(401);
+    const actionManifestResponse = await handleRequest(
       new Request(
-        `http://localhost/api/mutations/${execution.analysis.proposal.id}/validate`,
-        { method: 'POST' },
+        manifestAccessPath,
+        {
+          headers: { Authorization: 'Bearer callback-test-token' },
+        },
       ),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
     );
-    const validated = MutationValidationResponseSchema.parse(
-      await validationResponse.json(),
-    );
-    expect(validated.proposal.status).toBe('validated');
-    expect(validated.validation.mutationId).toBe(
-      execution.analysis.proposal.id,
+    const actionManifest = (await actionManifestResponse.json()) as {
+      manifest: typeof alternativeManifest;
+    };
+    expect(actionManifest.manifest.manifestId).toBe(
+      alternativeManifest.manifestId,
     );
 
-    const releaseResponse = await handleRequest(
-      new Request(
-        `http://localhost/api/mutations/${execution.analysis.proposal.id}/release`,
-        { method: 'POST' },
-      ),
+    const callback = async (body: Record<string, unknown>) => {
+      const response = await handleRequest(
+        new Request(
+          `http://localhost/api/repository-executions/${execution.executionId}/callback`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer callback-test-token',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+          },
+        ),
+        { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+      );
+      return { response, body: await response.json() };
+    };
+    execution = RepositoryMutationExecutionSchema.parse(
+      (
+        await callback({
+          status: 'codex_running',
+          workflowRunId: 123,
+          workflowUrl:
+            'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+        })
+      ).body,
     );
-    const released = MutationReleaseResponseSchema.parse(
-      await releaseResponse.json(),
+    execution = RepositoryMutationExecutionSchema.parse(
+      (await callback({ status: 'validating' })).body,
     );
-    expect(released.proposal.status).toBe('released');
-    expect(released.organism.variant).toBe('evolved');
-    expect(released.record.mutationId).toBe(execution.analysis.proposal.id);
+    execution = RepositoryMutationExecutionSchema.parse(
+      (
+        await callback({
+          status: 'pull_request_open',
+          headSha: 'e'.repeat(40),
+          pullRequestNumber: 7,
+          pullRequestUrl:
+            'https://github.com/sjohnston1972/projectflow/pull/7',
+        })
+      ).body,
+    );
+    const preview = await callback({
+      status: 'preview_ready',
+      previewUrl: 'https://sjohnston1972.github.io/projectflow/?study=true',
+      changedFiles: ['apps/projectflow/src/App.tsx'],
+      checks: [
+        {
+          name: 'npm run verify',
+          status: 'passed',
+          durationMs: 1200,
+          output: 'All checks passed.',
+        },
+      ],
+    });
+    execution = RepositoryMutationExecutionSchema.parse(preview.body);
+    expect(execution.status).toBe('preview_ready');
+    expect(execution.pullRequestNumber).toBe(7);
+    expect(execution.checks[0]?.status).toBe('passed');
+
+    const invalid = await callback({ status: 'released' });
+    expect(invalid.response.status).toBe(409);
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

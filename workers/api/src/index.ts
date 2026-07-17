@@ -8,7 +8,6 @@ import {
   EvolutionAnalysisRequestSchema,
   EvolutionAnalysisResponseSchema,
   FitnessComparisonSchema,
-  ManifestExecutionResponseSchema,
   MutationDiffSchema,
   MutationDecisionResponseSchema,
   MutationReleaseResponseSchema,
@@ -17,6 +16,8 @@ import {
   OutcomeValidationSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
+  RepositoryExecutionCallbackSchema,
+  RepositoryMutationExecutionSchema,
   SimulationRequestSchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
@@ -55,6 +56,11 @@ import {
 } from './reasoning';
 import { OutcomeValidationError, compareAutomatedOutcomes } from './outcomes';
 import { captureRepositorySnapshot } from './repository/github-source';
+import {
+  createRepositoryExecution,
+  updateRepositoryExecution,
+} from './repository/execution';
+import { dispatchEvolutionWorkflow } from './repository/github-actions';
 
 export interface Env {
   DB?: D1Database;
@@ -77,7 +83,7 @@ export interface Env {
 }
 
 const defaultCorsHeaders = {
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
 };
 
@@ -136,9 +142,6 @@ const recordedValidation = ValidationResultSchema.parse(
 const recordedDiff = MutationDiffSchema.parse(phase7Artifacts.diff);
 const recordedOutcome = OutcomeValidationSchema.parse(phase12Outcome);
 
-const manifestMutationId = (manifest: CodexImplementationManifest) =>
-  `mutation-${manifest.manifestHash.slice(0, 12)}`;
-
 const diffForMutation = (mutationId: string) =>
   MutationDiffSchema.parse({ ...recordedDiff, mutationId });
 
@@ -148,115 +151,6 @@ const validationForMutation = (mutationId: string) =>
     id: `validation-${mutationId.replace(/^mutation-/, '')}`,
     mutationId,
   });
-
-const manifestAnalysisResponse = (
-  manifest: CodexImplementationManifest,
-  evidenceAnalysis: EvidenceAnalysis,
-  fitness: FitnessComparison,
-  status: MutationProposal['status'],
-) => {
-  const mutationIds = manifest.mutationIds ?? [manifest.mutationId];
-  const candidates = [
-    evidenceAnalysis.selectedMutation,
-    ...evidenceAnalysis.alternatives,
-  ].filter((candidate) => mutationIds.includes(candidate.id));
-  if (candidates.length !== mutationIds.length) {
-    throw new Error(
-      'Manifest mutations no longer match the evidence analysis.',
-    );
-  }
-  const candidateForCluster = (clusterId: string) =>
-    candidates.filter((candidate) =>
-      candidate.pressureClusterIds.includes(clusterId),
-    );
-  const proposal: MutationProposal = {
-    id: manifestMutationId(manifest),
-    name: candidates.map((candidate) => candidate.title).join(' + '),
-    observation: evidenceAnalysis.evidenceAssessment.summary,
-    evidence: manifest.evidenceCitations,
-    hypothesis: candidates.map((candidate) => candidate.hypothesis).join(' '),
-    implementationSummary: candidates
-      .map((candidate) => candidate.change)
-      .join(' '),
-    predictedFitnessGain: fitness.delta,
-    confidence:
-      candidates.reduce((total, candidate) => total + candidate.confidence, 0) /
-      candidates.length,
-    risk: 'low',
-    affectedFiles: manifest.allowedPaths,
-    status,
-  };
-  return EvolutionAnalysisResponseSchema.parse({
-    mode: 'live',
-    model: evidenceAnalysis.model,
-    fitness,
-    findings: evidenceAnalysis.evidenceAssessment.pressureClusters.map(
-      (cluster) => {
-        const linkedCandidates = candidateForCluster(cluster.id);
-        return {
-          id: cluster.id,
-          title: cluster.title,
-          description: cluster.interpretation,
-          impact: linkedCandidates.length
-            ? Math.max(
-                ...linkedCandidates.map(
-                  (candidate) => candidate.scorecard.userImpact,
-                ),
-              )
-            : evidenceAnalysis.evidenceAssessment.quality.score,
-          confidence: linkedCandidates.length
-            ? Math.max(
-                ...linkedCandidates.map((candidate) => candidate.confidence),
-              )
-            : evidenceAnalysis.evidenceAssessment.quality.score / 100,
-          evidence: cluster.evidenceIds,
-        };
-      },
-    ),
-    proposal,
-  });
-};
-
-const manifestExecutionResponse = (
-  manifest: CodexImplementationManifest,
-  evidenceAnalysis: EvidenceAnalysis,
-  proposal: MutationProposal,
-  fitness: FitnessComparison,
-) => {
-  if (
-    proposal.status !== 'approved' &&
-    proposal.status !== 'validated' &&
-    proposal.status !== 'released'
-  ) {
-    throw new Error('Manifest execution is not in an executable state.');
-  }
-  const validation = validationStore.has(proposal.id)
-    ? ValidationResultSchema.parse(validationStore.get(proposal.id))
-    : null;
-  const record =
-    timelineStore.find(
-      (entry) =>
-        entry.mutationId === proposal.id && entry.outcome === 'survived',
-    ) ?? null;
-
-  return ManifestExecutionResponseSchema.parse({
-    manifestId: manifest.manifestId,
-    stage: proposal.status,
-    analysis: {
-      ...manifestAnalysisResponse(
-        manifest,
-        evidenceAnalysis,
-        fitness,
-        proposal.status,
-      ),
-      proposal,
-    },
-    diff: diffForMutation(proposal.id),
-    validation,
-    organism: organismState,
-    record,
-  });
-};
 
 const initialOrganismState = (): OrganismState => ({
   variant: 'baseline',
@@ -783,57 +677,170 @@ export const handleRequest = async (
   ) {
     const analysisId = decodeURIComponent(manifestExecutionMatch[1]!);
     const manifest = await telemetryRepository.getCodexManifest(analysisId);
-    const evidenceAnalysis =
-      await telemetryRepository.getEvidenceAnalysis(analysisId);
-    if (!manifest || !evidenceAnalysis) {
+    if (!manifest) {
       return json(
         {
           error: 'not_found',
-          message: 'A prepared manifest and evidence analysis are required.',
+          message: 'A prepared repository manifest is required.',
         },
         { status: 404 },
       );
     }
-
-    const mutationId = manifestMutationId(manifest);
-    let proposal = mutationStore.get(mutationId);
-    let fitness = fitnessStore.get(mutationId);
-    if (request.method === 'GET' && (!proposal || !fitness)) {
-      return new Response(null, { status: 204, headers: corsHeaders });
+    const existing =
+      await telemetryRepository.getRepositoryExecutionByManifest(
+        manifest.manifestId,
+      );
+    if (request.method === 'GET') {
+      return existing
+        ? json(RepositoryMutationExecutionSchema.parse(existing))
+        : new Response(null, { status: 204, headers: corsHeaders });
     }
-
-    let created = false;
-    if (!proposal || !fitness) {
-      const configuredSeed = Number(env?.DARWIN_DEMO_SEED ?? 1859);
-      const seed = Number.isFinite(configuredSeed) ? configuredSeed : 1859;
-      const baseline = simulate({ seed, variant: 'baseline' });
-      const evolved = simulate({ seed, variant: 'evolved' });
-      fitness = compareFitness(baseline, evolved);
-      proposal = manifestAnalysisResponse(
-        manifest,
-        evidenceAnalysis,
-        fitness,
-        'approved',
-      ).proposal;
-      mutationStore.set(mutationId, proposal);
-      fitnessStore.set(mutationId, fitness);
-      if (!timelineStore.some((record) => record.outcome === 'baseline')) {
-        timelineStore.push({
-          id: `record-baseline-${mutationId}`,
-          version: 'v1.0',
-          outcome: 'baseline',
-          fitness: fitness.baseline,
-          recordedAt: baseline.run.completedAt ?? baseline.run.startedAt,
-        });
-      }
-      await telemetryRepository.saveDemoState(demoState());
-      created = true;
+    if (existing) {
+      return json(RepositoryMutationExecutionSchema.parse(existing));
     }
+    if (!env?.GITHUB_TOKEN || !env.DARWIN_CALLBACK_TOKEN) {
+      return json(
+        {
+          error: 'repository_execution_unavailable',
+          message:
+            'GitHub dispatch and callback credentials must be configured.',
+        },
+        { status: 503 },
+      );
+    }
+    let execution;
+    try {
+      execution = createRepositoryExecution(manifest);
+    } catch (error) {
+      return json(
+        {
+          error: 'repository_manifest_required',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'The manifest is not repository-bound.',
+        },
+        { status: 409 },
+      );
+    }
+    await telemetryRepository.saveRepositoryExecution(execution);
+    try {
+      await dispatchEvolutionWorkflow({
+        token: env.GITHUB_TOKEN,
+        execution,
+        callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/callback`,
+      });
+      execution = updateRepositoryExecution(execution, { status: 'queued' });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      return json(RepositoryMutationExecutionSchema.parse(execution), {
+        status: 201,
+      });
+    } catch (error) {
+      execution = updateRepositoryExecution(execution, {
+        status: 'failed',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'GitHub workflow dispatch failed.',
+      });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      return json(RepositoryMutationExecutionSchema.parse(execution), {
+        status: 502,
+      });
+    }
+  }
 
-    return json(
-      manifestExecutionResponse(manifest, evidenceAnalysis, proposal, fitness),
-      { status: created ? 201 : 200 },
-    );
+  const repositoryExecutionMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)$/,
+  );
+  if (request.method === 'GET' && repositoryExecutionMatch) {
+    const executionId = decodeURIComponent(repositoryExecutionMatch[1]!);
+    const execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    return execution
+      ? json(RepositoryMutationExecutionSchema.parse(execution))
+      : json(
+          { error: 'not_found', message: 'Repository execution not found.' },
+          { status: 404 },
+        );
+  }
+
+  const repositoryManifestMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/manifest$/,
+  );
+  if (request.method === 'GET' && repositoryManifestMatch) {
+    if (
+      !env?.DARWIN_CALLBACK_TOKEN ||
+      request.headers.get('Authorization') !==
+        `Bearer ${env.DARWIN_CALLBACK_TOKEN}`
+    ) {
+      return json(
+        { error: 'unauthorized', message: 'Callback authorization failed.' },
+        { status: 401 },
+      );
+    }
+    const executionId = decodeURIComponent(repositoryManifestMatch[1]!);
+    const execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    const manifest = execution
+      ? await telemetryRepository.getCodexManifest(execution.analysisId)
+      : null;
+    return execution && manifest
+      ? json({ execution, manifest })
+      : json(
+          { error: 'not_found', message: 'Repository manifest not found.' },
+          { status: 404 },
+        );
+  }
+
+  const repositoryCallbackMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/callback$/,
+  );
+  if (request.method === 'POST' && repositoryCallbackMatch) {
+    if (
+      !env?.DARWIN_CALLBACK_TOKEN ||
+      request.headers.get('Authorization') !==
+        `Bearer ${env.DARWIN_CALLBACK_TOKEN}`
+    ) {
+      return json(
+        { error: 'unauthorized', message: 'Callback authorization failed.' },
+        { status: 401 },
+      );
+    }
+    const executionId = decodeURIComponent(repositoryCallbackMatch[1]!);
+    const execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    let callback;
+    try {
+      callback = RepositoryExecutionCallbackSchema.parse(await request.json());
+    } catch {
+      return json(
+        { error: 'invalid_callback', message: 'Callback payload is invalid.' },
+        { status: 400 },
+      );
+    }
+    try {
+      const updated = updateRepositoryExecution(execution, callback);
+      await telemetryRepository.saveRepositoryExecution(updated);
+      return json(RepositoryMutationExecutionSchema.parse(updated));
+    } catch (error) {
+      return json(
+        {
+          error: 'invalid_transition',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Repository execution transition is invalid.',
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const studySessionMatch = pathname.match(

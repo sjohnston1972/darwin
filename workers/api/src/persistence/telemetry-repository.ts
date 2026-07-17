@@ -8,6 +8,7 @@ import type {
   OrganismState,
   OutcomeValidation,
   ProjectFlowWorkspace,
+  RepositoryMutationExecution,
   StoredTelemetryEvent,
   StudyTelemetryEvent,
 } from '@darwin/shared';
@@ -68,6 +69,18 @@ export interface TelemetryRepository {
   getCodexManifest(
     analysisId: string,
   ): Promise<CodexImplementationManifest | null>;
+  saveRepositoryExecution(
+    execution: RepositoryMutationExecution,
+  ): Promise<void>;
+  getRepositoryExecution(
+    executionId: string,
+  ): Promise<RepositoryMutationExecution | null>;
+  getRepositoryExecutionByManifest(
+    manifestId: string,
+  ): Promise<RepositoryMutationExecution | null>;
+  getRepositoryExecutionByAnalysis(
+    analysisId: string,
+  ): Promise<RepositoryMutationExecution | null>;
   saveOutcomeValidation(validation: OutcomeValidation): Promise<void>;
   getLatestOutcomeValidation(): Promise<OutcomeValidation | null>;
   saveDemoState(state: PersistedDemoState): Promise<void>;
@@ -83,6 +96,7 @@ const evidenceAnalysisStore = new Map<
   { studyId: string; analysis: EvidenceAnalysis }
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
+const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
 let outcomeValidationStore: OutcomeValidation | null = null;
 let demoStateStore: PersistedDemoState | null = null;
 
@@ -209,6 +223,30 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return manifestStore.get(analysisId) ?? null;
   }
 
+  async saveRepositoryExecution(execution: RepositoryMutationExecution) {
+    repositoryExecutionStore.set(execution.executionId, execution);
+  }
+
+  async getRepositoryExecution(executionId: string) {
+    return repositoryExecutionStore.get(executionId) ?? null;
+  }
+
+  async getRepositoryExecutionByManifest(manifestId: string) {
+    return (
+      [...repositoryExecutionStore.values()].find(
+        (execution) => execution.manifestId === manifestId,
+      ) ?? null
+    );
+  }
+
+  async getRepositoryExecutionByAnalysis(analysisId: string) {
+    return (
+      [...repositoryExecutionStore.values()].find(
+        (execution) => execution.analysisId === analysisId,
+      ) ?? null
+    );
+  }
+
   async saveOutcomeValidation(validation: OutcomeValidation) {
     outcomeValidationStore = validation;
   }
@@ -231,6 +269,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     evidenceStore.clear();
     evidenceAnalysisStore.clear();
     manifestStore.clear();
+    repositoryExecutionStore.clear();
     outcomeValidationStore = null;
     demoStateStore = null;
   }
@@ -525,6 +564,53 @@ export class D1TelemetryRepository implements TelemetryRepository {
       : null;
   }
 
+  async saveRepositoryExecution(execution: RepositoryMutationExecution) {
+    await this.database
+      .prepare(
+        `INSERT INTO repository_executions (
+          execution_id, manifest_id, analysis_id, status, updated_at,
+          execution_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(execution_id) DO UPDATE SET
+          status = excluded.status,
+          updated_at = excluded.updated_at,
+          execution_json = excluded.execution_json`,
+      )
+      .bind(
+        execution.executionId,
+        execution.manifestId,
+        execution.analysisId,
+        execution.status,
+        execution.updatedAt,
+        JSON.stringify(execution),
+      )
+      .run();
+  }
+
+  private async findRepositoryExecution(where: string, value: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT execution_json FROM repository_executions WHERE ${where} = ? LIMIT 1`,
+      )
+      .bind(value)
+      .first<{ execution_json: string }>();
+    return row
+      ? (JSON.parse(row.execution_json) as RepositoryMutationExecution)
+      : null;
+  }
+
+  async getRepositoryExecution(executionId: string) {
+    return this.findRepositoryExecution('execution_id', executionId);
+  }
+
+  async getRepositoryExecutionByManifest(manifestId: string) {
+    return this.findRepositoryExecution('manifest_id', manifestId);
+  }
+
+  async getRepositoryExecutionByAnalysis(analysisId: string) {
+    return this.findRepositoryExecution('analysis_id', analysisId);
+  }
+
   async saveOutcomeValidation(validation: OutcomeValidation) {
     await this.database
       .prepare(
@@ -585,6 +671,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM analysis_runs'),
       this.database.prepare('DELETE FROM evidence_analyses'),
       this.database.prepare('DELETE FROM codex_manifests'),
+      this.database.prepare('DELETE FROM repository_executions'),
       this.database.prepare('DELETE FROM outcome_validations'),
       this.database.prepare('DELETE FROM demo_state'),
     ]);
