@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { CodexImplementationManifest } from '@darwin/shared';
 import {
+  createRepositoryRollback,
   createRepositoryExecution,
+  updateRepositoryRollback,
   updateRepositoryExecution,
 } from './execution';
 
@@ -69,5 +71,55 @@ describe('repository execution state', () => {
     expect(() =>
       updateRepositoryExecution(running, { status: 'preview_ready' }),
     ).toThrow('codex_running -> preview_ready');
+  });
+
+  it('prepares a rollback only from a retained commit and enforces its review path', () => {
+    const prepared = createRepositoryExecution(manifest);
+    const queued = updateRepositoryExecution(prepared, { status: 'queued' });
+    const running = updateRepositoryExecution(queued, {
+      status: 'codex_running',
+    });
+    const validating = updateRepositoryExecution(running, {
+      status: 'validating',
+    });
+    const review = updateRepositoryExecution(validating, {
+      status: 'pull_request_open',
+      headSha: 'e'.repeat(40),
+      pullRequestNumber: 7,
+      pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
+    });
+    const preview = updateRepositoryExecution(review, {
+      status: 'preview_ready',
+      previewUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+    });
+    const releasing = updateRepositoryExecution(preview, {
+      status: 'releasing',
+    });
+    const released = updateRepositoryExecution(releasing, {
+      status: 'released',
+      headSha: 'f'.repeat(40),
+    });
+
+    const rollback = createRepositoryRollback(
+      released,
+      '2026-07-17T10:02:00.000Z',
+    );
+    expect(rollback).toMatchObject({
+      status: 'prepared',
+      branch: 'darwin/rollback-ffffffffffff',
+      revertedSha: 'f'.repeat(40),
+    });
+
+    const preparedRollback = { ...released, rollback };
+    const queuedRollback = updateRepositoryRollback(preparedRollback, {
+      status: 'queued',
+    });
+    const validatingRollback = updateRepositoryRollback(queuedRollback, {
+      status: 'validating',
+    });
+    expect(validatingRollback.rollback?.status).toBe('validating');
+    expect(() =>
+      updateRepositoryRollback(validatingRollback, { status: 'released' }),
+    ).toThrow('validating -> released');
   });
 });

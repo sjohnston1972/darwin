@@ -1,4 +1,7 @@
-import type { RepositoryMutationExecution } from '@darwin/shared';
+import type {
+  RepositoryMutationExecution,
+  RepositoryRollback,
+} from '@darwin/shared';
 
 const headers = (token: string) => ({
   Accept: 'application/vnd.github+json',
@@ -43,6 +46,45 @@ export async function dispatchEvolutionWorkflow({
   }
 }
 
+export interface DispatchRollbackWorkflowOptions {
+  token: string;
+  execution: RepositoryMutationExecution;
+  rollback: RepositoryRollback;
+  callbackUrl: string;
+  fetch?: typeof fetch;
+}
+
+export async function dispatchRollbackWorkflow({
+  token,
+  execution,
+  rollback,
+  callbackUrl,
+  fetch: fetcher = fetch,
+}: DispatchRollbackWorkflowOptions) {
+  const response = await fetcher(
+    `https://api.github.com/repos/${execution.repository.fullName}/actions/workflows/darwin-rollback.yml/dispatches`,
+    {
+      method: 'POST',
+      headers: headers(token),
+      body: JSON.stringify({
+        ref: execution.repository.branch,
+        inputs: {
+          execution_id: execution.executionId,
+          rollback_id: rollback.rollbackId,
+          rollback_branch: rollback.branch,
+          released_sha: rollback.revertedSha,
+          callback_url: callbackUrl,
+        },
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `GitHub rollback workflow dispatch failed with HTTP ${response.status}.`,
+    );
+  }
+}
+
 export interface MergeEvolutionPullRequestOptions {
   token: string;
   execution: RepositoryMutationExecution;
@@ -82,6 +124,52 @@ export async function mergeEvolutionPullRequest({
   ) {
     throw new Error(
       `GitHub pull request merge failed with HTTP ${response.status}.`,
+    );
+  }
+  return payload.sha;
+}
+
+export interface MergeRollbackPullRequestOptions {
+  token: string;
+  execution: RepositoryMutationExecution;
+  rollback: RepositoryRollback;
+  fetch?: typeof fetch;
+}
+
+export async function mergeRollbackPullRequest({
+  token,
+  execution,
+  rollback,
+  fetch: fetcher = fetch,
+}: MergeRollbackPullRequestOptions) {
+  if (!rollback.pullRequestNumber || !rollback.headSha) {
+    throw new Error(
+      'Repository rollback does not have a reviewable pull request.',
+    );
+  }
+  const response = await fetcher(
+    `https://api.github.com/repos/${execution.repository.fullName}/pulls/${rollback.pullRequestNumber}/merge`,
+    {
+      method: 'PUT',
+      headers: headers(token),
+      body: JSON.stringify({
+        sha: rollback.headSha,
+        merge_method: 'squash',
+        commit_title: `Darwin rollback: ${execution.manifestId}`,
+      }),
+    },
+  );
+  const payload = (await response.json().catch(() => null)) as {
+    merged?: boolean;
+    sha?: string;
+  } | null;
+  if (
+    !response.ok ||
+    payload?.merged !== true ||
+    !payload.sha?.match(/^[a-f0-9]{40}$/)
+  ) {
+    throw new Error(
+      `GitHub rollback pull request merge failed with HTTP ${response.status}.`,
     );
   }
   return payload.sha;

@@ -373,6 +373,59 @@ const installApi = (
       }
       if (
         url.endsWith(
+          '/api/repository-executions/execution-measured-test/rollback/release',
+        )
+      ) {
+        liveExecution = {
+          ...liveExecution,
+          rollback: {
+            ...(liveExecution?.rollback as Record<string, unknown>),
+            status: 'released',
+            headSha: '2'.repeat(40),
+            previewUrl: repository.studyUrl,
+            completedAt: timestamp,
+          },
+        };
+        return response(liveExecution);
+      }
+      if (
+        url.endsWith(
+          '/api/repository-executions/execution-measured-test/rollback',
+        )
+      ) {
+        liveExecution = {
+          ...liveExecution,
+          rollback: {
+            rollbackId: 'rollback-111111111111',
+            status: 'queued',
+            branch: 'darwin/rollback-111111111111',
+            revertedSha: '1'.repeat(40),
+            headSha: null,
+            workflowRunId: null,
+            workflowUrl: null,
+            pullRequestNumber: null,
+            pullRequestUrl: null,
+            previewUrl: null,
+            patch: null,
+            changedFiles: [],
+            checks: [
+              {
+                name: 'Git revert generation',
+                status: 'pending',
+                durationMs: null,
+                output: 'Waiting for the controlled rollback workflow.',
+              },
+            ],
+            error: null,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            completedAt: null,
+          },
+        };
+        return response(liveExecution, 201);
+      }
+      if (
+        url.endsWith(
           '/api/repository-executions/execution-measured-test/release',
         )
       ) {
@@ -599,7 +652,10 @@ describe('Darwin control room', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Release reviewed mutation' }),
     );
-    expect(await screen.findByText('Mutation released')).toBeVisible();
+    expect(await screen.findByText('Ready for fresh evidence')).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: 'Open fossil record' }),
+    ).toHaveAttribute('href', '/?view=fossil');
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/analyse-evidence'),

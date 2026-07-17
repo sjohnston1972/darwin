@@ -73,7 +73,7 @@ a:focus-visible {
 }
 
 .section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -462,7 +462,7 @@ a:focus-visible {
   gap: 5px;
   color: #d6ff9e;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   white-space: nowrap;
@@ -514,7 +514,7 @@ a:focus-visible {
   background: #1c211e;
   border: 1px solid #343b36;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 10px;
   cursor: help;
 }
 
@@ -565,7 +565,7 @@ a:focus-visible {
   color: #758078;
   background: #202421;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .is-active .guide-index,
@@ -591,12 +591,12 @@ a:focus-visible {
 }
 
 .guide-step strong {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .guide-step small {
   color: #717b74;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .metric-grid {
@@ -777,7 +777,7 @@ a:focus-visible {
   border: 0;
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -810,7 +810,7 @@ a:focus-visible {
   min-height: 38px;
   color: #87969d;
   border-bottom: 1px solid rgb(126 144 151 / 10%);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .event-sequence {
@@ -905,7 +905,7 @@ a:focus-visible {
   grid-column: span 2;
   overflow: hidden;
   color: #789087;
-  font-size: 9px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -917,7 +917,7 @@ a:focus-visible {
   border: 1px solid rgb(104 212 164 / 20%);
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -935,7 +935,7 @@ a:focus-visible {
 
 .evidence-pack-header dt {
   color: var(--mist);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -970,19 +970,19 @@ a:focus-visible {
 .validation-plan > span {
   color: #7f8e94;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
 .evidence-quality-band strong {
   color: #e7b85b;
-  font-size: 11px;
+  font-size: 13px;
   text-transform: capitalize;
 }
 
 .evidence-quality-band code {
   color: #c3cbd0;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .evidence-quality-band ul {
@@ -990,7 +990,7 @@ a:focus-visible {
   flex-wrap: wrap;
   gap: 6px 18px;
   color: #9ba7ac;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .reasoning-workspace {
@@ -1024,7 +1024,7 @@ a:focus-visible {
 
 .reasoning-heading p {
   color: var(--mist);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reasoning-title {
@@ -1037,7 +1037,7 @@ a:focus-visible {
   background: #202522;
   border: 1px solid #3c443e;
   font-family: var(--font-mono);
-  font-size: 7px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1053,7 +1053,7 @@ a:focus-visible {
 
 .model-context > span {
   color: #758078;
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1062,7 +1062,7 @@ a:focus-visible {
   color: #9aa59e;
   background: #1b201d;
   border: 1px solid #313733;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .analysis-result {
@@ -1077,7 +1077,7 @@ a:focus-visible {
   background: rgb(10 20 23 / 55%);
   border-bottom: 1px solid var(--line);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1104,13 +1104,13 @@ a:focus-visible {
 
 .reasoning-assessment strong {
   color: #68d4a4;
-  font-size: 11px;
+  font-size: 13px;
   text-transform: capitalize;
 }
 
 .reasoning-assessment p {
   color: #b3bec2;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -1161,19 +1161,19 @@ a:focus-visible {
 
 .pressure-clusters summary strong {
   color: #d2dcdf;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .pressure-clusters summary code {
   color: #68d4a4;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .pressure-clusters details > p,
 .pressure-clusters dl {
   margin: 0 0 12px;
   color: #9ba8ad;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -1185,7 +1185,7 @@ a:focus-visible {
 
 .pressure-clusters dt {
   color: #718188;
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1206,7 +1206,7 @@ a:focus-visible {
   gap: 10px;
   color: #68d4a4;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .mutation-choice-control {
@@ -1215,7 +1215,7 @@ a:focus-visible {
   gap: 6px;
   color: #a9b8bd;
   cursor: pointer;
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.4;
   text-transform: none;
 }
@@ -1234,7 +1234,7 @@ a:focus-visible {
   max-width: 740px;
   margin-top: 7px;
   color: #9fadb2;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -1249,7 +1249,7 @@ a:focus-visible {
 .mutation-causal-change span {
   color: #68d4a4;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1271,7 +1271,7 @@ a:focus-visible {
   border: 1px solid rgb(114 132 139 / 18%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1308,7 +1308,7 @@ a:focus-visible {
   margin-bottom: 5px;
   color: #68d4a4;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1331,7 +1331,7 @@ a:focus-visible {
 
 .mutation-scorecard span {
   color: #728188;
-  font-size: 7px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1353,7 +1353,7 @@ a:focus-visible {
   display: block;
   margin-top: 5px;
   color: #d1dde4;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .mutation-alternatives {
@@ -1365,7 +1365,7 @@ a:focus-visible {
   margin-bottom: 7px;
   color: #64777e;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1378,7 +1378,7 @@ a:focus-visible {
   color: #84949a;
   border-top: 1px solid rgb(126 144 151 / 10%);
   cursor: pointer;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .mutation-alternatives > .alternative-choice.is-selected {
@@ -1402,7 +1402,7 @@ a:focus-visible {
   border: 1px solid rgb(104 212 164 / 14%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .mutation-alternatives p {
@@ -1439,18 +1439,18 @@ a:focus-visible {
 .portfolio-targets > span {
   color: #718188;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
 .mutation-portfolio-heading strong {
   color: #d5dedb;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .mutation-portfolio-heading > code {
   color: #8e9da2;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .mutation-portfolio-row {
@@ -1519,14 +1519,14 @@ a:focus-visible {
   border: 1px solid hsl(var(--preference-heat) 70% 55% / 24%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 7px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
 .portfolio-title strong {
   overflow: hidden;
   color: #d9e2df;
-  font-size: 12px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1534,7 +1534,7 @@ a:focus-visible {
 .portfolio-title > span {
   overflow: hidden;
   color: #85959b;
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1554,7 +1554,7 @@ a:focus-visible {
 
 .portfolio-preference > span {
   color: #75868c;
-  font-size: 7px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1591,7 +1591,7 @@ a:focus-visible {
   border-left: 1px solid rgb(126 144 151 / 14%);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .portfolio-select input {
@@ -1613,7 +1613,7 @@ a:focus-visible {
 .portfolio-implementation-context p {
   margin: 5px 0 0;
   color: #a8b5b9;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -1632,18 +1632,18 @@ a:focus-visible {
 
 .portfolio-pressure-analysis > div:first-child code {
   color: hsl(var(--preference-heat) 78% 67%);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .portfolio-pressure-analysis > div:first-child strong {
   color: #d2dcdf;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .portfolio-pressure-analysis > p {
   margin: 9px 0 13px;
   color: #9fadb2;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -1662,7 +1662,7 @@ a:focus-visible {
   border: 1px solid hsl(var(--preference-heat) 68% 55% / 18%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .portfolio-pressure-analysis dl {
@@ -1674,14 +1674,14 @@ a:focus-visible {
 
 .portfolio-pressure-analysis dt {
   color: #718188;
-  font-size: 7px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
 .portfolio-pressure-analysis dd {
   margin: 4px 0 0;
   color: #a9b5b9;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -1700,14 +1700,14 @@ a:focus-visible {
   color: #91a5ad;
   background: rgb(92 116 128 / 9%);
   border-radius: 3px;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .validation-plan small {
   display: block;
   margin-top: 7px;
   color: #7f929a;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.5;
 }
 
@@ -1738,12 +1738,12 @@ a:focus-visible {
 
 .codex-handoff strong {
   color: #ddd5c9;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .codex-handoff span {
   color: #8e8981;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .manifest-audit {
@@ -1754,7 +1754,7 @@ a:focus-visible {
   padding: 0 20px;
   color: #6f8288;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .manifest-audit code {
@@ -1795,13 +1795,13 @@ a:focus-visible {
 .outcome-heading p {
   flex-basis: 100%;
   color: var(--mist);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .outcome-provenance {
   color: #d7a968;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1825,7 +1825,7 @@ a:focus-visible {
 .outcome-comparison span,
 .outcome-comparison small {
   color: #829198;
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -1838,7 +1838,7 @@ a:focus-visible {
 .outcome-comparison code {
   margin-top: 5px;
   color: #5f747a;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .outcome-comparison .outcome-delta {
@@ -1865,7 +1865,7 @@ a:focus-visible {
   color: #b9c7c1;
   background: rgb(104 212 164 / 5%);
   border-top: 1px solid rgb(104 212 164 / 12%);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .outcome-conclusion svg {
@@ -1875,7 +1875,7 @@ a:focus-visible {
 .outcome-conclusion code {
   margin-left: auto;
   color: #68d4a4;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .evidence-signals details {
@@ -1899,17 +1899,17 @@ a:focus-visible {
 .evidence-signals summary > span {
   color: #75d6ad;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .evidence-signals summary strong {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
 .evidence-signals summary small {
   color: #d39c4e;
-  font-size: 8px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -1920,7 +1920,7 @@ a:focus-visible {
 .evidence-signals details > p {
   margin: 0 0 12px 64px;
   color: #aab8bd;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .signal-provenance {
@@ -1929,7 +1929,7 @@ a:focus-visible {
   margin: 0 0 12px 64px;
   color: #728087;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .signal-trace {
@@ -1945,7 +1945,7 @@ a:focus-visible {
 .signal-trace code {
   overflow: hidden;
   color: #84959c;
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1953,7 +1953,7 @@ a:focus-visible {
 .no-signals {
   margin: 10px 0 0;
   color: var(--mist);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .metric-indicator {
@@ -1987,7 +1987,7 @@ a:focus-visible {
   padding: 6px 9px;
   color: #a9b2ac;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2439,9 +2439,9 @@ a:focus-visible {
   gap: 8px;
   border: 1px solid #43503e;
   padding: 6px 9px;
-  color: #b9f36b;
+  color: #a7ca7f;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2473,12 +2473,12 @@ a:focus-visible {
   place-items: center;
   border: 1px solid #3b423e;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .execution-step strong {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -2494,7 +2494,7 @@ a:focus-visible {
 }
 
 .execution-step.step-complete {
-  color: #b9f36b;
+  color: #a7ca7f;
 }
 
 .execution-step.step-complete > span {
@@ -2527,7 +2527,7 @@ a:focus-visible {
 .manifest-execution-brief > span {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2541,7 +2541,7 @@ a:focus-visible {
   overflow-wrap: anywhere;
   color: #c5ccc7;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .repository-links {
@@ -2559,8 +2559,8 @@ a:focus-visible {
   gap: 7px;
   border: 1px solid #39433d;
   padding: 0 10px;
-  color: #b9f36b;
-  font-size: 9px;
+  color: #9fc47a;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -2585,12 +2585,12 @@ a:focus-visible {
 }
 
 .execution-error strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .execution-error span {
   color: #c69a91;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -2622,7 +2622,7 @@ a:focus-visible {
 .artifact-heading span {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2631,7 +2631,7 @@ a:focus-visible {
   overflow-wrap: anywhere;
   color: #c5ccc7;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -2643,7 +2643,7 @@ a:focus-visible {
   background: #101311;
   color: #a7b0aa;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.65;
 }
 
@@ -2673,7 +2673,7 @@ a:focus-visible {
 
 .diff-viewer .diff-addition {
   background: rgb(126 166 75 / 10%);
-  color: #c7e9a0;
+  color: #afd08b;
 }
 
 .diff-viewer .diff-removal {
@@ -2688,7 +2688,7 @@ a:focus-visible {
 .check-summary {
   border: 1px solid #718f4c;
   padding: 4px 7px;
-  color: #b9f36b !important;
+  color: #a7ca7f !important;
 }
 
 .check-summary.summary-failed {
@@ -2716,7 +2716,7 @@ a:focus-visible {
 .validation-ready span {
   max-width: 260px;
   text-align: center;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -2735,7 +2735,7 @@ a:focus-visible {
   grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  color: #b9f36b;
+  color: #a7ca7f;
   cursor: pointer;
   list-style: none;
 }
@@ -2746,13 +2746,13 @@ a:focus-visible {
 
 .validation-checks summary span {
   color: #c5ccc7;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .validation-checks summary strong {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -2765,7 +2765,7 @@ a:focus-visible {
   background: #101311;
   color: #8d9690;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -2785,12 +2785,12 @@ a:focus-visible {
   overflow-wrap: anywhere;
   color: #a7b0aa;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .manifest-execution-brief p {
   color: #c5ccc7;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -2806,9 +2806,9 @@ a:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  color: #b9f36b;
+  color: #a7ca7f;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -2819,7 +2819,7 @@ a:focus-visible {
   padding: 12px;
   color: #a7b0aa;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -2835,7 +2835,7 @@ a:focus-visible {
 }
 
 .fitness-gain {
-  color: #b9f36b !important;
+  color: #a7ca7f !important;
   font-size: 13px !important;
 }
 
@@ -2858,19 +2858,19 @@ a:focus-visible {
 
 .fitness-evidence-grid span {
   color: #89928c;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .fitness-evidence-grid strong {
   color: #89928c;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 500;
   text-align: right;
 }
 
 .fitness-evidence-grid strong:last-child {
-  color: #b9f36b;
+  color: #a7ca7f;
 }
 
 .fitness-evidence-grid svg {
@@ -2887,8 +2887,61 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 9px;
-  color: #b9f36b;
-  font-size: 11px;
+  color: #a7ca7f;
+  font-size: 12px;
+}
+
+.mutation-reset-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 26px;
+}
+
+.rollback-workspace {
+  border-top: 1px solid #2b302d;
+  background: #121513;
+}
+
+.rollback-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.rollback-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid #2b302d;
+  padding: 18px 24px 24px;
+  color: #9aa39d;
+  font-size: 12px;
+}
+
+.rollback-empty code {
+  color: #c5ccc7;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.rollback-summary {
+  border-top: 1px solid #2b302d;
+}
+
+.rollback-patch {
+  margin: 0 24px;
+}
+
+.rollback-checks {
+  margin: 18px 24px 0;
+}
+
+.rollback-confirmation {
+  padding: 7px 0;
 }
 
 .status-badge.is-failed {
@@ -3616,7 +3669,9 @@ html[data-theme='light'] .repository-links,
 html[data-theme='light'] .codex-run-message,
 html[data-theme='light'] .codex-run-message pre,
 html[data-theme='light'] .changed-file-list,
-html[data-theme='light'] .manifest-execution-brief {
+html[data-theme='light'] .manifest-execution-brief,
+html[data-theme='light'] .rollback-workspace,
+html[data-theme='light'] .rollback-empty {
   border-color: #d7e0e8;
   background: #f7fafc;
 }
@@ -3625,7 +3680,9 @@ html[data-theme='light'] .repository-run-summary code,
 html[data-theme='light'] .repository-run-summary a,
 html[data-theme='light'] .manifest-execution-brief p,
 html[data-theme='light'] .codex-run-message pre,
-html[data-theme='light'] .changed-file-list code {
+html[data-theme='light'] .changed-file-list code,
+html[data-theme='light'] .rollback-empty,
+html[data-theme='light'] .rollback-empty code {
   color: #263746;
 }
 
@@ -3662,7 +3719,10 @@ html[data-theme='light'] .genome-comparison-row,
 html[data-theme='light'] .genome-comparison-header,
 html[data-theme='light'] .validation-checks,
 html[data-theme='light'] .validation-checks details,
-html[data-theme='light'] .validation-ready {
+html[data-theme='light'] .validation-ready,
+html[data-theme='light'] .rollback-workspace,
+html[data-theme='light'] .rollback-empty,
+html[data-theme='light'] .rollback-summary {
   border-color: #d7e0e8;
 }
 
@@ -4252,6 +4312,19 @@ html[data-theme='light'] .error-band {
   .execution-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .mutation-reset-panel,
+  .rollback-heading,
+  .rollback-empty {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .rollback-patch,
+  .rollback-checks {
+    margin-right: 20px;
+    margin-left: 20px;
   }
 
   .execution-steps {

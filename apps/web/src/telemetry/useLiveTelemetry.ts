@@ -33,6 +33,8 @@ export interface LiveTelemetryState {
   implementing: boolean;
   preparingManifest: boolean;
   releasingExecution: boolean;
+  releasingRollback: boolean;
+  rollingBack: boolean;
   participantCount: number;
   resetState: () => void;
   resetEvolution: () => Promise<boolean>;
@@ -40,6 +42,8 @@ export interface LiveTelemetryState {
   startControlledEvolution: (mutationIds: string[]) => Promise<void>;
   status: 'loading' | 'live' | 'offline';
   releaseExecution: () => Promise<void>;
+  releaseRollback: () => Promise<void>;
+  startRollback: () => Promise<void>;
 }
 
 export function useLiveTelemetry(): LiveTelemetryState {
@@ -63,6 +67,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
     useState<RepositoryMutationExecution | null>(null);
   const [implementing, setImplementing] = useState(false);
   const [releasingExecution, setReleasingExecution] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
+  const [releasingRollback, setReleasingRollback] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
 
@@ -150,7 +156,15 @@ export function useLiveTelemetry(): LiveTelemetryState {
   }, []);
 
   useEffect(() => {
-    if (!execution || ['failed', 'released'].includes(execution.status)) return;
+    const rollbackComplete =
+      !execution?.rollback ||
+      ['failed', 'released'].includes(execution.rollback.status);
+    if (
+      !execution ||
+      (['failed', 'released'].includes(execution.status) && rollbackComplete)
+    ) {
+      return;
+    }
     let active = true;
     const poll = async () => {
       try {
@@ -172,7 +186,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       active = false;
       window.clearInterval(interval);
     };
-  }, [execution?.executionId, execution?.status]);
+  }, [execution?.executionId, execution?.status, execution?.rollback?.status]);
 
   const generateEvidence = async () => {
     setGenerating(true);
@@ -313,6 +327,66 @@ export function useLiveTelemetry(): LiveTelemetryState {
     }
   };
 
+  const startRollback = async () => {
+    if (!execution) return;
+    setRollingBack(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/repository-executions/${execution.executionId}/rollback`,
+        { method: 'POST' },
+      );
+      const payload = (await response.json()) as { message?: string };
+      const parsedExecution =
+        RepositoryMutationExecutionSchema.safeParse(payload);
+      if (parsedExecution.success) setExecution(parsedExecution.data);
+      if (!response.ok) {
+        throw new Error(
+          parsedExecution.success
+            ? (parsedExecution.data.rollback?.error ??
+                'Rollback preparation failed.')
+            : (payload.message ?? 'Rollback preparation failed.'),
+        );
+      }
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : 'Rollback preparation failed.',
+      );
+    } finally {
+      setRollingBack(false);
+    }
+  };
+
+  const releaseRollback = async () => {
+    if (!execution?.rollback) return;
+    setReleasingRollback(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/repository-executions/${execution.executionId}/rollback/release`,
+        { method: 'POST' },
+      );
+      const payload = (await response.json()) as { message?: string };
+      const parsedExecution =
+        RepositoryMutationExecutionSchema.safeParse(payload);
+      if (parsedExecution.success) setExecution(parsedExecution.data);
+      if (!response.ok) {
+        throw new Error(
+          parsedExecution.success
+            ? (parsedExecution.data.rollback?.error ??
+                'Rollback release failed.')
+            : (payload.message ?? 'Rollback release failed.'),
+        );
+      }
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : 'Rollback release failed.',
+      );
+    } finally {
+      setReleasingRollback(false);
+    }
+  };
+
   const resetState = () => {
     resetGeneration.current += 1;
     setEvents([]);
@@ -330,6 +404,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setPreparingManifest(false);
     setImplementing(false);
     setReleasingExecution(false);
+    setRollingBack(false);
+    setReleasingRollback(false);
     setStatus('live');
   };
 
@@ -372,10 +448,14 @@ export function useLiveTelemetry(): LiveTelemetryState {
     preparingManifest,
     releaseExecution,
     releasingExecution,
+    releaseRollback,
+    releasingRollback,
     resetEvolution,
     resetState,
     sessionCounts,
     startControlledEvolution,
+    startRollback,
     status,
+    rollingBack,
   };
 }

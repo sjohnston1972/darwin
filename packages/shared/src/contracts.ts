@@ -808,6 +808,40 @@ export const RepositoryExecutionCheckSchema = z.object({
   output: z.string(),
 });
 
+export const RepositoryRollbackStatusSchema = z.enum([
+  'prepared',
+  'queued',
+  'validating',
+  'failed',
+  'pull_request_open',
+  'preview_ready',
+  'releasing',
+  'released',
+]);
+
+export const RepositoryRollbackSchema = z.object({
+  rollbackId: StudyIdentifierSchema,
+  status: RepositoryRollbackStatusSchema,
+  branch: z.string().min(1),
+  revertedSha: z.string().regex(/^[a-f0-9]{40}$/),
+  headSha: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  workflowRunId: z.number().int().positive().nullable(),
+  workflowUrl: z.string().url().nullable(),
+  pullRequestNumber: z.number().int().positive().nullable(),
+  pullRequestUrl: z.string().url().nullable(),
+  previewUrl: z.string().url().nullable(),
+  patch: z.string().nullable(),
+  changedFiles: z.array(z.string().min(1)),
+  checks: z.array(RepositoryExecutionCheckSchema),
+  error: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+});
+
 export const RepositoryMutationExecutionSchema = z.object({
   executionId: StudyIdentifierSchema,
   manifestId: StudyIdentifierSchema,
@@ -835,6 +869,7 @@ export const RepositoryMutationExecutionSchema = z.object({
     cachedInputTokens: z.number().int().nonnegative().nullable(),
     outputTokens: z.number().int().nonnegative().nullable(),
   }),
+  rollback: RepositoryRollbackSchema.nullable().default(null),
   error: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -859,6 +894,23 @@ export const RepositoryExecutionCallbackSchema =
   })
     .partial()
     .extend({ status: RepositoryExecutionStatusSchema });
+
+export const RepositoryRollbackCallbackSchema = RepositoryRollbackSchema.pick({
+  status: true,
+  headSha: true,
+  workflowRunId: true,
+  workflowUrl: true,
+  pullRequestNumber: true,
+  pullRequestUrl: true,
+  previewUrl: true,
+  patch: true,
+  changedFiles: true,
+  checks: true,
+  error: true,
+  completedAt: true,
+})
+  .partial()
+  .extend({ status: RepositoryRollbackStatusSchema });
 
 export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
@@ -934,5 +986,12 @@ export type RepositoryMutationExecution = z.infer<
 >;
 export type RepositoryExecutionCallback = z.infer<
   typeof RepositoryExecutionCallbackSchema
+>;
+export type RepositoryRollbackStatus = z.infer<
+  typeof RepositoryRollbackStatusSchema
+>;
+export type RepositoryRollback = z.infer<typeof RepositoryRollbackSchema>;
+export type RepositoryRollbackCallback = z.infer<
+  typeof RepositoryRollbackCallbackSchema
 >;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;

@@ -175,7 +175,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.22.0');
+    expect(body.version).toBe('0.23.0');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -771,6 +771,90 @@ describe('Darwin API', () => {
     expect(releaseResponse.status).toBe(200);
     expect(releasedExecution.status).toBe('released');
     expect(releasedExecution.headSha).toBe('f'.repeat(40));
+
+    const rollbackResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/repository-executions/${execution.executionId}/rollback`,
+        { method: 'POST' },
+      ),
+      {
+        GITHUB_TOKEN: 'github-test-token',
+        DARWIN_CALLBACK_TOKEN: 'callback-test-token',
+      },
+    );
+    let rollbackExecution = RepositoryMutationExecutionSchema.parse(
+      await rollbackResponse.json(),
+    );
+    expect(rollbackResponse.status).toBe(201);
+    expect(rollbackExecution.rollback).toMatchObject({
+      status: 'queued',
+      revertedSha: 'f'.repeat(40),
+    });
+
+    const rollbackCallback = async (body: Record<string, unknown>) => {
+      const response = await handleRequest(
+        new Request(
+          `http://localhost/api/repository-executions/${execution.executionId}/rollback/callback`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer callback-test-token',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+          },
+        ),
+        { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+      );
+      return { response, body: await response.json() };
+    };
+    rollbackExecution = RepositoryMutationExecutionSchema.parse(
+      (await rollbackCallback({ status: 'validating' })).body,
+    );
+    rollbackExecution = RepositoryMutationExecutionSchema.parse(
+      (
+        await rollbackCallback({
+          status: 'pull_request_open',
+          headSha: 'a'.repeat(40),
+          pullRequestNumber: 19,
+          pullRequestUrl:
+            'https://github.com/sjohnston1972/projectflow/pull/19',
+          patch: '@@ inverse patch @@\n- mutation\n+ baseline',
+          changedFiles: ['apps/projectflow/src/App.tsx'],
+          checks: [
+            {
+              name: 'Git revert generation',
+              status: 'passed',
+              durationMs: null,
+              output: 'Exact inverse patch generated.',
+            },
+          ],
+        })
+      ).body,
+    );
+    rollbackExecution = RepositoryMutationExecutionSchema.parse(
+      (
+        await rollbackCallback({
+          status: 'preview_ready',
+          previewUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+        })
+      ).body,
+    );
+    expect(rollbackExecution.rollback?.status).toBe('preview_ready');
+
+    const rollbackReleaseResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/repository-executions/${execution.executionId}/rollback/release`,
+        { method: 'POST' },
+      ),
+      { GITHUB_TOKEN: 'github-test-token' },
+    );
+    rollbackExecution = RepositoryMutationExecutionSchema.parse(
+      await rollbackReleaseResponse.json(),
+    );
+    expect(rollbackReleaseResponse.status).toBe(200);
+    expect(rollbackExecution.rollback?.status).toBe('released');
+    expect(rollbackExecution.rollback?.headSha).toBe('f'.repeat(40));
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

@@ -5,6 +5,7 @@ import {
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type RepositoryMutationExecution,
+  type RepositoryRollback,
   type StoredTelemetryEvent,
   type TargetApplicationConnection,
   type TargetConnectionRequest,
@@ -154,12 +155,19 @@ function App() {
     liveTelemetry.execution?.repository ??
     liveTelemetry.analysis?.repository ??
     undefined;
+  const rollback = liveTelemetry.execution?.rollback;
+  const rollbackPreviewUrl =
+    rollback && ['preview_ready', 'releasing'].includes(rollback.status)
+      ? rollback.previewUrl
+      : null;
   const targetApplicationUrl =
+    rollbackPreviewUrl ??
     (liveTelemetry.execution?.previewUrl &&
     ['preview_ready', 'releasing'].includes(liveTelemetry.execution.status)
       ? liveTelemetry.execution.previewUrl
       : (targetConnection.connection?.repository.studyUrl ??
-        repository?.studyUrl)) ?? `${projectFlowBaseUrl}/?study=true`;
+        repository?.studyUrl)) ??
+    `${projectFlowBaseUrl}/?study=true`;
   const executionCommit =
     liveTelemetry.execution &&
     ['preview_ready', 'releasing', 'released'].includes(
@@ -167,10 +175,22 @@ function App() {
     )
       ? liveTelemetry.execution.headSha
       : null;
+  const rollbackCommit =
+    rollback?.status === 'released' ? rollback.headSha : null;
   const activeCommit =
-    targetConnection.connection?.repository.baseSha ??
+    rollbackCommit ??
     executionCommit ??
+    targetConnection.connection?.repository.baseSha ??
     repository?.baseSha;
+  const activeGenomeStage =
+    rollback?.status === 'released'
+      ? 'rollback released'
+      : rollback
+        ? `rollback ${rollback.status}`
+        : (liveTelemetry.execution?.status ?? 'measured baseline');
+  const mutationArchived =
+    liveTelemetry.execution?.status === 'released' &&
+    (!rollback || ['failed', 'released'].includes(rollback.status));
   const activeGenomeLoci = repository
     ? [
         { locus: 'Repository', value: repository.fullName },
@@ -521,32 +541,41 @@ function App() {
             />
           )}
 
-          {activeView === 'Mutations' && (
-            <>
-              <LiveTelemetryPanel
-                telemetry={liveTelemetry}
-                analysisConfig={health.analysis}
-                mode="mutations"
-              />
-              {liveTelemetry.execution && (
-                <RepositoryExecutionWorkspace
-                  execution={liveTelemetry.execution}
-                  manifest={liveTelemetry.manifest}
-                  releasing={liveTelemetry.releasingExecution}
-                  retrying={liveTelemetry.implementing}
-                  onRelease={() => void liveTelemetry.releaseExecution()}
-                  onRetry={() =>
-                    void liveTelemetry.startControlledEvolution(
-                      liveTelemetry.manifest?.mutationIds ??
-                        (liveTelemetry.manifest
-                          ? [liveTelemetry.manifest.mutationId]
-                          : []),
-                    )
-                  }
+          {activeView === 'Mutations' &&
+            (mutationArchived && liveTelemetry.execution ? (
+              <MutationWorkspaceReset execution={liveTelemetry.execution} />
+            ) : (
+              <>
+                <LiveTelemetryPanel
+                  telemetry={liveTelemetry}
+                  analysisConfig={health.analysis}
+                  mode="mutations"
                 />
-              )}
-            </>
-          )}
+                {liveTelemetry.execution && (
+                  <RepositoryExecutionWorkspace
+                    execution={liveTelemetry.execution}
+                    manifest={liveTelemetry.manifest}
+                    releasing={liveTelemetry.releasingExecution}
+                    retrying={liveTelemetry.implementing}
+                    rollingBack={liveTelemetry.rollingBack}
+                    releasingRollback={liveTelemetry.releasingRollback}
+                    onRelease={() => void liveTelemetry.releaseExecution()}
+                    onRollback={() => void liveTelemetry.startRollback()}
+                    onReleaseRollback={() =>
+                      void liveTelemetry.releaseRollback()
+                    }
+                    onRetry={() =>
+                      void liveTelemetry.startControlledEvolution(
+                        liveTelemetry.manifest?.mutationIds ??
+                          (liveTelemetry.manifest
+                            ? [liveTelemetry.manifest.mutationId]
+                            : []),
+                      )
+                    }
+                  />
+                )}
+              </>
+            ))}
 
           {activeView === 'System status' && (
             <section className="mt-8 grid gap-8 lg:grid-cols-2">
@@ -612,7 +641,7 @@ function App() {
                     label="Active genome"
                     value={
                       activeCommit
-                        ? `${activeCommit.slice(0, 12)} · ${liveTelemetry.execution?.status ?? 'measured baseline'}`
+                        ? `${activeCommit.slice(0, 12)} · ${activeGenomeStage}`
                         : 'awaiting repository snapshot'
                     }
                     ready={repository !== undefined}
@@ -648,7 +677,7 @@ function App() {
                   <div className="genome-comparison-header" role="row">
                     <span role="columnheader">Locus</span>
                     <strong className="is-active" role="columnheader">
-                      {liveTelemetry.execution?.status ?? 'baseline'}
+                      {activeGenomeStage}
                     </strong>
                   </div>
                   {activeGenomeLoci.map((row) => (
@@ -736,11 +765,40 @@ function App() {
                         execution={liveTelemetry.execution}
                       />
                     )}
+                    {liveTelemetry.execution?.rollback && (
+                      <RepositoryRollbackFossilRow
+                        rollback={liveTelemetry.execution.rollback}
+                      />
+                    )}
                   </tbody>
                 </table>
               </div>
             </section>
           )}
+
+          {activeView === 'Fossil record' &&
+            liveTelemetry.execution?.status === 'released' && (
+              <RepositoryExecutionWorkspace
+                archived
+                execution={liveTelemetry.execution}
+                manifest={liveTelemetry.manifest}
+                releasing={liveTelemetry.releasingExecution}
+                retrying={liveTelemetry.implementing}
+                rollingBack={liveTelemetry.rollingBack}
+                releasingRollback={liveTelemetry.releasingRollback}
+                onRelease={() => void liveTelemetry.releaseExecution()}
+                onRollback={() => void liveTelemetry.startRollback()}
+                onReleaseRollback={() => void liveTelemetry.releaseRollback()}
+                onRetry={() =>
+                  void liveTelemetry.startControlledEvolution(
+                    liveTelemetry.manifest?.mutationIds ??
+                      (liveTelemetry.manifest
+                        ? [liveTelemetry.manifest.mutationId]
+                        : []),
+                  )
+                }
+              />
+            )}
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
@@ -2166,19 +2224,64 @@ const executionStatusLabel: Record<
   released: 'Mutation released',
 };
 
+const rollbackStatusLabel: Record<RepositoryRollback['status'], string> = {
+  prepared: 'Preparing rollback dispatch',
+  queued: 'Queued in GitHub Actions',
+  validating: 'Rollback checks are running',
+  failed: 'Rollback failed',
+  pull_request_open: 'Rollback pull request open',
+  preview_ready: 'Rollback preview ready',
+  releasing: 'Merging reviewed rollback',
+  released: 'Rollback released',
+};
+
+function MutationWorkspaceReset({
+  execution,
+}: {
+  execution: RepositoryMutationExecution;
+}) {
+  const rollbackReleased = execution.rollback?.status === 'released';
+  return (
+    <section className="mt-8 surface-panel mutation-reset-panel">
+      <div>
+        <p className="section-label">Selection archived</p>
+        <h2 className="mt-2 text-xl font-semibold">Ready for fresh evidence</h2>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-mist">
+          {rollbackReleased
+            ? 'The retained mutation and its reviewed rollback are recorded in the fossil record. New evidence can now begin the next controlled evolution cycle.'
+            : 'The retained mutation is recorded in the fossil record. New evidence can now begin the next controlled evolution cycle.'}
+        </p>
+      </div>
+      <a className="secondary-action" href={dashboardRoutes['Fossil record']}>
+        <GitBranch size={16} /> Open fossil record
+      </a>
+    </section>
+  );
+}
+
 function RepositoryExecutionWorkspace({
   execution,
   manifest,
   releasing,
   retrying,
+  rollingBack,
+  releasingRollback,
+  archived = false,
   onRelease,
+  onRollback,
+  onReleaseRollback,
   onRetry,
 }: {
   execution: RepositoryMutationExecution;
   manifest: CodexImplementationManifest | null;
   releasing: boolean;
   retrying: boolean;
+  rollingBack: boolean;
+  releasingRollback: boolean;
+  archived?: boolean;
   onRelease: () => void;
+  onRollback: () => void;
+  onReleaseRollback: () => void;
   onRetry: () => void;
 }) {
   const lines = execution.patch?.split('\n') ?? [];
@@ -2208,15 +2311,19 @@ function RepositoryExecutionWorkspace({
     >
       <div className="panel-heading execution-heading">
         <div>
-          <p className="section-label">Live repository mutation</p>
+          <p className="section-label">
+            {archived
+              ? 'Archived repository mutation'
+              : 'Live repository mutation'}
+          </p>
           <div className="heading-with-help">
             <h2
               id="repository-execution-title"
               className="mt-2 text-xl font-semibold"
             >
-              Codex execution
+              {archived ? 'Codex execution record' : 'Codex execution'}
             </h2>
-            <InfoTip text="A real GitHub Actions run applies the selected manifest to the exact ProjectFlow commit, enforces repository policy, runs validation, opens a pull request, and deploys a review preview." />
+            <InfoTip text="A real GitHub Actions run applies the selected manifest to the exact ProjectFlow commit, enforces repository policy, runs validation, opens a pull request, and deploys a review preview. Retained mutations can be rolled back through a separately reviewed inverse pull request." />
           </div>
         </div>
         <span className={`artifact-badge execution-status-${status}`}>
@@ -2499,6 +2606,16 @@ function RepositoryExecutionWorkspace({
           </div>
         </div>
       </div>
+
+      {status === 'released' && (
+        <RollbackWorkspace
+          execution={execution}
+          rollingBack={rollingBack}
+          releasingRollback={releasingRollback}
+          onRollback={onRollback}
+          onReleaseRollback={onReleaseRollback}
+        />
+      )}
     </section>
   );
 }
@@ -2517,6 +2634,225 @@ function ExecutionStep({
       <span>{state === 'complete' ? <Check size={12} /> : index}</span>
       <strong>{label}</strong>
     </div>
+  );
+}
+
+function RollbackWorkspace({
+  execution,
+  rollingBack,
+  releasingRollback,
+  onRollback,
+  onReleaseRollback,
+}: {
+  execution: RepositoryMutationExecution;
+  rollingBack: boolean;
+  releasingRollback: boolean;
+  onRollback: () => void;
+  onReleaseRollback: () => void;
+}) {
+  const rollback = execution.rollback;
+  const status = rollback?.status;
+  const rollbackInProgress =
+    status && !['failed', 'released', 'preview_ready'].includes(status);
+
+  return (
+    <section className="rollback-workspace" aria-labelledby="rollback-title">
+      <div className="rollback-heading">
+        <div>
+          <p className="section-label">Controlled rollback</p>
+          <h3 id="rollback-title" className="mt-2 text-lg font-semibold">
+            {rollback?.status === 'released'
+              ? 'Mutation reverted through review'
+              : 'Prepare a reviewable inverse change'}
+          </h3>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-mist">
+            Darwin never rewrites the active application directly. A rollback
+            generates an exact Git revert of the retained commit, validates it,
+            deploys a preview, and requires a separate release decision.
+          </p>
+        </div>
+        {rollback && (
+          <span
+            className={`artifact-badge execution-status-${rollback.status}`}
+          >
+            {rollbackInProgress ? (
+              <CircleDashed className="is-spinning" size={14} />
+            ) : rollback.status === 'failed' ? (
+              <AlertTriangle size={14} />
+            ) : (
+              <GitBranch size={14} />
+            )}
+            {rollbackStatusLabel[rollback.status]}
+          </span>
+        )}
+      </div>
+
+      {!rollback ? (
+        <div className="rollback-empty">
+          <span>
+            The retained commit <code>{execution.headSha?.slice(0, 12)}</code>{' '}
+            is eligible for a controlled rollback.
+          </span>
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={onRollback}
+            disabled={rollingBack}
+            data-explain="Create a protected ProjectFlow branch with git revert, run real repository validation, open a rollback pull request, and deploy a separate preview before any rollback can be released."
+          >
+            {rollingBack ? (
+              <CircleDashed className="is-spinning" size={16} />
+            ) : (
+              <RotateCcw size={16} />
+            )}
+            {rollingBack ? 'Preparing rollback' : 'Prepare controlled rollback'}
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="repository-run-summary rollback-summary">
+            <div>
+              <span>Reverted commit</span>
+              <code>{rollback.revertedSha.slice(0, 12)}</code>
+            </div>
+            <div>
+              <span>Rollback commit</span>
+              <code>{rollback.headSha?.slice(0, 12) ?? 'pending'}</code>
+            </div>
+            <div>
+              <span>Branch</span>
+              <code>{rollback.branch}</code>
+            </div>
+            <div>
+              <span>Inverse patch</span>
+              <code>{rollback.changedFiles.length} changed files</code>
+            </div>
+          </div>
+
+          <div className="repository-links" aria-label="Rollback artifacts">
+            {rollback.workflowUrl && (
+              <a href={rollback.workflowUrl} target="_blank" rel="noreferrer">
+                <Activity size={14} /> Rollback workflow{' '}
+                <ExternalLink size={12} />
+              </a>
+            )}
+            {rollback.pullRequestUrl && (
+              <a
+                href={rollback.pullRequestUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <GitBranch size={14} /> Rollback pull request #
+                {rollback.pullRequestNumber} <ExternalLink size={12} />
+              </a>
+            )}
+            {rollback.previewUrl && (
+              <a href={rollback.previewUrl} target="_blank" rel="noreferrer">
+                <Rocket size={14} /> Open rollback preview{' '}
+                <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
+
+          {rollback.error && (
+            <div className="execution-error" role="alert">
+              <AlertTriangle size={17} />
+              <div>
+                <strong>Repository rollback stopped</strong>
+                <span>{rollback.error}</span>
+              </div>
+            </div>
+          )}
+
+          {rollback.patch && (
+            <details className="codex-run-message rollback-patch">
+              <summary>
+                <Code2 size={15} /> Review inverse Git patch
+              </summary>
+              <pre>{rollback.patch}</pre>
+            </details>
+          )}
+
+          <div className="validation-checks rollback-checks">
+            {rollback.checks.map((check) => (
+              <details key={check.name} open={check.status === 'failed'}>
+                <summary>
+                  {check.status === 'passed' ? (
+                    <CheckCircle2 size={15} />
+                  ) : check.status === 'failed' ? (
+                    <AlertTriangle size={15} />
+                  ) : (
+                    <CircleDashed
+                      className={
+                        check.status === 'running' ? 'is-spinning' : ''
+                      }
+                      size={15}
+                    />
+                  )}
+                  <span>{check.name}</span>
+                  <strong>
+                    {check.durationMs === null
+                      ? check.status
+                      : `${(check.durationMs / 1_000).toFixed(1)}s`}
+                  </strong>
+                </summary>
+                <pre>{check.output}</pre>
+              </details>
+            ))}
+          </div>
+
+          <div className="validation-actions">
+            {status === 'failed' && (
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={onRollback}
+                disabled={rollingBack}
+              >
+                {rollingBack ? (
+                  <CircleDashed className="is-spinning" size={16} />
+                ) : (
+                  <RotateCcw size={16} />
+                )}
+                {rollingBack
+                  ? 'Retrying rollback'
+                  : 'Retry controlled rollback'}
+              </button>
+            )}
+            {status === 'preview_ready' && (
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={onReleaseRollback}
+                disabled={releasingRollback}
+                data-explain="Squash-merge the exact reviewed rollback pull request. This returns ProjectFlow to the code state before the retained mutation."
+              >
+                {releasingRollback ? (
+                  <CircleDashed className="is-spinning" size={16} />
+                ) : (
+                  <RotateCcw size={16} />
+                )}
+                {releasingRollback
+                  ? 'Merging rollback'
+                  : 'Release reviewed rollback'}
+              </button>
+            )}
+            {rollbackInProgress && (
+              <button className="secondary-action" type="button" disabled>
+                <CircleDashed className="is-spinning" size={16} /> Preparing
+                controlled rollback
+              </button>
+            )}
+            {status === 'released' && (
+              <div className="release-confirmation rollback-confirmation">
+                <CheckCircle2 size={17} /> ProjectFlow returned to{' '}
+                <code>{rollback.headSha?.slice(0, 12)}</code>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -2548,6 +2884,38 @@ function RepositoryFossilRow({
       <td className="px-6 py-5 text-right">
         <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
           {failed ? 'EXECUTION FAILED' : retained ? 'CURRENT' : 'CANDIDATE'}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function RepositoryRollbackFossilRow({
+  rollback,
+}: {
+  rollback: RepositoryRollback;
+}) {
+  const reverted = rollback.status === 'released';
+  const failed = rollback.status === 'failed';
+  return (
+    <tr className="border-t border-line">
+      <td className="px-6 py-5 font-mono">
+        {rollback.headSha?.slice(0, 12) ?? rollback.branch}
+      </td>
+      <td className="px-6 py-5 text-mist">
+        {rollback.rollbackId} · inverse of {rollback.revertedSha.slice(0, 12)}
+      </td>
+      <td className="px-6 py-5 text-mist">
+        {reverted
+          ? 'Retained mutation reverted'
+          : failed
+            ? 'Rollback failed'
+            : rollbackStatusLabel[rollback.status]}
+      </td>
+      <td className="px-6 py-5 font-mono text-mist">--</td>
+      <td className="px-6 py-5 text-right">
+        <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
+          {failed ? 'ROLLBACK FAILED' : reverted ? 'REVERTED' : 'ROLLBACK'}
         </span>
       </td>
     </tr>

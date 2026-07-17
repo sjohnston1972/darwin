@@ -8,6 +8,7 @@ import {
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
   RepositoryMutationExecutionSchema,
+  RepositoryRollbackCallbackSchema,
   SimulationRequestSchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
@@ -30,12 +31,16 @@ import {
 } from './reasoning';
 import { captureRepositorySnapshot } from './repository/github-source';
 import {
+  createRepositoryRollback,
   createRepositoryExecution,
+  updateRepositoryRollback,
   updateRepositoryExecution,
 } from './repository/execution';
 import {
+  dispatchRollbackWorkflow,
   dispatchEvolutionWorkflow,
   dispatchResetWorkflow,
+  mergeRollbackPullRequest,
   mergeEvolutionPullRequest,
 } from './repository/github-actions';
 
@@ -164,7 +169,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.22.0',
+      version: '0.23.0',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -774,6 +779,76 @@ export const handleRequest = async (
     }
   }
 
+  const repositoryRollbackMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/rollback$/,
+  );
+  if (request.method === 'POST' && repositoryRollbackMatch) {
+    const executionId = decodeURIComponent(repositoryRollbackMatch[1]!);
+    let execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    if (execution.rollback && execution.rollback.status !== 'failed') {
+      return json(RepositoryMutationExecutionSchema.parse(execution));
+    }
+    if (execution.status !== 'released') {
+      return json(
+        {
+          error: 'not_rollbackable',
+          message: 'Only a released mutation can be prepared for rollback.',
+        },
+        { status: 409 },
+      );
+    }
+    if (!env?.GITHUB_TOKEN || !env.DARWIN_CALLBACK_TOKEN) {
+      return json(
+        {
+          error: 'repository_rollback_unavailable',
+          message:
+            'GitHub dispatch and callback credentials must be configured.',
+        },
+        { status: 503 },
+      );
+    }
+    try {
+      const rollback = createRepositoryRollback(execution);
+      execution = RepositoryMutationExecutionSchema.parse({
+        ...execution,
+        rollback,
+      });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      await dispatchRollbackWorkflow({
+        token: env.GITHUB_TOKEN,
+        execution,
+        rollback,
+        callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/rollback/callback`,
+      });
+      execution = updateRepositoryRollback(execution, { status: 'queued' });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      return json(RepositoryMutationExecutionSchema.parse(execution), {
+        status: 201,
+      });
+    } catch (error) {
+      if (execution.rollback) {
+        execution = updateRepositoryRollback(execution, {
+          status: 'failed',
+          error:
+            error instanceof Error
+              ? error.message
+              : 'GitHub rollback workflow dispatch failed.',
+        });
+        await telemetryRepository.saveRepositoryExecution(execution);
+      }
+      return json(RepositoryMutationExecutionSchema.parse(execution), {
+        status: 502,
+      });
+    }
+  }
+
   const repositoryExecutionMatch = pathname.match(
     /^\/api\/repository-executions\/([^/]+)$/,
   );
@@ -815,6 +890,56 @@ export const handleRequest = async (
           { error: 'not_found', message: 'Repository manifest not found.' },
           { status: 404 },
         );
+  }
+
+  const repositoryRollbackCallbackMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/rollback\/callback$/,
+  );
+  if (request.method === 'POST' && repositoryRollbackCallbackMatch) {
+    if (
+      !env?.DARWIN_CALLBACK_TOKEN ||
+      request.headers.get('Authorization') !==
+        `Bearer ${env.DARWIN_CALLBACK_TOKEN}`
+    ) {
+      return json(
+        { error: 'unauthorized', message: 'Callback authorization failed.' },
+        { status: 401 },
+      );
+    }
+    const executionId = decodeURIComponent(repositoryRollbackCallbackMatch[1]!);
+    const execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    let callback;
+    try {
+      callback = RepositoryRollbackCallbackSchema.parse(await request.json());
+    } catch {
+      return json(
+        { error: 'invalid_callback', message: 'Callback payload is invalid.' },
+        { status: 400 },
+      );
+    }
+    try {
+      const updated = updateRepositoryRollback(execution, callback);
+      await telemetryRepository.saveRepositoryExecution(updated);
+      return json(RepositoryMutationExecutionSchema.parse(updated));
+    } catch (error) {
+      return json(
+        {
+          error: 'invalid_transition',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Repository rollback transition is invalid.',
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const repositoryCallbackMatch = pathname.match(
@@ -864,6 +989,70 @@ export const handleRequest = async (
         },
         { status: 409 },
       );
+    }
+  }
+
+  const repositoryRollbackReleaseMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/rollback\/release$/,
+  );
+  if (request.method === 'POST' && repositoryRollbackReleaseMatch) {
+    const executionId = decodeURIComponent(repositoryRollbackReleaseMatch[1]!);
+    let execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    if (execution.rollback?.status === 'released') {
+      return json(RepositoryMutationExecutionSchema.parse(execution));
+    }
+    if (execution.rollback?.status !== 'preview_ready') {
+      return json(
+        {
+          error: 'not_releasable',
+          message: 'A validated rollback preview is required for release.',
+        },
+        { status: 409 },
+      );
+    }
+    if (!env?.GITHUB_TOKEN) {
+      return json(
+        {
+          error: 'repository_rollback_unavailable',
+          message: 'GitHub release credentials are not configured.',
+        },
+        { status: 503 },
+      );
+    }
+    execution = updateRepositoryRollback(execution, { status: 'releasing' });
+    await telemetryRepository.saveRepositoryExecution(execution);
+    try {
+      const releasedSha = await mergeRollbackPullRequest({
+        token: env.GITHUB_TOKEN,
+        execution,
+        rollback: execution.rollback!,
+      });
+      execution = updateRepositoryRollback(execution, {
+        status: 'released',
+        headSha: releasedSha,
+        previewUrl: execution.repository.studyUrl,
+      });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      return json(RepositoryMutationExecutionSchema.parse(execution));
+    } catch (error) {
+      execution = updateRepositoryRollback(execution, {
+        status: 'failed',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'GitHub rollback pull request release failed.',
+      });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      return json(RepositoryMutationExecutionSchema.parse(execution), {
+        status: 502,
+      });
     }
   }
 
