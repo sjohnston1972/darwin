@@ -49,6 +49,8 @@ export interface LiveTelemetryState {
   status: 'loading' | 'live' | 'offline';
   releaseExecution: (executionId?: string) => Promise<void>;
   releaseRollback: (executionId?: string) => Promise<void>;
+  refresh: () => Promise<void>;
+  refreshing: boolean;
   startRollback: (executionId?: string) => Promise<void>;
 }
 
@@ -82,6 +84,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [releasingExecution, setReleasingExecution] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [releasingRollback, setReleasingRollback] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
 
@@ -111,6 +114,34 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setEvidence(null);
     setAnalysis(null);
     setManifest(null);
+  };
+
+  const refresh = async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}`,
+      );
+      if (!response.ok) throw new Error('Live telemetry request failed.');
+      const result = StudyEventsResponseSchema.parse(await response.json());
+      setEvents(result.events);
+      setCount(result.count);
+      setSessionCounts(result.sessionCounts);
+      setParticipantCount(result.participantCount);
+      setBehaviorSignalCount(result.behaviorSignalCount);
+      setStatus('live');
+      await Promise.all([refreshGenome(), refreshObservationArchives()]);
+    } catch (error) {
+      setStatus('offline');
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Live telemetry refresh failed. Check the API and retry.',
+      );
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
@@ -529,6 +560,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
     releasingExecution,
     releaseRollback,
     releasingRollback,
+    refresh,
+    refreshing,
     resetEvolution,
     resetState,
     sessionCounts,

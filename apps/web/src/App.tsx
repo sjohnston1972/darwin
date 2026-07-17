@@ -1397,20 +1397,60 @@ function TargetConnectionView({
                   </li>
                 ))}
               </ul>
+              <dl className="connection-endpoints">
+                <div>
+                  <dt>Production URL</dt>
+                  <dd>
+                    <a
+                      href={connection.repository.productionUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {connection.repository.productionUrl}{' '}
+                      <ExternalLink size={14} />
+                    </a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Measured study URL</dt>
+                  <dd>
+                    <a
+                      href={connection.repository.studyUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {connection.repository.studyUrl}{' '}
+                      <ExternalLink size={14} />
+                    </a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>GitHub repository</dt>
+                  <dd>
+                    <a
+                      href={connection.repository.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {connection.repository.url} <ExternalLink size={14} />
+                    </a>
+                  </dd>
+                </div>
+              </dl>
               <div className="connection-links">
                 <a
                   href={connection.repository.studyUrl}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Open measured application <ExternalLink size={14} />
+                  Open measured study <ExternalLink size={14} />
                 </a>
                 <a
-                  href={connection.repository.url}
+                  href={connection.repository.productionUrl}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  View GitHub repository <ExternalLink size={14} />
+                  Open production application <ExternalLink size={14} />
                 </a>
               </div>
             </>
@@ -1648,6 +1688,21 @@ function LiveTelemetryPanel({
     );
   }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
+  useEffect(() => {
+    if (!isObservations || !telemetry.evidence) return;
+    const signalId = decodeURIComponent(window.location.hash).replace(
+      '#signal-',
+      '',
+    );
+    if (!signalId || signalId === window.location.hash) return;
+    const signal = document.getElementById(`signal-${signalId}`);
+    if (!(signal instanceof HTMLDetailsElement)) return;
+    signal.open = true;
+    window.requestAnimationFrame(() =>
+      signal.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+    );
+  }, [isObservations, telemetry.evidence?.evidenceId]);
+
   return (
     <section className="mt-8 surface-panel live-evidence" id="real-evidence">
       <div className="panel-heading live-evidence-heading">
@@ -1676,9 +1731,20 @@ function LiveTelemetryPanel({
           </p>
         </div>
         <div className="live-evidence-actions">
-          <span className={`source-status source-${telemetry.status}`}>
-            <span /> {telemetry.status}
-          </span>
+          <button
+            aria-label="Refresh live telemetry"
+            className={`source-status source-${telemetry.status}`}
+            data-explain="Refresh the latest live event window, study counts, genome state, and observation archive from Darwin's API."
+            disabled={telemetry.refreshing}
+            onClick={() => void telemetry.refresh()}
+            type="button"
+          >
+            <span /> {telemetry.refreshing ? 'refreshing' : telemetry.status}
+            <RotateCcw
+              className={telemetry.refreshing ? 'is-spinning' : ''}
+              size={12}
+            />
+          </button>
           {isObservations && (
             <button
               className="primary-action evidence-action"
@@ -1820,7 +1886,10 @@ function LiveTelemetryPanel({
               <div className="evidence-signals">
                 {telemetry.evidence.frictionSignals.length ? (
                   telemetry.evidence.frictionSignals.map((signal) => (
-                    <details key={signal.evidenceId}>
+                    <details
+                      id={`signal-${signal.evidenceId}`}
+                      key={signal.evidenceId}
+                    >
                       <summary>
                         <span>{signal.evidenceId}</span>
                         <strong>{signal.ruleId.replaceAll('_', ' ')}</strong>
@@ -2316,9 +2385,14 @@ function EvidenceChip({
     : `${id} is a citation from the current measured evidence pack.`;
 
   return (
-    <span className="evidence-chip" data-explain={explanation} tabIndex={0}>
+    <a
+      aria-label={`Open ${id} in Observations`}
+      className="evidence-chip"
+      data-explain={`${explanation} Open the cited detector record in Observations.`}
+      href={`${dashboardRoutes.Observations}#signal-${id}`}
+    >
       {id}
-    </span>
+    </a>
   );
 }
 

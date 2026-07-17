@@ -680,12 +680,19 @@ a:focus-visible {
   gap: 7px;
   min-height: 32px;
   padding: 0 10px;
-  color: var(--mist);
   border: 1px solid var(--line);
+  color: var(--mist);
   border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
   font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
+}
+
+.source-status:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .source-status > span {
@@ -1281,7 +1288,8 @@ a:focus-visible {
 }
 
 .evidence-chip {
-  cursor: help;
+  cursor: pointer;
+  text-decoration: none;
 }
 
 .evidence-chip[data-explain]::after,
@@ -3290,6 +3298,10 @@ a:focus-visible {
   padding: 58px 0 80px;
 }
 
+.target-connect-main .section-label {
+  font-size: 13px;
+}
+
 .target-connect-intro {
   border-bottom: 1px solid #343a36;
   padding-bottom: 34px;
@@ -3305,7 +3317,7 @@ a:focus-visible {
 
 .target-connect-title-row h1 {
   color: #fff;
-  font-size: clamp(32px, 4vw, 50px);
+  font-size: clamp(35px, calc(4vw + 3px), 53px);
   font-weight: 600;
   line-height: 1.08;
 }
@@ -3314,7 +3326,7 @@ a:focus-visible {
   max-width: 700px;
   margin-top: 16px;
   color: #9ba59f;
-  font-size: 14px;
+  font-size: 17px;
   line-height: 1.7;
 }
 
@@ -3327,7 +3339,7 @@ a:focus-visible {
   padding: 8px 11px;
   color: #8f9993;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -3376,7 +3388,7 @@ a:focus-visible {
   border: 1px solid #404741;
   color: #737d77;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .connection-steps li div {
@@ -3386,12 +3398,12 @@ a:focus-visible {
 
 .connection-steps strong {
   color: #d7ded9;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .connection-steps small {
   color: #69736d;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -3428,7 +3440,7 @@ a:focus-visible {
 .connection-section-heading h2 {
   margin-top: 7px;
   color: #fff;
-  font-size: 20px;
+  font-size: 23px;
   font-weight: 600;
 }
 
@@ -3440,7 +3452,7 @@ a:focus-visible {
 
 .connection-form label > span {
   color: #b5beb8;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -3454,7 +3466,7 @@ a:focus-visible {
   background: #151816;
   color: #dce4df;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .connection-form input:focus {
@@ -3464,7 +3476,7 @@ a:focus-visible {
 
 .connection-form label small {
   color: #68716c;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .connection-field-grid {
@@ -3482,7 +3494,7 @@ a:focus-visible {
   padding: 9px 12px;
   color: #efad9f;
   background: rgb(239 140 120 / 7%);
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .connection-actions {
@@ -3493,9 +3505,17 @@ a:focus-visible {
   margin-top: 38px;
 }
 
+.target-connect-main .primary-action {
+  font-size: 16px;
+}
+
+.target-connect-main .secondary-action {
+  font-size: 14px;
+}
+
 .connection-purpose {
   color: #9ba59f;
-  font-size: 12px;
+  font-size: 15px;
   line-height: 1.65;
 }
 
@@ -3510,14 +3530,14 @@ a:focus-visible {
 
 .connection-identity span {
   color: #727c76;
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
 .connection-identity code {
   color: #b9f36b;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .connection-check-list {
@@ -3542,14 +3562,14 @@ a:focus-visible {
 
 .connection-check-list strong {
   color: #d7ded9;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .connection-check-list span {
   overflow-wrap: anywhere;
   color: #758079;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -3565,10 +3585,52 @@ a:focus-visible {
   align-items: center;
   gap: 6px;
   color: #a9d8c5;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .connection-links a:hover {
+  color: #d5f5e8;
+}
+
+.connection-endpoints {
+  display: grid;
+  gap: 1px;
+  margin-top: 24px;
+  border: 1px solid #343a36;
+  background: #343a36;
+}
+
+.connection-endpoints > div {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 13px 14px;
+  background: #151816;
+}
+
+.connection-endpoints dt {
+  color: #89948d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.connection-endpoints dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.connection-endpoints a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+  color: #a9d8c5;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.connection-endpoints a:hover {
   color: #d5f5e8;
 }
 
@@ -3585,13 +3647,13 @@ a:focus-visible {
 
 .connection-empty-state strong {
   color: #b8c0bb;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .connection-empty-state p {
   max-width: 310px;
   color: #707a74;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -3666,8 +3728,29 @@ html[data-theme='light'] .connection-steps,
 html[data-theme='light'] .connection-steps li,
 html[data-theme='light'] .connection-form,
 html[data-theme='light'] .connection-identity,
-html[data-theme='light'] .connection-check-list li {
+html[data-theme='light'] .connection-check-list li,
+html[data-theme='light'] .connection-endpoints {
   border-color: #d7e0e8;
+}
+
+html[data-theme='light'] .connection-endpoints {
+  background: #d7e0e8;
+}
+
+html[data-theme='light'] .connection-endpoints > div {
+  background: #fff;
+}
+
+html[data-theme='light'] .connection-endpoints dt {
+  color: #526a79;
+}
+
+html[data-theme='light'] .connection-endpoints a {
+  color: #0369a1;
+}
+
+html[data-theme='light'] .connection-endpoints a:hover {
+  color: #075985;
 }
 
 html[data-theme='light'] .connection-form input {
@@ -4332,6 +4415,11 @@ html[data-theme='light'] .error-band {
 }
 
 @media (max-width: 639px) {
+  .connection-endpoints > div {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
   .repository-run-summary {
     grid-template-columns: 1fr;
   }

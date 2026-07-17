@@ -647,6 +647,9 @@ describe('Darwin control room', () => {
       'data-explain',
       expect.stringContaining('Support: 1 events'),
     );
+    expect(
+      screen.getAllByRole('link', { name: 'Open EV-001 in Observations' })[0],
+    ).toHaveAttribute('href', '/?view=observations#signal-EV-001');
 
     const primary = screen.getByRole('checkbox', {
       name: 'Implement Reveal capacity context',
@@ -776,8 +779,18 @@ describe('Darwin control room', () => {
     ).toBeVisible();
     expect(screen.getByText('Cloudflare runtime')).toBeVisible();
     expect(
-      screen.getByRole('link', { name: /Open measured application/ }),
+      screen.getByRole('link', { name: /Open measured study/ }),
     ).toHaveAttribute('href', repository.studyUrl);
+    expect(
+      screen.getByRole('link', { name: repository.productionUrl }),
+    ).toHaveAttribute('href', repository.productionUrl);
+    expect(
+      screen.getByRole('link', { name: repository.studyUrl }),
+    ).toHaveAttribute('href', repository.studyUrl);
+    expect(screen.getByRole('link', { name: repository.url })).toHaveAttribute(
+      'href',
+      repository.url,
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/target-connection'),
       expect.objectContaining({
@@ -845,7 +858,7 @@ describe('Darwin control room', () => {
 
   it('keeps detailed telemetry separate from the mutation workspace', async () => {
     window.history.replaceState({}, '', '/?view=observations');
-    installApi();
+    const fetchMock = installApi();
     render(<App />);
 
     expect(
@@ -864,6 +877,17 @@ describe('Darwin control room', () => {
     expect(screen.getByRole('link', { name: 'Observations' })).toHaveAttribute(
       'aria-current',
       'page',
+    );
+    expect(document.getElementById('signal-EV-001')).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh live telemetry' }),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).includes('/events?limit=200'),
+        ).length,
+      ).toBeGreaterThanOrEqual(2),
     );
   });
 
