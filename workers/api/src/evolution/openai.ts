@@ -7,8 +7,8 @@ import {
   type EvolutionAnalyzer,
 } from './analyzer';
 import {
-  projectFlowReasoningContext,
-  projectFlowReasoningContextVersion,
+  evolutionReasoningContext,
+  evolutionReasoningContextVersion,
 } from '../reasoning/generated-context';
 
 const responsesEndpoint = 'https://api.openai.com/v1/responses';
@@ -197,11 +197,11 @@ export class OpenAIEvolutionAnalyzer implements EvolutionAnalyzer {
         body: JSON.stringify({
           model: this.model,
           store: false,
-          prompt_cache_key: `darwin-${projectFlowReasoningContextVersion}`,
+          prompt_cache_key: `darwin-${evolutionReasoningContextVersion}`,
           prompt_cache_retention: '24h',
           input: [
             { role: 'system', content: evolutionAnalysisSystemPrompt },
-            { role: 'developer', content: projectFlowReasoningContext },
+            { role: 'developer', content: evolutionReasoningContext },
             {
               role: 'user',
               content: JSON.stringify({

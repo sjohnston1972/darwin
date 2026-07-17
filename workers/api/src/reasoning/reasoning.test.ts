@@ -7,6 +7,7 @@ import {
   buildCodexManifest,
   validateModelOutput,
 } from '.';
+import type { RepositorySnapshot } from '../repository/github-source';
 
 const eventId = '00000000-0000-4000-8000-000000000001';
 const quality = {
@@ -114,6 +115,31 @@ const pack = EvidencePackSchema.parse({
     protectedAreas: ['telemetry-history', 'authentication'],
   },
 });
+
+const repositorySnapshot: RepositorySnapshot = {
+  context: {
+    owner: 'sjohnston1972',
+    name: 'projectflow',
+    fullName: 'sjohnston1972/projectflow',
+    url: 'https://github.com/sjohnston1972/projectflow',
+    branch: 'main',
+    baseSha: 'b'.repeat(40),
+    sourceHash: 'c'.repeat(64),
+    capturedAt: '2026-07-16T12:00:30.000Z',
+    mutablePaths: ['apps/projectflow/src/**'],
+    protectedPaths: ['.github/**'],
+    contextPaths: ['apps/projectflow/src/App.tsx'],
+    validationCommands: ['npm run verify'],
+    maximumChangedFiles: 8,
+    maximumChangedLines: 700,
+    productionUrl: 'https://sjohnston1972.github.io/projectflow/',
+    studyUrl: 'https://sjohnston1972.github.io/projectflow/?study=true',
+  },
+  developerContext:
+    '# Live ProjectFlow repository snapshot\n\nExact commit: ' +
+    'b'.repeat(40) +
+    '\n\n## apps/projectflow/src/App.tsx\n\n```\nexport function App() {}\n```',
+};
 
 const candidate = (id: string, score: number) => ({
   id,
@@ -246,10 +272,12 @@ describe('evidence-backed reasoning v2', () => {
       model: 'gpt-5.6',
       fetch: fetcher,
       createdAt: '2026-07-16T12:01:00.000Z',
+      repositorySnapshot,
     });
 
     expect(analysis.mode).toBe('live');
-    expect(analysis.promptVersion).toBe('2.1.0');
+    expect(analysis.promptVersion).toBe('3.0.0');
+    expect(analysis.repository).toEqual(repositorySnapshot.context);
     expect(analysis.alternatives).toHaveLength(2);
     expect(
       analysis.selectedMutation.scorecard.evidenceStrength,
@@ -265,8 +293,14 @@ describe('evidence-backed reasoning v2', () => {
     expect(requestBody.input[1].content).toContain(
       'Darwin Telemetry-to-Evolution Examples',
     );
-    expect(requestBody.input[2].content).toContain('orderedJourneys');
-    expect(requestBody.input[2].content).toContain('offsetMs');
+    expect(requestBody.input[2].content).toContain(
+      '# Live ProjectFlow repository snapshot',
+    );
+    expect(requestBody.input[3].content).toContain('orderedJourneys');
+    expect(requestBody.input[3].content).toContain('offsetMs');
+    expect(requestBody.prompt_cache_key).toContain(
+      repositorySnapshot.context.sourceHash.slice(0, 12),
+    );
   });
 
   it('normalizes a model-supplied five-point scorecard to percentages', () => {

@@ -123,18 +123,46 @@ const liveEnv = {
   OPENAI_MODEL: 'gpt-5.6',
 } as const;
 
+const repositorySha = 'd'.repeat(40);
+const repositoryTarget = {
+  schemaVersion: 1,
+  targetId: 'projectflow',
+  name: 'ProjectFlow',
+  purpose: 'Task management',
+  defaultBranch: 'main',
+  mutablePaths: ['apps/projectflow/src/**'],
+  protectedPaths: ['.github/**'],
+  contextPaths: ['AGENTS.md', 'apps/projectflow/src/App.tsx'],
+  validationCommands: ['npm run verify'],
+  limits: { maximumChangedFiles: 8, maximumChangedLines: 700 },
+};
+
 const installOpenAIResponse = (output: unknown) =>
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue(
-      new Response(
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('api.github.com/repos/') && url.includes('/commits/')) {
+        return Response.json({ sha: repositorySha });
+      }
+      if (url.endsWith(`/${repositorySha}/darwin.target.json`)) {
+        return new Response(JSON.stringify(repositoryTarget));
+      }
+      if (url.includes(`raw.githubusercontent.com/`) && url.includes(repositorySha)) {
+        return new Response(
+          url.endsWith('/AGENTS.md')
+            ? '# ProjectFlow repository constraints'
+            : 'export function App() { return null; }',
+        );
+      }
+      return new Response(
         JSON.stringify({
           id: 'resp_test_live',
           output_text: JSON.stringify(output),
         }),
         { status: 200 },
-      ),
-    ),
+      );
+    }),
   );
 
 describe('Darwin API', () => {
@@ -518,7 +546,8 @@ describe('Darwin API', () => {
     const manifest = CodexImplementationManifestSchema.parse(
       await manifestResponse.json(),
     );
-    expect(manifest.repositoryCommit).toBe('c75e37d');
+    expect(manifest.repositoryCommit).toBe(repositorySha);
+    expect(manifest.repository?.baseSha).toBe(repositorySha);
     expect(manifest.mutationIds).toEqual([first.selectedMutation.id]);
     expect(JSON.stringify(manifest)).not.toContain('participantId');
 

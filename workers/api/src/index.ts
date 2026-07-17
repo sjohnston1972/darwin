@@ -54,6 +54,7 @@ import {
   buildCodexManifest,
 } from './reasoning';
 import { OutcomeValidationError, compareAutomatedOutcomes } from './outcomes';
+import { captureRepositorySnapshot } from './repository/github-source';
 
 export interface Env {
   DB?: D1Database;
@@ -67,6 +68,12 @@ export interface Env {
   OPENAI_MODEL: string;
   OPENAI_TIMEOUT_MS: string;
   DARWIN_REPOSITORY_COMMIT: string;
+  PROJECTFLOW_REPOSITORY: string;
+  PROJECTFLOW_BRANCH: string;
+  PROJECTFLOW_PRODUCTION_URL: string;
+  PROJECTFLOW_STUDY_URL: string;
+  GITHUB_TOKEN?: string;
+  DARWIN_CALLBACK_TOKEN?: string;
 }
 
 const defaultCorsHeaders = {
@@ -610,7 +617,32 @@ export const handleRequest = async (
       );
     }
     const model = env?.OPENAI_MODEL || 'gpt-5.6';
-    const cacheKey = await analysisCacheKey(pack.evidenceHash, model);
+    let repositorySnapshot: Awaited<
+      ReturnType<typeof captureRepositorySnapshot>
+    >;
+    try {
+      repositorySnapshot = await captureRepositorySnapshot({
+        fullName: env?.PROJECTFLOW_REPOSITORY,
+        branch: env?.PROJECTFLOW_BRANCH,
+        githubToken: env?.GITHUB_TOKEN,
+        productionUrl: env?.PROJECTFLOW_PRODUCTION_URL,
+        studyUrl: env?.PROJECTFLOW_STUDY_URL,
+      });
+    } catch {
+      return json(
+        {
+          error: 'repository_unavailable',
+          message:
+            'Darwin could not snapshot the current ProjectFlow repository.',
+        },
+        { status: 502 },
+      );
+    }
+    const cacheKey = await analysisCacheKey(
+      pack.evidenceHash,
+      model,
+      repositorySnapshot.context.sourceHash,
+    );
     const cached =
       await telemetryRepository.getEvidenceAnalysisByCacheKey(cacheKey);
     if (cached) return json(EvidenceAnalysisSchema.parse(cached));
@@ -624,6 +656,7 @@ export const handleRequest = async (
         timeoutMs: Number.isFinite(configuredTimeout)
           ? Math.min(90_000, Math.max(1_000, configuredTimeout))
           : 12_000,
+        repositorySnapshot,
       });
       await telemetryRepository.saveEvidenceAnalysis(studyId, analysis);
       return json(EvidenceAnalysisSchema.parse(analysis), { status: 201 });

@@ -11,11 +11,12 @@ import {
 import { z } from 'zod';
 
 import {
-  projectFlowReasoningContext,
-  projectFlowReasoningContextVersion,
+  evolutionReasoningContext,
+  evolutionReasoningContextVersion,
 } from './generated-context';
+import type { RepositorySnapshot } from '../repository/github-source';
 
-export const evidencePromptVersion = '2.1.0' as const;
+export const evidencePromptVersion = '3.0.0' as const;
 export const codexAllowedPaths = [
   'apps/projectflow/src/App.tsx',
   'apps/projectflow/src/styles.css',
@@ -284,13 +285,18 @@ const sha256 = async (value: string) => {
     .join('');
 };
 
-export const analysisCacheKey = (evidenceHash: string, model: string) =>
+export const analysisCacheKey = (
+  evidenceHash: string,
+  model: string,
+  repositorySourceHash = 'legacy',
+) =>
   sha256(
     canonicalStringify({
-      contextVersion: projectFlowReasoningContextVersion,
+      contextVersion: evolutionReasoningContextVersion,
       evidenceHash,
       model,
       promptVersion: evidencePromptVersion,
+      repositorySourceHash,
     }),
   );
 
@@ -464,6 +470,7 @@ async function callOpenAI(
   model: string,
   timeoutMs: number,
   fetcher: typeof fetch,
+  repositorySnapshot?: RepositorySnapshot,
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -477,12 +484,20 @@ async function callOpenAI(
       body: JSON.stringify({
         model,
         store: false,
-        prompt_cache_key: `darwin-${projectFlowReasoningContextVersion}`,
+        prompt_cache_key: `darwin-${evolutionReasoningContextVersion}-${repositorySnapshot?.context.sourceHash.slice(0, 12) ?? 'legacy'}`,
         prompt_cache_retention: '24h',
         reasoning: { effort: 'none' },
         input: [
           { role: 'system', content: evidenceAnalysisSystemPrompt },
-          { role: 'developer', content: projectFlowReasoningContext },
+          { role: 'developer', content: evolutionReasoningContext },
+          ...(repositorySnapshot
+            ? [
+                {
+                  role: 'developer' as const,
+                  content: repositorySnapshot.developerContext,
+                },
+              ]
+            : []),
           {
             role: 'user',
             content: JSON.stringify({
@@ -535,6 +550,7 @@ export interface EvidenceAnalysisOptions {
   timeoutMs?: number;
   fetch?: typeof fetch;
   createdAt?: string;
+  repositorySnapshot?: RepositorySnapshot;
 }
 
 export async function analyseEvidence(
@@ -542,8 +558,14 @@ export async function analyseEvidence(
   options: EvidenceAnalysisOptions = {},
 ): Promise<EvidenceAnalysis> {
   const model = options.model || 'gpt-5.6';
-  const cacheKey = await analysisCacheKey(pack.evidenceHash, model);
-  const promptCacheKey = `darwin-${projectFlowReasoningContextVersion}`;
+  const repositorySourceHash =
+    options.repositorySnapshot?.context.sourceHash ?? 'legacy';
+  const cacheKey = await analysisCacheKey(
+    pack.evidenceHash,
+    model,
+    repositorySourceHash,
+  );
+  const promptCacheKey = `darwin-${evolutionReasoningContextVersion}-${repositorySourceHash.slice(0, 12)}`;
   if (options.requestedMode !== 'live' || !options.apiKey) {
     throw new EvidenceReasoningError(
       'Live GPT reasoning is unavailable. Darwin will not substitute a recommendation.',
@@ -557,6 +579,7 @@ export async function analyseEvidence(
       model,
       options.timeoutMs ?? 30_000,
       options.fetch ?? fetch,
+      options.repositorySnapshot,
     );
   } catch (error) {
     if (error instanceof EvidenceReasoningError) throw error;
@@ -589,13 +612,16 @@ export async function analyseEvidence(
     model,
     promptCache: {
       key: promptCacheKey,
-      contextVersion: projectFlowReasoningContextVersion,
+      contextVersion: `${evolutionReasoningContextVersion}:${repositorySourceHash.slice(0, 16)}`,
       retention: '24h' as const,
       ...(liveResult.cachedTokens === undefined
         ? {}
         : { cachedTokens: liveResult.cachedTokens }),
     },
     createdAt: options.createdAt ?? new Date().toISOString(),
+    ...(options.repositorySnapshot
+      ? { repository: options.repositorySnapshot.context }
+      : {}),
     evidenceAssessment: {
       ...validated.evidenceAssessment,
       quality: pack.quality,
@@ -633,17 +659,23 @@ export async function buildCodexManifest(
     mutationIds,
     evidenceHash: analysis.evidenceHash,
     promptVersion: evidencePromptVersion,
-    repositoryCommit,
+    repositoryCommit: analysis.repository?.baseSha ?? repositoryCommit,
+    ...(analysis.repository ? { repository: analysis.repository } : {}),
     brief,
     evidenceCitations: [
       ...new Set(mutations.flatMap((mutation) => mutation.evidenceIds)),
     ],
-    allowedPaths: [...codexAllowedPaths],
-    protectedPaths: [...codexProtectedPaths],
+    allowedPaths: analysis.repository?.mutablePaths ?? [...codexAllowedPaths],
+    protectedPaths:
+      analysis.repository?.protectedPaths ?? [...codexProtectedPaths],
     acceptanceCriteria: [
       ...new Set(mutations.flatMap((mutation) => mutation.acceptanceCriteria)),
     ],
-    validationCommands: ['npm run typecheck', 'npm run test', 'npm run build'],
+    validationCommands: analysis.repository?.validationCommands ?? [
+      'npm run typecheck',
+      'npm run test',
+      'npm run build',
+    ],
   };
   const manifestHash = await sha256(canonicalStringify(payload));
   return CodexImplementationManifestSchema.parse({

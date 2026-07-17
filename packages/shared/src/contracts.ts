@@ -606,12 +606,31 @@ export const EvidencePressureClusterSchema = z.object({
   mutationOpportunity: z.string().min(1),
 });
 
+export const RepositoryContextSchema = z.object({
+  owner: StudyIdentifierSchema,
+  name: StudyIdentifierSchema,
+  fullName: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/),
+  url: z.string().url(),
+  branch: StudyIdentifierSchema,
+  baseSha: z.string().regex(/^[a-f0-9]{40}$/),
+  sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  capturedAt: z.string().datetime(),
+  mutablePaths: z.array(z.string().min(1)).min(1),
+  protectedPaths: z.array(z.string().min(1)).min(1),
+  contextPaths: z.array(z.string().min(1)).min(1),
+  validationCommands: z.array(z.string().min(1)).min(1),
+  maximumChangedFiles: z.number().int().positive(),
+  maximumChangedLines: z.number().int().positive(),
+  productionUrl: z.string().url(),
+  studyUrl: z.string().url(),
+});
+
 export const EvidenceAnalysisSchema = z.object({
   analysisId: StudyIdentifierSchema,
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   cacheKey: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0', '2.1.0']),
+  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0', '2.1.0', '3.0.0']),
   mode: z.literal('live'),
   model: z.string().min(1),
   promptCache: z
@@ -623,6 +642,7 @@ export const EvidenceAnalysisSchema = z.object({
     })
     .optional(),
   createdAt: z.string().datetime(),
+  repository: RepositoryContextSchema.optional(),
   evidenceAssessment: z.object({
     summary: z.string().min(1),
     quality: EvidenceQualitySchema,
@@ -646,8 +666,9 @@ export const CodexImplementationManifestSchema = z.object({
   mutationId: StudyIdentifierSchema,
   mutationIds: z.array(StudyIdentifierSchema).min(1).max(6).optional(),
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0', '2.1.0']),
+  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0', '2.1.0', '3.0.0']),
   repositoryCommit: z.string().min(1),
+  repository: RepositoryContextSchema.optional(),
   createdAt: z.string().datetime(),
   brief: z.string().min(1),
   evidenceCitations: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
@@ -829,6 +850,9 @@ export const OrganismStateSchema = z.object({
   evolutionCycles: z.number().int().nonnegative(),
   activeMutationId: z.string().min(1).nullable(),
   updatedAt: z.string().datetime(),
+  repository: RepositoryContextSchema.optional(),
+  activeCommitSha: z.string().regex(/^[a-f0-9]{40}$/).nullable().optional(),
+  deploymentUrl: z.string().url().nullable().optional(),
 });
 
 export const MutationDecisionResponseSchema = z.object({
@@ -845,7 +869,7 @@ export const ValidationResultSchema = z.object({
   id: z.string().min(1),
   mutationId: z.string().min(1),
   status: z.enum(['passed', 'failed']),
-  source: z.literal('recorded_repository_run'),
+  source: z.enum(['recorded_repository_run', 'github_actions_run']),
   commit: z.string().min(1),
   checks: z.array(
     z.object({
@@ -866,11 +890,16 @@ export const EvolutionRecordSchema = z.object({
   outcome: z.enum(['baseline', 'survived', 'failed_selection']),
   fitness: FitnessBreakdownSchema,
   recordedAt: z.string().datetime(),
+  repository: RepositoryContextSchema.optional(),
+  baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  headSha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  pullRequestUrl: z.string().url().optional(),
+  deploymentUrl: z.string().url().optional(),
 });
 
 export const MutationDiffSchema = z.object({
   mutationId: z.string().min(1),
-  source: z.literal('repository_source_comparison'),
+  source: z.enum(['repository_source_comparison', 'github_compare']),
   baseRef: z.string().min(1),
   targetRef: z.string().min(1),
   patch: z.string().min(1),
@@ -897,6 +926,72 @@ export const ManifestExecutionResponseSchema = z.object({
   organism: OrganismStateSchema,
   record: EvolutionRecordSchema.nullable(),
 });
+
+export const RepositoryExecutionStatusSchema = z.enum([
+  'prepared',
+  'queued',
+  'codex_running',
+  'validating',
+  'failed',
+  'pull_request_open',
+  'preview_ready',
+  'releasing',
+  'released',
+]);
+
+export const RepositoryExecutionCheckSchema = z.object({
+  name: z.string().min(1),
+  status: z.enum(['pending', 'running', 'passed', 'failed']),
+  durationMs: z.number().int().nonnegative().nullable(),
+  output: z.string(),
+});
+
+export const RepositoryMutationExecutionSchema = z.object({
+  executionId: StudyIdentifierSchema,
+  manifestId: StudyIdentifierSchema,
+  analysisId: StudyIdentifierSchema,
+  repository: RepositoryContextSchema,
+  status: RepositoryExecutionStatusSchema,
+  branch: z.string().min(1),
+  baseSha: z.string().regex(/^[a-f0-9]{40}$/),
+  headSha: z.string().regex(/^[a-f0-9]{40}$/).nullable(),
+  workflowRunId: z.number().int().positive().nullable(),
+  workflowUrl: z.string().url().nullable(),
+  pullRequestNumber: z.number().int().positive().nullable(),
+  pullRequestUrl: z.string().url().nullable(),
+  previewUrl: z.string().url().nullable(),
+  patch: z.string().nullable(),
+  changedFiles: z.array(z.string().min(1)),
+  checks: z.array(RepositoryExecutionCheckSchema),
+  codex: z.object({
+    threadId: z.string().min(1).nullable(),
+    finalMessage: z.string().nullable(),
+    inputTokens: z.number().int().nonnegative().nullable(),
+    cachedInputTokens: z.number().int().nonnegative().nullable(),
+    outputTokens: z.number().int().nonnegative().nullable(),
+  }),
+  error: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+});
+
+export const RepositoryExecutionCallbackSchema =
+  RepositoryMutationExecutionSchema.pick({
+    status: true,
+    headSha: true,
+    workflowRunId: true,
+    workflowUrl: true,
+    pullRequestNumber: true,
+    pullRequestUrl: true,
+    previewUrl: true,
+    patch: true,
+    changedFiles: true,
+    checks: true,
+    codex: true,
+    error: true,
+    completedAt: true,
+  }).partial();
 
 export const EvolutionTimelineResponseSchema = z.object({
   records: z.array(EvolutionRecordSchema),
@@ -944,6 +1039,7 @@ export type EvidenceMutationCandidate = z.infer<
   typeof EvidenceMutationCandidateSchema
 >;
 export type EvidenceAnalysis = z.infer<typeof EvidenceAnalysisSchema>;
+export type RepositoryContext = z.infer<typeof RepositoryContextSchema>;
 export type CodexImplementationManifest = z.infer<
   typeof CodexImplementationManifestSchema
 >;
@@ -985,6 +1081,18 @@ export type MutationReleaseResponse = z.infer<
 >;
 export type ManifestExecutionResponse = z.infer<
   typeof ManifestExecutionResponseSchema
+>;
+export type RepositoryExecutionStatus = z.infer<
+  typeof RepositoryExecutionStatusSchema
+>;
+export type RepositoryExecutionCheck = z.infer<
+  typeof RepositoryExecutionCheckSchema
+>;
+export type RepositoryMutationExecution = z.infer<
+  typeof RepositoryMutationExecutionSchema
+>;
+export type RepositoryExecutionCallback = z.infer<
+  typeof RepositoryExecutionCallbackSchema
 >;
 export type FitnessBreakdown = z.infer<typeof FitnessBreakdownSchema>;
 export type EvolutionRecord = z.infer<typeof EvolutionRecordSchema>;

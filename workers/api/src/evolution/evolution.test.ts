@@ -101,7 +101,7 @@ describe('fitness and live evolution analysis', () => {
       'Darwin Telemetry-to-Evolution Examples',
     );
     expect(body.input[1]?.content).toContain(
-      'Source: apps/projectflow/src/App.tsx',
+      'target application source is fetched from its live GitHub commit',
     );
     expect(JSON.stringify(events)).not.toContain('sk-test-secret');
   });
