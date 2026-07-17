@@ -12,7 +12,6 @@ import {
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   ArrowDown,
   Box,
   BrainCircuit,
@@ -76,31 +75,26 @@ const navItems = [
   {
     label: 'Control room',
     icon: LayoutDashboard,
-    active: true,
     help: 'Run and monitor one complete controlled evolution cycle.',
   },
   {
     label: 'Target application',
     icon: Box,
-    active: false,
     help: 'Connect and verify the GitHub repository Darwin observes, reasons about, and evolves.',
   },
   {
     label: 'Observations',
     icon: Radar,
-    active: false,
     help: 'Review measured journeys, evidence quality, and recurring selection pressure.',
   },
   {
     label: 'Mutations',
     icon: FlaskConical,
-    active: false,
     help: 'Review GPT-5.6 reasoning and approve or reject its proposal.',
   },
   {
     label: 'Fossil record',
     icon: GitBranch,
-    active: false,
     help: 'See the retained genome history and measured fitness record.',
   },
 ] as const;
@@ -255,93 +249,71 @@ function App() {
 
   if (targetOnly) {
     return (
-      <TargetConnectionPage
-        connection={targetConnection.connection}
-        error={targetConnection.error}
-        loading={targetConnection.loading}
-        saving={targetConnection.saving}
-        theme={theme}
-        onChangeTheme={setTheme}
-        onConnect={targetConnection.connect}
-        onDisconnect={targetConnection.disconnect}
-      />
+      <div className="min-h-screen bg-carbon text-white">
+        <GlobalExplainTooltip />
+        <DashboardSidebar
+          activeView="Target application"
+          health={health}
+          navigationOpen={navigationOpen}
+          onClose={() => setNavigationOpen(false)}
+        />
+        {navigationOpen && (
+          <button
+            className="fixed inset-0 z-30 bg-black/70 lg:hidden"
+            aria-label="Close navigation"
+            onClick={() => setNavigationOpen(false)}
+            type="button"
+          />
+        )}
+        <main className="lg:pl-[248px]">
+          <header className="topbar">
+            <button
+              className="icon-button lg:hidden"
+              type="button"
+              onClick={() => setNavigationOpen(true)}
+              aria-label="Open navigation"
+            >
+              <Menu size={19} />
+            </button>
+            <div className="flex items-center gap-2 text-xs text-mist">
+              <span className="hidden sm:inline">Workspace</span>
+              <ChevronRight className="hidden sm:block" size={14} />
+              <span className="font-mono text-white">Target application</span>
+            </div>
+            <div className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist">
+              <span
+                className="controlled-mode-status"
+                data-explain="Controlled mode verifies a bounded repository contract before Darwin can reason over source or execute a mutation."
+                tabIndex={0}
+              >
+                <ShieldCheck size={15} className="text-signal" />
+                <span>Controlled mode</span>
+              </span>
+              <ThemeToggle theme={theme} onChange={setTheme} />
+            </div>
+          </header>
+          <TargetConnectionView
+            connection={targetConnection.connection}
+            error={targetConnection.error}
+            loading={targetConnection.loading}
+            saving={targetConnection.saving}
+            onConnect={targetConnection.connect}
+            onDisconnect={targetConnection.disconnect}
+          />
+        </main>
+      </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-carbon text-white">
       <GlobalExplainTooltip />
-      <aside className={navigationOpen ? 'sidebar sidebar-open' : 'sidebar'}>
-        <div className="flex h-20 items-center justify-between border-b border-line px-5">
-          <a
-            className="flex items-center gap-3"
-            href="#top"
-            aria-label="Darwin control room"
-          >
-            <DarwinMark />
-            <span className="text-[17px] font-semibold tracking-[0.16em]">
-              DARWIN
-            </span>
-          </a>
-          <button
-            className="icon-button lg:hidden"
-            type="button"
-            onClick={() => setNavigationOpen(false)}
-            aria-label="Close navigation"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <nav className="flex-1 px-3 py-6" aria-label="Primary navigation">
-          <p className="section-label px-3">Workspace</p>
-          <ul className="mt-3 space-y-1">
-            {navItems.map(({ label, icon: Icon, active, help }) => (
-              <li key={label}>
-                <a
-                  className={active ? 'nav-item nav-item-active' : 'nav-item'}
-                  href={
-                    label === 'Target application'
-                      ? '/?view=target'
-                      : active
-                        ? '#top'
-                        : `#${label.toLowerCase().replace(' ', '-')}`
-                  }
-                  onClick={() => setNavigationOpen(false)}
-                  data-explain={help}
-                >
-                  <Icon size={17} strokeWidth={1.8} />
-                  <span>{label}</span>
-                  {active && (
-                    <span
-                      className="ml-auto h-1.5 w-1.5 bg-signal"
-                      aria-hidden="true"
-                    />
-                  )}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        <div className="border-t border-line p-4">
-          <div className="flex items-center gap-3 px-2 py-2">
-            <span
-              className={`status-dot status-${health.status}`}
-              aria-hidden="true"
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">Darwin API</p>
-              <p className="mt-0.5 text-xs capitalize text-mist">
-                {health.version
-                  ? `v${health.version} ${health.status}`
-                  : health.status}
-              </p>
-            </div>
-            <Server className="ml-auto text-mist" size={16} />
-          </div>
-        </div>
-      </aside>
+      <DashboardSidebar
+        activeView="Control room"
+        health={health}
+        navigationOpen={navigationOpen}
+        onClose={() => setNavigationOpen(false)}
+      />
 
       {navigationOpen && (
         <button
@@ -766,13 +738,102 @@ function useTargetConnection() {
   return { connection, loading, saving, error, connect, disconnect };
 }
 
-function TargetConnectionPage({
+function DashboardSidebar({
+  activeView,
+  health,
+  navigationOpen,
+  onClose,
+}: {
+  activeView: 'Control room' | 'Target application';
+  health: ApiHealthState;
+  navigationOpen: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <aside className={navigationOpen ? 'sidebar sidebar-open' : 'sidebar'}>
+      <div className="flex h-20 items-center justify-between border-b border-line px-5">
+        <a
+          className="flex items-center gap-3"
+          href="/"
+          aria-label="Darwin control room"
+        >
+          <DarwinMark />
+          <span className="text-[17px] font-semibold tracking-[0.16em]">
+            DARWIN
+          </span>
+        </a>
+        <button
+          className="icon-button lg:hidden"
+          type="button"
+          onClick={onClose}
+          aria-label="Close navigation"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      <nav className="flex-1 px-3 py-6" aria-label="Primary navigation">
+        <p className="section-label px-3">Workspace</p>
+        <ul className="mt-3 space-y-1">
+          {navItems.map(({ label, icon: Icon, help }) => {
+            const active = label === activeView;
+            const href =
+              label === 'Control room'
+                ? '/'
+                : label === 'Target application'
+                  ? '/?view=target'
+                  : `/#${label.toLowerCase().replace(' ', '-')}`;
+
+            return (
+              <li key={label}>
+                <a
+                  className={active ? 'nav-item nav-item-active' : 'nav-item'}
+                  href={href}
+                  onClick={onClose}
+                  aria-current={active ? 'page' : undefined}
+                  data-explain={help}
+                >
+                  <Icon size={17} strokeWidth={1.8} />
+                  <span>{label}</span>
+                  {active && (
+                    <span
+                      className="ml-auto h-1.5 w-1.5 bg-signal"
+                      aria-hidden="true"
+                    />
+                  )}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <div className="border-t border-line p-4">
+        <div className="flex items-center gap-3 px-2 py-2">
+          <span
+            className={`status-dot status-${health.status}`}
+            aria-hidden="true"
+          />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">Darwin API</p>
+            <p className="mt-0.5 text-xs capitalize text-mist">
+              {health.version
+                ? `v${health.version} ${health.status}`
+                : health.status}
+            </p>
+          </div>
+          <Server className="ml-auto text-mist" size={16} />
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function TargetConnectionView({
   connection,
   error,
   loading,
   saving,
-  theme,
-  onChangeTheme,
   onConnect,
   onDisconnect,
 }: {
@@ -780,8 +841,6 @@ function TargetConnectionPage({
   error: string | null;
   loading: boolean;
   saving: boolean;
-  theme: Theme;
-  onChangeTheme: (theme: Theme) => void;
   onConnect: (request: TargetConnectionRequest) => Promise<void>;
   onDisconnect: () => Promise<void>;
 }) {
@@ -792,244 +851,216 @@ function TargetConnectionPage({
     setRequest((current) => ({ ...current, [field]: value }));
 
   return (
-    <div className="target-connect-page">
-      <GlobalExplainTooltip />
-      <header className="target-connect-header">
-        <a href="/" className="target-brand" aria-label="Back to control room">
-          <DarwinMark />
-          <strong>DARWIN</strong>
-        </a>
-        <span>Target application</span>
-        <div className="target-header-actions">
-          <a
-            className="target-back-link"
-            href="/"
-            aria-label="Back to control room"
-            data-explain="Return to Darwin's control room without changing the active target connection."
+    <div className="target-connect-main">
+      <section className="target-connect-intro">
+        <p className="section-label">Repository onboarding</p>
+        <div className="target-connect-title-row">
+          <div>
+            <h1>Connect a target application</h1>
+            <p>
+              Give Darwin a GitHub repository and measured deployment. Darwin
+              verifies the target contract before it observes telemetry, reasons
+              over source, or prepares a mutation.
+            </p>
+          </div>
+          <span
+            className={
+              connection
+                ? 'connection-state connection-state-live'
+                : 'connection-state'
+            }
           >
-            <ArrowLeft size={15} /> <span>Control room</span>
-          </a>
-          <ThemeToggle theme={theme} onChange={onChangeTheme} />
+            <span className="status-dot" aria-hidden="true" />
+            {loading
+              ? 'Checking connection'
+              : connection
+                ? 'Connected'
+                : 'Not connected'}
+          </span>
         </div>
-      </header>
+      </section>
 
-      <main className="target-connect-main">
-        <section className="target-connect-intro">
-          <p className="section-label">Repository onboarding</p>
-          <div className="target-connect-title-row">
+      <ol className="connection-steps" aria-label="Connection verification">
+        {[
+          ['01', 'Repository', 'Read the exact GitHub commit'],
+          ['02', 'Contract', 'Validate darwin.target.json'],
+          ['03', 'Runtime', 'Reach the Cloudflare deployment'],
+          ['04', 'Ready', 'Bind telemetry and mutations'],
+        ].map(([number, label, detail]) => (
+          <li className={connection ? 'is-complete' : ''} key={number}>
+            <span>{connection ? <Check size={14} /> : number}</span>
             <div>
-              <h1>Connect a target application</h1>
-              <p>
-                Give Darwin a GitHub repository and measured deployment. Darwin
-                verifies the target contract before it observes telemetry,
-                reasons over source, or prepares a mutation.
-              </p>
+              <strong>{label}</strong>
+              <small>{detail}</small>
             </div>
-            <span
-              className={
-                connection
-                  ? 'connection-state connection-state-live'
-                  : 'connection-state'
-              }
-            >
-              <span className="status-dot" aria-hidden="true" />
-              {loading
-                ? 'Checking connection'
-                : connection
-                  ? 'Connected'
-                  : 'Not connected'}
-            </span>
+          </li>
+        ))}
+      </ol>
+
+      <section className="connection-workspace">
+        <form
+          className="connection-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onConnect(request);
+          }}
+        >
+          <div className="connection-section-heading">
+            <div>
+              <p className="section-label">Target definition</p>
+              <h2>ProjectFlow repository</h2>
+            </div>
+            <Github size={21} />
           </div>
-        </section>
-
-        <ol className="connection-steps" aria-label="Connection verification">
-          {[
-            ['01', 'Repository', 'Read the exact GitHub commit'],
-            ['02', 'Contract', 'Validate darwin.target.json'],
-            ['03', 'Runtime', 'Reach the Cloudflare deployment'],
-            ['04', 'Ready', 'Bind telemetry and mutations'],
-          ].map(([number, label, detail]) => (
-            <li className={connection ? 'is-complete' : ''} key={number}>
-              <span>{connection ? <Check size={14} /> : number}</span>
-              <div>
-                <strong>{label}</strong>
-                <small>{detail}</small>
-              </div>
-            </li>
-          ))}
-        </ol>
-
-        <section className="connection-workspace">
-          <form
-            className="connection-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void onConnect(request);
-            }}
-          >
-            <div className="connection-section-heading">
-              <div>
-                <p className="section-label">Target definition</p>
-                <h2>ProjectFlow repository</h2>
-              </div>
-              <Github size={21} />
-            </div>
+          <label>
+            <span>GitHub repository</span>
+            <input
+              aria-label="GitHub repository"
+              value={request.fullName}
+              onChange={(event) => update('fullName', event.target.value)}
+              autoComplete="off"
+            />
+            <small>Owner and repository name</small>
+          </label>
+          <div className="connection-field-grid">
             <label>
-              <span>GitHub repository</span>
+              <span>Tracked branch</span>
               <input
-                aria-label="GitHub repository"
-                value={request.fullName}
-                onChange={(event) => update('fullName', event.target.value)}
+                aria-label="Tracked branch"
+                value={request.branch}
+                onChange={(event) => update('branch', event.target.value)}
                 autoComplete="off"
               />
-              <small>Owner and repository name</small>
             </label>
-            <div className="connection-field-grid">
-              <label>
-                <span>Tracked branch</span>
-                <input
-                  aria-label="Tracked branch"
-                  value={request.branch}
-                  onChange={(event) => update('branch', event.target.value)}
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                <span>Production deployment</span>
-                <input
-                  aria-label="Production deployment"
-                  type="url"
-                  value={request.productionUrl}
-                  onChange={(event) =>
-                    update('productionUrl', event.target.value)
-                  }
-                  autoComplete="off"
-                />
-              </label>
-            </div>
             <label>
-              <span>Measured study URL</span>
+              <span>Production deployment</span>
               <input
-                aria-label="Measured study URL"
+                aria-label="Production deployment"
                 type="url"
-                value={request.studyUrl}
-                onChange={(event) => update('studyUrl', event.target.value)}
+                value={request.productionUrl}
+                onChange={(event) =>
+                  update('productionUrl', event.target.value)
+                }
                 autoComplete="off"
               />
-              <small>
-                Darwin telemetry is enabled on this application view
-              </small>
             </label>
+          </div>
+          <label>
+            <span>Measured study URL</span>
+            <input
+              aria-label="Measured study URL"
+              type="url"
+              value={request.studyUrl}
+              onChange={(event) => update('studyUrl', event.target.value)}
+              autoComplete="off"
+            />
+            <small>Darwin telemetry is enabled on this application view</small>
+          </label>
 
-            {error && (
-              <p className="connection-error" role="alert">
-                <AlertTriangle size={15} /> {error}
-              </p>
-            )}
+          {error && (
+            <p className="connection-error" role="alert">
+              <AlertTriangle size={15} /> {error}
+            </p>
+          )}
 
-            <div className="connection-actions">
-              <div className="start-action-wrap">
-                {!connection && !loading && (
-                  <span className="start-here-cue" aria-hidden="true">
-                    Start here <ArrowDown size={15} />
-                  </span>
-                )}
-                <button
-                  className="primary-action"
-                  type="submit"
-                  disabled={saving || loading}
-                  data-explain="Verify the live GitHub commit, Darwin target contract, bounded source paths, validation commands, and Cloudflare runtime before saving this connection."
-                >
-                  {saving ? (
-                    <CircleDashed className="animate-spin" size={17} />
-                  ) : connection ? (
-                    <ShieldCheck size={17} />
-                  ) : (
-                    <Link2 size={17} />
-                  )}
-                  {saving
-                    ? 'Verifying target'
-                    : connection
-                      ? 'Re-verify connection'
-                      : 'Connect ProjectFlow'}
-                </button>
-              </div>
-              {connection && (
-                <button
-                  className="secondary-action"
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void onDisconnect()}
-                  data-explain="Remove the active binding so the repository connection can be demonstrated again. Telemetry and fossil records are left unchanged."
-                >
-                  <Unplug size={16} /> Disconnect
-                </button>
+          <div className="connection-actions">
+            <div className="start-action-wrap">
+              {!connection && !loading && (
+                <span className="start-here-cue" aria-hidden="true">
+                  Start here <ArrowDown size={15} />
+                </span>
               )}
+              <button
+                className="primary-action"
+                type="submit"
+                disabled={saving || loading}
+                data-explain="Verify the live GitHub commit, Darwin target contract, bounded source paths, validation commands, and Cloudflare runtime before saving this connection."
+              >
+                {saving ? (
+                  <CircleDashed className="animate-spin" size={17} />
+                ) : connection ? (
+                  <ShieldCheck size={17} />
+                ) : (
+                  <Link2 size={17} />
+                )}
+                {saving
+                  ? 'Verifying target'
+                  : connection
+                    ? 'Re-verify connection'
+                    : 'Connect ProjectFlow'}
+              </button>
             </div>
-          </form>
-
-          <div className="connection-verification" aria-live="polite">
-            <div className="connection-section-heading">
-              <div>
-                <p className="section-label">Live verification</p>
-                <h2>
-                  {connection ? connection.target.name : 'Awaiting target'}
-                </h2>
-              </div>
-              <ShieldCheck size={21} />
-            </div>
-            {connection ? (
-              <>
-                <p className="connection-purpose">
-                  {connection.target.purpose}
-                </p>
-                <div className="connection-identity">
-                  <span>Active commit</span>
-                  <code>{connection.repository.baseSha.slice(0, 12)}</code>
-                  <span>Source fingerprint</span>
-                  <code>{connection.repository.sourceHash.slice(0, 16)}</code>
-                </div>
-                <ul className="connection-check-list">
-                  {connection.checks.map((check) => (
-                    <li key={check.id}>
-                      <CheckCircle2 size={17} />
-                      <div>
-                        <strong>{check.label}</strong>
-                        <span>{check.detail}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                <div className="connection-links">
-                  <a
-                    href={connection.repository.studyUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open measured application <ExternalLink size={14} />
-                  </a>
-                  <a
-                    href={connection.repository.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    View GitHub repository <ExternalLink size={14} />
-                  </a>
-                </div>
-              </>
-            ) : (
-              <div className="connection-empty-state">
-                <Github size={28} />
-                <strong>No repository is connected</strong>
-                <p>
-                  Darwin will show each verification result here before the
-                  target becomes available to GPT and Codex.
-                </p>
-              </div>
+            {connection && (
+              <button
+                className="secondary-action"
+                type="button"
+                disabled={saving}
+                onClick={() => void onDisconnect()}
+                data-explain="Remove the active binding so the repository connection can be demonstrated again. Telemetry and fossil records are left unchanged."
+              >
+                <Unplug size={16} /> Disconnect
+              </button>
             )}
           </div>
-        </section>
-      </main>
+        </form>
+
+        <div className="connection-verification" aria-live="polite">
+          <div className="connection-section-heading">
+            <div>
+              <p className="section-label">Live verification</p>
+              <h2>{connection ? connection.target.name : 'Awaiting target'}</h2>
+            </div>
+            <ShieldCheck size={21} />
+          </div>
+          {connection ? (
+            <>
+              <p className="connection-purpose">{connection.target.purpose}</p>
+              <div className="connection-identity">
+                <span>Active commit</span>
+                <code>{connection.repository.baseSha.slice(0, 12)}</code>
+                <span>Source fingerprint</span>
+                <code>{connection.repository.sourceHash.slice(0, 16)}</code>
+              </div>
+              <ul className="connection-check-list">
+                {connection.checks.map((check) => (
+                  <li key={check.id}>
+                    <CheckCircle2 size={17} />
+                    <div>
+                      <strong>{check.label}</strong>
+                      <span>{check.detail}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="connection-links">
+                <a
+                  href={connection.repository.studyUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open measured application <ExternalLink size={14} />
+                </a>
+                <a
+                  href={connection.repository.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View GitHub repository <ExternalLink size={14} />
+                </a>
+              </div>
+            </>
+          ) : (
+            <div className="connection-empty-state">
+              <Github size={28} />
+              <strong>No repository is connected</strong>
+              <p>
+                Darwin will show each verification result here before the target
+                becomes available to GPT and Codex.
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

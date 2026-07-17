@@ -467,6 +467,10 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: 'Target application' }),
     ).toHaveAttribute('href', '/?view=target');
+    expect(screen.getByRole('link', { name: 'Control room' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     expect(
       screen.queryByText('Observe 10,000 interactions'),
     ).not.toBeInTheDocument();
@@ -611,6 +615,14 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('heading', { name: 'Connect a target application' }),
     ).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: 'Target application' }),
+    ).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Control room' })).toHaveAttribute(
+      'href',
+      '/',
+    );
+    expect(screen.getByText('Darwin API')).toBeVisible();
     expect(await screen.findByText('No repository is connected')).toBeVisible();
     expect(screen.getByLabelText('GitHub repository')).toHaveValue(
       'sjohnston1972/projectflow',
