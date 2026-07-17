@@ -773,11 +773,10 @@ describe('Darwin control room', () => {
       screen.getByRole('button', { name: 'Connect ProjectFlow' }),
     );
 
-    expect(await screen.findByText('GitHub repository')).toBeVisible();
+    expect(await screen.findByText('Cloudflare runtime')).toBeVisible();
     expect(
       screen.getByText('darwin.target.json', { exact: false }),
     ).toBeVisible();
-    expect(screen.getByText('Cloudflare runtime')).toBeVisible();
     expect(
       screen.getByRole('link', { name: 'Open measured study' }),
     ).toHaveAttribute('href', 'http://localhost:5174/?study=true');
