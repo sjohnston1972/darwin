@@ -213,7 +213,11 @@ describe('evidence-backed reasoning v2', () => {
           pressureClusters: [
             {
               ...modelOutput.evidenceAssessment.pressureClusters[0],
-              affectedTargets: ['invented-control'],
+              affectedTargets: [
+                'invented-control',
+                '/study/projects/apollo',
+                'Task row',
+              ],
             },
           ],
         },

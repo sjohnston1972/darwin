@@ -20,7 +20,11 @@ import {
 } from '@darwin/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { handleRequest, resetSimulationStore } from './index';
+import {
+  handleRequest,
+  handleWorkerRequest,
+  resetSimulationStore,
+} from './index';
 import { resetInMemoryTelemetry } from './persistence/telemetry-repository';
 
 const studyEvent = {
@@ -151,7 +155,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.20.2');
+    expect(body.version).toBe('0.20.3');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -179,6 +183,32 @@ describe('Darwin API', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: 'not_found',
     });
+  });
+
+  it('preserves JSON and CORS when an unexpected request error occurs', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const database = {
+      prepare: vi.fn(() => {
+        throw new Error('database unavailable');
+      }),
+    } as unknown as D1Database;
+    const origin = 'https://darwin-control-room.pages.dev';
+    const response = await handleWorkerRequest(
+      new Request('http://localhost/api/health', {
+        headers: { Origin: origin },
+      }),
+      { ALLOWED_ORIGINS: origin, DB: database },
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(origin);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'internal_error',
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      '[darwin:api]',
+      expect.stringContaining('unhandled_request_error'),
+    );
   });
 
   it('enforces production origins and telemetry rate limits', async () => {

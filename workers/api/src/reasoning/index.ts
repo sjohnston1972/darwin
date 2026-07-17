@@ -27,10 +27,14 @@ export const codexProtectedPaths = [
   'packages/telemetry-client/**',
 ] as const;
 
+const modelPressureClusterSchema = EvidencePressureClusterSchema.extend({
+  affectedTargets: z.array(z.string().min(1)),
+});
+
 const modelOutputSchema = z.object({
   evidenceAssessment: z.object({
     summary: z.string().min(1),
-    pressureClusters: z.array(EvidencePressureClusterSchema).min(1).max(8),
+    pressureClusters: z.array(modelPressureClusterSchema).min(1).max(8),
     selectionRationale: z.string().min(1),
   }),
   selectedMutation: EvidenceMutationCandidateSchema,
@@ -565,7 +569,15 @@ export async function analyseEvidence(
       'Live GPT reasoning failed; no recommendation was generated.',
     );
   }
-  const validated = validateModelOutput(liveResult.output, pack);
+  let validated: ReturnType<typeof validateModelOutput>;
+  try {
+    validated = validateModelOutput(liveResult.output, pack);
+  } catch (error) {
+    if (error instanceof EvidenceReasoningError) throw error;
+    throw new EvidenceReasoningError(
+      'GPT returned an invalid structured analysis; no recommendation was generated.',
+    );
+  }
 
   return EvidenceAnalysisSchema.parse({
     analysisId: `analysis-${cacheKey.slice(0, 12)}`,

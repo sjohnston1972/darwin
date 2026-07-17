@@ -91,6 +91,30 @@ const jsonResponse = (
   return new Response(JSON.stringify(body), { ...init, headers });
 };
 
+const corsForRequest = (request: Request, env?: Partial<Env>) => {
+  const configuredOrigins = (env?.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const requestOrigin = request.headers.get('Origin');
+  const originAllowed =
+    configuredOrigins.length === 0 ||
+    requestOrigin === null ||
+    configuredOrigins.includes(requestOrigin);
+  const corsHeaders = {
+    ...defaultCorsHeaders,
+    ...(configuredOrigins.length === 0
+      ? { 'Access-Control-Allow-Origin': '*' }
+      : originAllowed && requestOrigin
+        ? {
+            'Access-Control-Allow-Origin': requestOrigin,
+            Vary: 'Origin',
+          }
+        : {}),
+  };
+  return { corsHeaders, originAllowed };
+};
+
 const simulationStore = new Map<string, SimulationResult>();
 const mutationStore = new Map<string, MutationProposal>();
 const validationStore = new Map<string, unknown>();
@@ -163,31 +187,7 @@ export const handleRequest = async (
 ): Promise<Response> => {
   const url = new URL(request.url);
   const { pathname } = url;
-  const telemetryRepository = getTelemetryRepository(env?.DB);
-  if (env?.DB) {
-    const persisted = await telemetryRepository.getDemoState();
-    if (persisted) restoreDemoState(persisted);
-  }
-  const configuredOrigins = (env?.ALLOWED_ORIGINS ?? '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-  const requestOrigin = request.headers.get('Origin');
-  const originAllowed =
-    configuredOrigins.length === 0 ||
-    requestOrigin === null ||
-    configuredOrigins.includes(requestOrigin);
-  const corsHeaders = {
-    ...defaultCorsHeaders,
-    ...(configuredOrigins.length === 0
-      ? { 'Access-Control-Allow-Origin': '*' }
-      : originAllowed && requestOrigin
-        ? {
-            'Access-Control-Allow-Origin': requestOrigin,
-            Vary: 'Origin',
-          }
-        : {}),
-  };
+  const { corsHeaders, originAllowed } = corsForRequest(request, env);
   const json = (body: unknown, init: ResponseInit = {}) =>
     jsonResponse(body, init, corsHeaders);
 
@@ -205,11 +205,17 @@ export const handleRequest = async (
     );
   }
 
+  const telemetryRepository = getTelemetryRepository(env?.DB);
+  if (env?.DB) {
+    const persisted = await telemetryRepository.getDemoState();
+    if (persisted) restoreDemoState(persisted);
+  }
+
   if (request.method === 'GET' && pathname === '/api/health') {
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.20.2',
+      version: '0.20.3',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -1016,10 +1022,35 @@ export const handleRequest = async (
   );
 };
 
+export const handleWorkerRequest = async (
+  request: Request,
+  env: Partial<Env>,
+) => {
+  try {
+    return await handleRequest(request, env);
+  } catch (error) {
+    console.error(
+      '[darwin:api]',
+      JSON.stringify({
+        event: 'unhandled_request_error',
+        method: request.method,
+        path: new URL(request.url).pathname,
+        error: error instanceof Error ? error.name : 'UnknownError',
+      }),
+    );
+    return jsonResponse(
+      {
+        error: 'internal_error',
+        message: 'Darwin API could not complete the request.',
+      },
+      { status: 500 },
+      corsForRequest(request, env).corsHeaders,
+    );
+  }
+};
+
 const worker: ExportedHandler<Env> = {
-  fetch(request, env) {
-    return handleRequest(request, env);
-  },
+  fetch: handleWorkerRequest,
 };
 
 export default worker;
