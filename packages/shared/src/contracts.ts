@@ -608,7 +608,7 @@ export const EvidenceAnalysisSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   cacheKey: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0']),
+  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0', '2.1.0']),
   mode: z.literal('live'),
   model: z.string().min(1),
   promptCache: z
@@ -642,7 +642,7 @@ export const CodexImplementationManifestSchema = z.object({
   analysisId: StudyIdentifierSchema,
   mutationId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
-  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0']),
+  promptVersion: z.enum(['1.0.0', '1.1.0', '2.0.0', '2.1.0']),
   repositoryCommit: z.string().min(1),
   createdAt: z.string().datetime(),
   brief: z.string().min(1),

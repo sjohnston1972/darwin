@@ -15,7 +15,7 @@ import {
   projectFlowReasoningContextVersion,
 } from './generated-context';
 
-export const evidencePromptVersion = '2.0.0' as const;
+export const evidencePromptVersion = '2.1.0' as const;
 export const codexAllowedPaths = [
   'apps/projectflow/src/App.tsx',
   'apps/projectflow/src/styles.css',
@@ -73,9 +73,25 @@ const candidateJsonSchema = {
       type: 'object',
       properties: {
         evidenceStrength: { type: 'integer', minimum: 0, maximum: 100 },
-        userImpact: { type: 'integer', minimum: 0, maximum: 100 },
-        feasibility: { type: 'integer', minimum: 0, maximum: 100 },
-        validationClarity: { type: 'integer', minimum: 0, maximum: 100 },
+        userImpact: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 100,
+          description: 'User impact score on a 0-100 percentage scale.',
+        },
+        feasibility: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 100,
+          description:
+            'Implementation feasibility on a 0-100 percentage scale.',
+        },
+        validationClarity: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 100,
+          description: 'Validation clarity on a 0-100 percentage scale.',
+        },
         total: { type: 'integer', minimum: 0, maximum: 100 },
       },
       required: [
@@ -228,7 +244,7 @@ Group related evidence into causal pressure clusters. For every cluster state th
 
 The evolution catalogue contains concrete examples of powerful mutations that may be adopted when matching evidence exists. It is not evidence, a mandatory mapping, or a list of default answers. Prefer functional mutations that remove broken or missing behavior over cosmetic changes. Consider combined mutations when multiple signals share one cause.
 
-Produce a portfolio containing one selected mutation and two to five genuine alternatives spanning the meaningful pressure clusters. Score each candidate for evidence strength, user impact, feasibility, and validation clarity. Evidence strength must reflect recurrence across events, sessions, participants, and completed tasks. Predictions are hypotheses, not outcomes.
+Produce a portfolio containing one selected mutation and two to five genuine alternatives spanning the meaningful pressure clusters. Score each candidate for evidence strength, user impact, feasibility, and validation clarity using integer percentages from 0 to 100, never a 1-5 rubric. Evidence strength must reflect recurrence across events, sessions, participants, and completed tasks. Predictions are hypotheses, not outcomes.
 
 Every behavioral claim and candidate must cite supplied evidence IDs. Every scope value must come from mutableAreas. Never target protectedAreas. Keep the implementation human-approved and bounded to ProjectFlow, but do not reduce a powerful supported mutation to a superficial label or tooltip. Return only the requested structured output.`;
 
@@ -392,11 +408,20 @@ function normalizeCandidateScore(
       ) / citedSignals.length
     : 0;
   const evidenceStrength = Math.min(pack.quality.score, Math.round(recurrence));
+  const modelDimensions = [
+    candidate.scorecard.userImpact,
+    candidate.scorecard.feasibility,
+    candidate.scorecard.validationClarity,
+  ];
+  const scale = modelDimensions.every((score) => score <= 5) ? 20 : 1;
+  const userImpact = candidate.scorecard.userImpact * scale;
+  const feasibility = candidate.scorecard.feasibility * scale;
+  const validationClarity = candidate.scorecard.validationClarity * scale;
   const total = Math.round(
     evidenceStrength * 0.35 +
-      candidate.scorecard.userImpact * 0.25 +
-      candidate.scorecard.feasibility * 0.2 +
-      candidate.scorecard.validationClarity * 0.2,
+      userImpact * 0.25 +
+      feasibility * 0.2 +
+      validationClarity * 0.2,
   );
   return EvidenceMutationCandidateSchema.parse({
     ...candidate,
@@ -404,6 +429,9 @@ function normalizeCandidateScore(
     scorecard: {
       ...candidate.scorecard,
       evidenceStrength,
+      userImpact,
+      feasibility,
+      validationClarity,
       total,
     },
   });

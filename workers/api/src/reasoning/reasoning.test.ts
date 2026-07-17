@@ -245,7 +245,7 @@ describe('evidence-backed reasoning v2', () => {
     });
 
     expect(analysis.mode).toBe('live');
-    expect(analysis.promptVersion).toBe('2.0.0');
+    expect(analysis.promptVersion).toBe('2.1.0');
     expect(analysis.alternatives).toHaveLength(2);
     expect(
       analysis.selectedMutation.scorecard.evidenceStrength,
@@ -263,6 +263,37 @@ describe('evidence-backed reasoning v2', () => {
     );
     expect(requestBody.input[2].content).toContain('orderedJourneys');
     expect(requestBody.input[2].content).toContain('offsetMs');
+  });
+
+  it('normalizes a model-supplied five-point scorecard to percentages', () => {
+    const fivePointCandidate = (id: string, score: number) => ({
+      ...candidate(id, score),
+      scorecard: {
+        evidenceStrength: score,
+        userImpact: score,
+        feasibility: score,
+        validationClarity: score,
+        total: score,
+      },
+    });
+    const normalized = validateModelOutput(
+      {
+        ...modelOutput,
+        selectedMutation: fivePointCandidate('direct-my-work', 5),
+        alternatives: [
+          fivePointCandidate('dashboard-work-queue', 4),
+          fivePointCandidate('global-search', 3),
+        ],
+      },
+      pack,
+    );
+
+    expect(normalized.selectedMutation.scorecard).toMatchObject({
+      userImpact: 100,
+      feasibility: 100,
+      validationClarity: 100,
+    });
+    expect(normalized.selectedMutation.scorecard.total).toBeGreaterThan(80);
   });
 
   it('fails closed without live GPT instead of returning a substitute mutation', async () => {

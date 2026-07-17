@@ -816,13 +816,18 @@ npm run test:e2e:projectflow
 ```
 
 Results:
-- All 52 unit tests passed across shared contracts, telemetry, API, ProjectFlow,
+- All 53 unit tests passed across shared contracts, telemetry, API, ProjectFlow,
   and the control room.
 - All four ProjectFlow Playwright scenarios passed.
 - The Worker dry-run built in live GPT-5.6 mode and both Vite applications built
   successfully.
 - The generated ProjectFlow reasoning context is current at
   `ctx-5fc08479fb8c262f`.
+- Production parser `1.2.0` converted a real 42-event dashboard journey into
+  four citable pressures. GPT-5.6 prompt `2.0.0` reconstructed the 11-interaction
+  path, returned five mutations, and selected workspace-wide My Work discovery.
+- Prompt `2.1.0` makes the 0-100 score rubric explicit and normalizes any
+  model-supplied five-point score before applying Darwin's weighted ranking.
 
 Known issues:
 - Evidence from one participant remains directional; Darwin exposes that
