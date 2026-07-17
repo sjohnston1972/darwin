@@ -22,6 +22,7 @@ import {
   resetSimulationStore,
 } from './index';
 import { resetInMemoryTelemetry } from './persistence/telemetry-repository';
+import { signTargetRequestForTest } from './security/auth';
 
 const studyEvent = {
   schemaVersion: 1,
@@ -118,6 +119,35 @@ const repositoryTarget = {
   limits: { maximumChangedFiles: 8, maximumChangedLines: 700 },
 };
 
+const signedTargetRequest = async (
+  path: string,
+  body: string,
+  secret = 'projectflow-ingestion-test-secret',
+  overrides: Record<string, string> = {},
+) => {
+  const timestamp = overrides.timestamp ?? String(Date.now());
+  const targetId = overrides.targetId ?? 'projectflow';
+  const sourceOrigin =
+    overrides.sourceOrigin ?? 'https://darwin-projectflow.pages.dev';
+  const clientKey = overrides.clientKey ?? 'signed-edge-client';
+  const signature = await signTargetRequestForTest(
+    secret,
+    [timestamp, targetId, sourceOrigin, clientKey, body].join('\n'),
+  );
+  return new Request(`https://darwin-api.example${path}`, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      'X-Darwin-Timestamp': timestamp,
+      'X-Darwin-Target': targetId,
+      'X-Darwin-Source-Origin': sourceOrigin,
+      'X-Darwin-Client-Key': clientKey,
+      'X-Darwin-Signature': overrides.signature ?? signature,
+    },
+    ...(body ? { body } : {}),
+  });
+};
+
 const installOpenAIResponse = (output: unknown) =>
   vi.stubGlobal(
     'fetch',
@@ -193,6 +223,157 @@ describe('Darwin API', () => {
         model: 'gpt-5.6',
         liveModelAvailable: true,
       },
+    });
+  });
+
+  it('requires capability-scoped operator authorization on every control-plane route', async () => {
+    const protectedRoutes = [
+      ['GET', '/api/target-connection'],
+      ['POST', '/api/target-connection'],
+      ['POST', '/api/target-connection/disconnect'],
+      ['POST', '/api/demo/reset'],
+      ['GET', '/api/genome'],
+      ['GET', '/api/observations/archives'],
+      ['GET', '/api/studies/projectflow-baseline-study/events'],
+      ['POST', '/api/studies/projectflow-baseline-study/evidence'],
+      ['GET', '/api/studies/projectflow-baseline-study/evidence/latest'],
+      ['POST', '/api/studies/projectflow-baseline-study/analyse-evidence'],
+      [
+        'GET',
+        '/api/studies/projectflow-baseline-study/evidence-analysis/latest',
+      ],
+      ['POST', '/api/evidence-analyses/analysis-test/codex-manifest'],
+      ['POST', '/api/evidence-analyses/analysis-test/codex-manifest/execution'],
+      ['GET', '/api/repository-executions/execution-test'],
+      ['POST', '/api/repository-executions/execution-test/rollback'],
+      ['POST', '/api/repository-executions/execution-test/release'],
+      ['POST', '/api/repository-executions/execution-test/rollback/release'],
+      ['GET', '/api/studies/projectflow-baseline-study/sessions/session-test'],
+      ['POST', '/api/simulations'],
+      ['GET', '/api/simulations/sim-baseline-1859'],
+    ] as const;
+
+    for (const [method, path] of protectedRoutes) {
+      const response = await handleRequest(
+        new Request(`https://darwin-api.example${path}`, { method }),
+        { DARWIN_OPERATOR_TOKEN: 'operator-test-token' },
+      );
+      expect(response.status, `${method} ${path}`).toBe(401);
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+    }
+
+    const viewerDenied = await handleRequest(
+      new Request(
+        'https://darwin-api.example/api/studies/projectflow-baseline-study/events',
+        { headers: { Authorization: 'Bearer viewer-test-token' } },
+      ),
+      {
+        DARWIN_OPERATOR_TOKEN: 'operator-test-token',
+        DARWIN_VIEWER_TOKEN: 'viewer-test-token',
+      },
+    );
+    expect(viewerDenied.status).toBe(403);
+
+    const operatorSession = await handleRequest(
+      new Request('https://darwin-api.example/api/auth/session', {
+        headers: { Authorization: 'Bearer operator-test-token' },
+      }),
+      { DARWIN_OPERATOR_TOKEN: 'operator-test-token' },
+    );
+    expect(operatorSession.status).toBe(200);
+    await expect(operatorSession.json()).resolves.toMatchObject({
+      authenticated: true,
+      actor: 'operator',
+    });
+  });
+
+  it('accepts only signed ProjectFlow telemetry with configured provenance', async () => {
+    const secret = 'projectflow-ingestion-test-secret';
+    const environment = {
+      PROJECTFLOW_INGESTION_SECRET: secret,
+      PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
+    };
+    const body = JSON.stringify({ events: [studyEvent] });
+    const unsigned = await handleRequest(
+      new Request('https://darwin-api.example/api/telemetry/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }),
+      environment,
+    );
+    expect(unsigned.status).toBe(401);
+
+    const accepted = await handleRequest(
+      await signedTargetRequest('/api/telemetry/events', body, secret),
+      environment,
+    );
+    expect(accepted.status).toBe(202);
+    expect(TelemetryReceiptSchema.parse(await accepted.json())).toEqual({
+      accepted: 1,
+      rejected: 0,
+      duplicates: 0,
+    });
+
+    const replay = await handleRequest(
+      await signedTargetRequest('/api/telemetry/events', body, secret),
+      environment,
+    );
+    expect(TelemetryReceiptSchema.parse(await replay.json())).toEqual({
+      accepted: 0,
+      rejected: 0,
+      duplicates: 1,
+    });
+
+    const unsupportedBody = JSON.stringify({
+      events: [{ ...studyEvent, studyId: 'attacker-selected-study' }],
+    });
+    const unsupported = await handleRequest(
+      await signedTargetRequest(
+        '/api/telemetry/events',
+        unsupportedBody,
+        secret,
+      ),
+      environment,
+    );
+    expect(unsupported.status).toBe(403);
+  });
+
+  it('rate limits signed telemetry on the edge-derived target identity', async () => {
+    const limit = vi.fn(async (input: { key: string }) => {
+      void input;
+      return { success: true };
+    });
+    const secret = 'projectflow-ingestion-test-secret';
+    const environment = {
+      PROJECTFLOW_INGESTION_SECRET: secret,
+      PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
+      INGESTION_RATE_LIMITER: { limit },
+    };
+    for (const [index, participantId] of [
+      'participant-one',
+      'participant-two',
+    ].entries()) {
+      const body = JSON.stringify({
+        events: [
+          {
+            ...studyEvent,
+            eventId: `${index + 1}9d13df2-8dce-4ad3-b20e-d8b4edc01b6${index}`,
+            sessionId: `session-${index}`,
+            participantId,
+          },
+        ],
+      });
+      const response = await handleRequest(
+        await signedTargetRequest('/api/telemetry/events', body, secret),
+        environment,
+      );
+      expect(response.status).toBe(202);
+    }
+    expect(limit).toHaveBeenCalledTimes(2);
+    expect(limit.mock.calls[0]![0]).toEqual(limit.mock.calls[1]![0]);
+    expect(limit).toHaveBeenCalledWith({
+      key: 'projectflow:signed-edge-client',
     });
   });
 
@@ -805,7 +986,8 @@ describe('Darwin API', () => {
       ),
     );
     expect(
-      StudyEventsResponseSchema.parse(await nextCycleEventsResponse.json()).count,
+      StudyEventsResponseSchema.parse(await nextCycleEventsResponse.json())
+        .count,
     ).toBe(0);
 
     const rollbackResponse = await handleRequest(

@@ -27,3 +27,11 @@ namespace_id = "1859001"
 [ratelimits.simple]
 limit = 120
 period = 60
+
+[[ratelimits]]
+name = "SIMULATION_RATE_LIMITER"
+namespace_id = "1859002"
+
+[ratelimits.simple]
+limit = 4
+period = 60

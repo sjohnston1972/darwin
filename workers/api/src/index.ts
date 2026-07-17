@@ -45,10 +45,17 @@ import {
   mergeRollbackPullRequest,
   mergeEvolutionPullRequest,
 } from './repository/github-actions';
+import {
+  authorizeOperator,
+  authorizeTargetRequest,
+  type OperatorCapability,
+  type OperatorIdentity,
+} from './security/auth';
 
 export interface Env {
   DB?: D1Database;
   INGESTION_RATE_LIMITER?: RateLimit;
+  SIMULATION_RATE_LIMITER?: RateLimit;
   ALLOWED_ORIGINS: string;
   DARWIN_AI_MODE: string;
   DARWIN_DEMO_SEED: string;
@@ -61,8 +68,13 @@ export interface Env {
   PROJECTFLOW_BRANCH: string;
   PROJECTFLOW_PRODUCTION_URL: string;
   PROJECTFLOW_STUDY_URL: string;
+  PROJECTFLOW_STUDY_ID?: string;
+  PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
   GITHUB_TOKEN?: string;
   DARWIN_CALLBACK_TOKEN?: string;
+  DARWIN_OPERATOR_TOKEN?: string;
+  DARWIN_VIEWER_TOKEN?: string;
+  PROJECTFLOW_INGESTION_SECRET?: string;
 }
 
 const defaultCorsHeaders = {
@@ -83,12 +95,57 @@ const jsonResponse = (
 ) => {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json; charset=utf-8');
+  headers.set('Cache-Control', 'no-store');
   Object.entries(corsHeaders).forEach(([name, value]) =>
     headers.set(name, value),
   );
 
   return new Response(JSON.stringify(body), { ...init, headers });
 };
+
+const requiredOperatorCapability = (
+  method: string,
+  pathname: string,
+): OperatorCapability => {
+  if (pathname === '/api/demo/reset') return 'reset';
+  if (pathname.startsWith('/api/target-connection')) {
+    return method === 'GET' ? 'observe' : 'connect';
+  }
+  if (pathname === '/api/simulations') return 'simulate';
+  if (/\/release$/.test(pathname)) return 'release';
+  if (method === 'POST' && pathname.includes('/analyse-evidence')) {
+    return 'reason';
+  }
+  if (method === 'POST' && pathname.endsWith('/evidence')) return 'reason';
+  if (
+    method === 'POST' &&
+    (pathname.includes('/codex-manifest') ||
+      pathname.includes('/repository-executions'))
+  ) {
+    return 'execute';
+  }
+  if (
+    pathname === '/api/genome' ||
+    pathname === '/api/observations/archives' ||
+    pathname.includes('/events') ||
+    pathname.includes('/sessions/') ||
+    pathname.includes('/evidence') ||
+    pathname.includes('/repository-executions') ||
+    pathname.startsWith('/api/simulations/')
+  ) {
+    return 'inspect_evidence';
+  }
+  return 'observe';
+};
+
+const isCallbackRoute = (pathname: string) =>
+  /^\/api\/repository-executions\/[^/]+\/(?:manifest|callback|rollback\/callback)$/.test(
+    pathname,
+  );
+
+const isTargetRoute = (pathname: string) =>
+  pathname === '/api/telemetry/events' ||
+  /^\/api\/studies\/[^/]+\/participants\/[^/]+\/workspace$/.test(pathname);
 
 const corsForRequest = (request: Request, env?: Partial<Env>) => {
   const configuredOrigins = (env?.ALLOWED_ORIGINS ?? '')
@@ -114,15 +171,41 @@ const corsForRequest = (request: Request, env?: Partial<Env>) => {
   return { corsHeaders, originAllowed };
 };
 
-const simulationStore = new Map<string, SimulationResult>();
+interface StoredSimulation {
+  run: SimulationResult['run'];
+  summary: SimulationResult['summary'];
+  expiresAt: number;
+}
 
-const simulationFromId = (id: string) => {
-  const match = id.match(/^sim-(baseline|evolved)-(-?\d+)$/);
-  if (!match) return null;
-  return simulate({
-    variant: match[1] as 'baseline' | 'evolved',
-    seed: Number(match[2]),
+const simulationStore = new Map<string, StoredSimulation>();
+const simulationTtlMs = 15 * 60 * 1_000;
+const maximumStoredSimulations = 4;
+let simulationInFlight = false;
+
+const getStoredSimulation = (id: string) => {
+  const now = Date.now();
+  for (const [storedId, stored] of simulationStore) {
+    if (stored.expiresAt <= now) simulationStore.delete(storedId);
+  }
+  const stored = simulationStore.get(id) ?? null;
+  if (stored) {
+    simulationStore.delete(id);
+    simulationStore.set(id, stored);
+  }
+  return stored;
+};
+
+const storeSimulation = (result: SimulationResult) => {
+  simulationStore.set(result.run.id, {
+    run: result.run,
+    summary: result.summary,
+    expiresAt: Date.now() + simulationTtlMs,
   });
+  while (simulationStore.size > maximumStoredSimulations) {
+    const oldest = simulationStore.keys().next().value as string | undefined;
+    if (!oldest) break;
+    simulationStore.delete(oldest);
+  }
 };
 
 const configuredTarget = (env?: Partial<Env>) =>
@@ -136,6 +219,33 @@ const configuredTarget = (env?: Partial<Env>) =>
       env?.PROJECTFLOW_STUDY_URL ||
       'https://darwin-projectflow.pages.dev/?study=true',
   });
+
+const allowedTargetStudies = (env?: Partial<Env>) =>
+  new Set([
+    env?.PROJECTFLOW_STUDY_ID || 'projectflow-baseline-study',
+    env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
+      'projectflow-baseline-automated-study',
+  ]);
+
+const targetProvenanceAllowed = (
+  event: { studyId: string; source: string },
+  env?: Partial<Env>,
+) => {
+  const measuredStudy =
+    env?.PROJECTFLOW_STUDY_ID || 'projectflow-baseline-study';
+  const automatedStudy =
+    env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
+    'projectflow-baseline-automated-study';
+  return (
+    (event.studyId === measuredStudy && event.source === 'real_user') ||
+    (event.studyId === automatedStudy && event.source === 'automated')
+  );
+};
+
+const isAllowedTargetVersion = (appVersion: string) =>
+  appVersion === 'baseline' ||
+  /^\d+\.\d+\.\d+$/.test(appVersion) ||
+  /^[a-f0-9]{7,40}(?:-candidate)?$/.test(appVersion);
 
 export const resetSimulationStore = () => {
   simulationStore.clear();
@@ -162,6 +272,52 @@ export const handleRequest = async (
     return json(
       { error: 'origin_forbidden', message: 'Request origin is not allowed.' },
       { status: 403 },
+    );
+  }
+
+  if (request.method === 'GET' && pathname === '/api/auth/session') {
+    const authorization = await authorizeOperator(request, env, 'observe');
+    return authorization.ok
+      ? json({
+          authenticated: true,
+          actor: authorization.identity.actor,
+          capabilities: authorization.identity.capabilities,
+        })
+      : json(
+          {
+            error: authorization.error,
+            message: authorization.message,
+          },
+          { status: authorization.status },
+        );
+  }
+
+  let operatorIdentity: OperatorIdentity | null = null;
+  if (
+    pathname !== '/api/health' &&
+    !isTargetRoute(pathname) &&
+    !isCallbackRoute(pathname)
+  ) {
+    const authorization = await authorizeOperator(
+      request,
+      env,
+      requiredOperatorCapability(request.method, pathname),
+    );
+    if (!authorization.ok) {
+      return json(
+        { error: authorization.error, message: authorization.message },
+        { status: authorization.status },
+      );
+    }
+    operatorIdentity = authorization.identity;
+    console.info(
+      '[darwin:audit]',
+      JSON.stringify({
+        event: 'operator_request_authorized',
+        actor: operatorIdentity.actor,
+        action: `${request.method} ${pathname}`,
+        target: pathname,
+      }),
     );
   }
 
@@ -198,9 +354,9 @@ export const handleRequest = async (
   }
 
   if (request.method === 'GET' && pathname === '/api/observations/archives') {
-    const executions = (await telemetryRepository.listRepositoryExecutions()).filter(
-      (execution) => ['released', 'failed'].includes(execution.status),
-    );
+    const executions = (
+      await telemetryRepository.listRepositoryExecutions()
+    ).filter((execution) => ['released', 'failed'].includes(execution.status));
     const archives = (
       await Promise.all(
         executions.map(async (execution) => {
@@ -400,8 +556,9 @@ export const handleRequest = async (
     }
 
     let input: unknown;
+    let body: string;
     try {
-      const body = await request.text();
+      body = await request.text();
       if (new TextEncoder().encode(body).byteLength > 256_000) {
         return json(
           {
@@ -419,6 +576,29 @@ export const handleRequest = async (
           message: 'Request body must be valid JSON.',
         },
         { status: 400 },
+      );
+    }
+
+    const targetAuthorization = await authorizeTargetRequest(
+      request,
+      body,
+      env,
+    );
+    if (!targetAuthorization.ok) {
+      console.warn(
+        '[darwin:security]',
+        JSON.stringify({
+          event: 'telemetry_authentication_rejected',
+          reason: targetAuthorization.error,
+          path: pathname,
+        }),
+      );
+      return json(
+        {
+          error: targetAuthorization.error,
+          message: targetAuthorization.message,
+        },
+        { status: targetAuthorization.status },
       );
     }
 
@@ -441,26 +621,39 @@ export const handleRequest = async (
     }
 
     const candidates = (input as { events: unknown[] }).events;
-    const events = candidates.flatMap((candidate) => {
+    const parsedEvents = candidates.flatMap((candidate) => {
       const parsed = StudyTelemetryEventSchema.safeParse(candidate);
-      if (!parsed.success || parsed.data.source === 'synthetic') return [];
+      if (!parsed.success) return [];
       return [parsed.data];
     });
-    if (env?.INGESTION_RATE_LIMITER) {
-      const actors = new Set(
-        events.map((event) => `${event.studyId}:${event.participantId}`),
+    const events = parsedEvents.filter(
+      (event) =>
+        targetProvenanceAllowed(event, env) &&
+        allowedTargetStudies(env).has(event.studyId) &&
+        isAllowedTargetVersion(event.appVersion),
+    );
+    if (events.length !== parsedEvents.length) {
+      return json(
+        {
+          error: 'target_context_forbidden',
+          message:
+            'Telemetry provenance, study, or application version is not configured.',
+        },
+        { status: 403 },
       );
-      for (const key of actors) {
-        const outcome = await env.INGESTION_RATE_LIMITER.limit({ key });
-        if (!outcome.success) {
-          return json(
-            {
-              error: 'rate_limited',
-              message: 'Telemetry ingestion rate exceeded. Retry shortly.',
-            },
-            { status: 429, headers: { 'Retry-After': '60' } },
-          );
-        }
+    }
+    if (env?.INGESTION_RATE_LIMITER) {
+      const outcome = await env.INGESTION_RATE_LIMITER.limit({
+        key: `${targetAuthorization.identity.targetId}:${targetAuthorization.identity.clientKey}`,
+      });
+      if (!outcome.success) {
+        return json(
+          {
+            error: 'rate_limited',
+            message: 'Telemetry ingestion rate exceeded. Retry shortly.',
+          },
+          { status: 429, headers: { 'Retry-After': '60' } },
+        );
       }
     }
     const stored = await telemetryRepository.insertEvents(
@@ -1217,6 +1410,49 @@ export const handleRequest = async (
   if (participantWorkspaceMatch) {
     const studyId = decodeURIComponent(participantWorkspaceMatch[1]!);
     const participantId = decodeURIComponent(participantWorkspaceMatch[2]!);
+    let workspaceBody = '';
+    if (request.method === 'PUT') {
+      const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+      if (contentLength > 256_000) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Workspace body is too large.',
+          },
+          { status: 413 },
+        );
+      }
+      workspaceBody = await request.text();
+      if (new TextEncoder().encode(workspaceBody).byteLength > 256_000) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Workspace body is too large.',
+          },
+          { status: 413 },
+        );
+      }
+    }
+    const targetAuthorization = await authorizeTargetRequest(
+      request,
+      workspaceBody,
+      env,
+    );
+    if (!targetAuthorization.ok) {
+      return json(
+        {
+          error: targetAuthorization.error,
+          message: targetAuthorization.message,
+        },
+        { status: targetAuthorization.status },
+      );
+    }
+    if (!allowedTargetStudies(env).has(studyId)) {
+      return json(
+        { error: 'study_forbidden', message: 'The study is not configured.' },
+        { status: 403 },
+      );
+    }
     if (request.method === 'GET') {
       const workspace = await telemetryRepository.getWorkspace(
         studyId,
@@ -1233,7 +1469,7 @@ export const handleRequest = async (
     if (request.method === 'PUT') {
       let input: unknown;
       try {
-        input = await request.json();
+        input = JSON.parse(workspaceBody);
       } catch {
         return json(
           {
@@ -1269,6 +1505,29 @@ export const handleRequest = async (
   }
 
   if (request.method === 'POST' && pathname === '/api/simulations') {
+    if (env?.SIMULATION_RATE_LIMITER) {
+      const outcome = await env.SIMULATION_RATE_LIMITER.limit({
+        key: operatorIdentity?.actor ?? 'operator',
+      });
+      if (!outcome.success) {
+        return json(
+          {
+            error: 'rate_limited',
+            message: 'Simulation rate exceeded. Retry shortly.',
+          },
+          { status: 429, headers: { 'Retry-After': '60' } },
+        );
+      }
+    }
+    if (simulationInFlight) {
+      return json(
+        {
+          error: 'simulation_busy',
+          message: 'A deterministic simulation is already running.',
+        },
+        { status: 503, headers: { 'Retry-After': '5' } },
+      );
+    }
     let input: unknown;
     try {
       input = await request.json();
@@ -1294,11 +1553,28 @@ export const handleRequest = async (
       );
     }
 
+    const configuredSeed = Number(env?.DARWIN_DEMO_SEED ?? 1859);
+    if (parsed.data.seed !== configuredSeed) {
+      return json(
+        {
+          error: 'simulation_not_allowed',
+          message: 'Only the configured deterministic demo seed is allowed.',
+        },
+        { status: 403 },
+      );
+    }
+
     const configuredEventCount = Number(env?.DARWIN_EVENT_COUNT ?? 10_000);
     const eventCount =
       configuredEventCount === 10_000 ? configuredEventCount : 10_000;
-    const result = simulate({ ...parsed.data, eventCount });
-    simulationStore.set(result.run.id, result);
+    simulationInFlight = true;
+    let result: SimulationResult;
+    try {
+      result = simulate({ ...parsed.data, eventCount });
+    } finally {
+      simulationInFlight = false;
+    }
+    storeSimulation(result);
 
     return json(
       { run: result.run, summary: result.summary },
@@ -1312,7 +1588,7 @@ export const handleRequest = async (
   const summaryMatch = pathname.match(/^\/api\/simulations\/([^/]+)\/summary$/);
   if (request.method === 'GET' && summaryMatch) {
     const id = decodeURIComponent(summaryMatch[1]!);
-    const result = simulationStore.get(id) ?? simulationFromId(id);
+    const result = getStoredSimulation(id);
     if (!result) {
       return json(
         { error: 'not_found', message: 'Simulation run was not found.' },
@@ -1326,7 +1602,7 @@ export const handleRequest = async (
   const simulationMatch = pathname.match(/^\/api\/simulations\/([^/]+)$/);
   if (request.method === 'GET' && simulationMatch) {
     const id = decodeURIComponent(simulationMatch[1]!);
-    const result = simulationStore.get(id) ?? simulationFromId(id);
+    const result = getStoredSimulation(id);
     if (!result) {
       return json(
         { error: 'not_found', message: 'Simulation run was not found.' },

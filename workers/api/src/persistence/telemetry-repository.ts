@@ -134,7 +134,11 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return { accepted, duplicates };
   }
 
-  async listEvents(studyId: string, limit: number, receivedAfter?: string | null) {
+  async listEvents(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+  ) {
     return [...eventStore.values()]
       .filter(
         (event) =>
@@ -354,7 +358,11 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return { accepted, duplicates: events.length - accepted };
   }
 
-  async listEvents(studyId: string, limit: number, receivedAfter?: string | null) {
+  async listEvents(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+  ) {
     const result = await this.database
       .prepare(
         `SELECT event_json, received_at
@@ -701,7 +709,9 @@ export class D1TelemetryRepository implements TelemetryRepository {
       studyId: baselineStudyId,
       startedAt: retained.reduce(
         (latest, execution) =>
-          !latest || execution.updatedAt > latest ? execution.updatedAt : latest,
+          !latest || execution.updatedAt > latest
+            ? execution.updatedAt
+            : latest,
         null as string | null,
       ),
       genomeEvolutionCount: retained.length,

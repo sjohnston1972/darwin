@@ -1,6 +1,21 @@
+import { loadEnvFile } from 'node:process';
+
+try {
+  loadEnvFile();
+} catch {
+  // CI can provide the credential directly without a local .env file.
+}
+
 const apiUrl = 'https://darwin-api.stevie-johnston.workers.dev';
 const controlRoomUrl = 'https://darwin-control-room.pages.dev';
 const projectFlowUrl = 'https://darwin-projectflow.pages.dev';
+const operatorToken = process.env.DARWIN_OPERATOR_TOKEN?.trim();
+if (!operatorToken) {
+  throw new Error(
+    'DARWIN_OPERATOR_TOKEN is required for the production smoke test.',
+  );
+}
+const operatorHeaders = { Authorization: `Bearer ${operatorToken}` };
 
 const requireOk = async (response: Response, label: string) => {
   if (!response.ok) {
@@ -18,7 +33,9 @@ if (health.status !== 'ok' || health.version !== '0.23.0') {
 
 const targetConnection = (await (
   await requireOk(
-    await fetch(`${apiUrl}/api/target-connection`),
+    await fetch(`${apiUrl}/api/target-connection`, {
+      headers: operatorHeaders,
+    }),
     'Target connection',
   )
 ).json()) as {
@@ -49,13 +66,12 @@ for (const [label, url, title] of [
 }
 
 const eventId = crypto.randomUUID();
-const studyId = 'production-smoke-study';
+const studyId = 'projectflow-baseline-automated-study';
 await requireOk(
-  await fetch(`${apiUrl}/api/telemetry/events`, {
+  await fetch(`${projectFlowUrl}/api/darwin/telemetry/events`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Origin: projectFlowUrl,
     },
     body: JSON.stringify({
       events: [
@@ -65,7 +81,7 @@ await requireOk(
           sessionId: `session-${eventId.slice(0, 8)}`,
           participantId: `participant-${eventId.slice(9, 17)}`,
           studyId,
-          appVersion: '1.1.0',
+          appVersion: '1.0.0',
           source: 'automated',
           occurredAt: new Date().toISOString(),
           sequence: 0,
@@ -81,7 +97,9 @@ await requireOk(
 
 const stored = (await (
   await requireOk(
-    await fetch(`${apiUrl}/api/studies/${studyId}/events?limit=50`),
+    await fetch(`${apiUrl}/api/studies/${studyId}/events?limit=50`, {
+      headers: operatorHeaders,
+    }),
     'D1 telemetry query',
   )
 ).json()) as {
@@ -108,7 +126,10 @@ const simulation = (await (
   await requireOk(
     await fetch(`${apiUrl}/api/simulations`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: controlRoomUrl },
+      headers: {
+        'Content-Type': 'application/json',
+        ...operatorHeaders,
+      },
       body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
     }),
     '10,000-event scale simulation',

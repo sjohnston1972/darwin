@@ -17,6 +17,12 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - Target-owned policy constrains paths, file/line budgets, and validation commands.
 - Candidate code is reviewed in a pull request and isolated preview.
 - Production release and rollback each require an explicit operator action.
+- Production control-plane reads and writes require a capability-scoped operator bearer token.
+- Raw behavioral evidence and repository artifacts require the evidence-inspector capability.
+- Protected JSON responses use `Cache-Control: no-store`.
+- ProjectFlow sends telemetry and workspace requests through a narrow same-origin Pages Function that HMAC-signs target, deployment origin, timestamp, edge-derived client key, and body.
+- Telemetry accepts only the configured ProjectFlow study, provenance, and application-version formats.
+- The 10,000-event simulation is operator-only, rate/concurrency limited, fixed to the configured seed, and retained as metadata in a four-entry TTL/LRU cache.
 
 ## Privacy boundary
 
@@ -28,20 +34,16 @@ Participant and session IDs are pseudonymous. They still require access control 
 
 The July 2026 repository audit identified these priority items:
 
-| Issue | Priority | Risk |
-| --- | --- | --- |
-| [#1](https://github.com/sjohnston1972/darwin/issues/1) | critical | operator/release/reset APIs lack authentication |
-| [#2](https://github.com/sjohnston1972/darwin/issues/2) | high | telemetry injection and caller-controlled rate-limit bypass |
-| [#3](https://github.com/sjohnston1972/darwin/issues/3) | high | raw telemetry and repository artifacts are publicly readable |
-| [#4](https://github.com/sjohnston1972/darwin/issues/4) | medium | missing CSP and complete browser headers |
-| [#18](https://github.com/sjohnston1972/darwin/issues/18) | medium | no retention/deletion policy |
-| [#26](https://github.com/sjohnston1972/darwin/issues/26) | high | unbounded public simulation resource use |
-| [#27](https://github.com/sjohnston1972/darwin/issues/27) | high | global callback secret and replay/terminal rewrite risk |
-| [#30](https://github.com/sjohnston1972/darwin/issues/30) | medium | mutable GitHub Action references |
+| Issue                                                    | Priority | Risk                                                    |
+| -------------------------------------------------------- | -------- | ------------------------------------------------------- |
+| [#4](https://github.com/sjohnston1972/darwin/issues/4)   | medium   | missing CSP and complete browser headers                |
+| [#18](https://github.com/sjohnston1972/darwin/issues/18) | medium   | no retention/deletion policy                            |
+| [#27](https://github.com/sjohnston1972/darwin/issues/27) | high     | global callback secret and replay/terminal rewrite risk |
+| [#30](https://github.com/sjohnston1972/darwin/issues/30) | medium   | mutable GitHub Action references                        |
 
 ## Deployment guidance
 
-Until issues #1, #2, #3, and #27 are resolved:
+Until issue #27 and the remaining hardening backlog are resolved:
 
 - keep the target restricted to the public demo repository;
 - grant the GitHub token only the minimum ProjectFlow permissions;

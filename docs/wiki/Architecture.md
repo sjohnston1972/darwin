@@ -79,17 +79,17 @@ The GPT analysis and Codex manifest retain the base SHA and source hash. A chang
 
 D1 tables currently store:
 
-| Table | Purpose |
-| --- | --- |
-| `telemetry_events` | ordered semantic events and receipt metadata |
-| `participant_workspaces` | anonymous ProjectFlow study workspace state |
-| `analysis_runs` | deterministic evidence packs |
-| `evidence_analyses` | validated GPT portfolios and cache metadata |
-| `codex_manifests` | immutable approved implementation manifests |
-| `repository_executions` | workflow, diff, checks, PR, preview, release, rollback |
-| `outcome_validations` | reserved measured outcome records |
-| `demo_state` | evolution cycle state |
-| `target_connections` | verified target snapshot and checks |
+| Table                    | Purpose                                                |
+| ------------------------ | ------------------------------------------------------ |
+| `telemetry_events`       | ordered semantic events and receipt metadata           |
+| `participant_workspaces` | anonymous ProjectFlow study workspace state            |
+| `analysis_runs`          | deterministic evidence packs                           |
+| `evidence_analyses`      | validated GPT portfolios and cache metadata            |
+| `codex_manifests`        | immutable approved implementation manifests            |
+| `repository_executions`  | workflow, diff, checks, PR, preview, release, rollback |
+| `outcome_validations`    | reserved measured outcome records                      |
+| `demo_state`             | evolution cycle state                                  |
+| `target_connections`     | verified target snapshot and checks                    |
 
 In-memory implementations support local tests and development without D1.
 
@@ -119,6 +119,6 @@ Only an explicit release call merges a reviewed pull request. Candidate previews
 
 ## Known architectural hardening
 
-The public Build Week deployment is not a production trust boundary. Current high-priority work is tracked for operator authentication, authenticated telemetry, protected read APIs, atomic execution transitions, callback replay protection, deployment-aware evidence cycles, and retention.
+The public Build Week deployment now has capability-scoped operator authorization, HMAC-authenticated ProjectFlow ingestion, and protected read APIs. It is still not a production trust boundary while atomic execution transitions, callback replay protection, deployment-aware evidence cycles, and retention remain open.
 
 See [Security and Privacy](Security-and-Privacy.md) and the [issue backlog](https://github.com/sjohnston1972/darwin/issues).

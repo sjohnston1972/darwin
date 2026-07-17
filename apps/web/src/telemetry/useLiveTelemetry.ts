@@ -13,6 +13,7 @@ import {
   type RepositoryMutationExecution,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
+import { apiFetch } from '../api';
 import { useEffect, useRef, useState } from 'react';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
@@ -89,7 +90,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const resetGeneration = useRef(0);
 
   const refreshGenome = async () => {
-    const response = await fetch(`${apiBaseUrl}/api/genome`);
+    const response = await apiFetch(`${apiBaseUrl}/api/genome`);
     if (!response.ok) return;
     const history = GenomeHistoryResponseSchema.parse(await response.json());
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
@@ -97,7 +98,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   };
 
   const refreshObservationArchives = async () => {
-    const response = await fetch(`${apiBaseUrl}/api/observations/archives`);
+    const response = await apiFetch(`${apiBaseUrl}/api/observations/archives`);
     if (!response.ok) return;
     const result = ObservationArchivesResponseSchema.parse(
       await response.json(),
@@ -120,7 +121,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setRefreshing(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}`,
       );
       if (!response.ok) throw new Error('Live telemetry request failed.');
@@ -151,7 +152,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     const load = async () => {
       const generation = resetGeneration.current;
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}`,
         );
         if (!response.ok) throw new Error('Live telemetry request failed.');
@@ -176,7 +177,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       setAnalysis(null);
       setManifest(null);
       setExecution(null);
-      const evidenceResponse = await fetch(
+      const evidenceResponse = await apiFetch(
         `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
       );
       if (evidenceResponse.status === 204 || !evidenceResponse.ok) return;
@@ -186,7 +187,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       if (!active || initialGeneration !== resetGeneration.current) return;
       setEvidence(latestEvidence);
 
-      const analysisResponse = await fetch(
+      const analysisResponse = await apiFetch(
         `${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest?optional=true`,
       );
       if (analysisResponse.status === 204 || !analysisResponse.ok) return;
@@ -203,7 +204,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       }
       setAnalysis(latestAnalysis);
 
-      const manifestResponse = await fetch(
+      const manifestResponse = await apiFetch(
         `${apiBaseUrl}/api/evidence-analyses/${latestAnalysis.analysisId}/codex-manifest`,
       );
       if (!manifestResponse.ok) return;
@@ -213,7 +214,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       if (!active || initialGeneration !== resetGeneration.current) return;
       setManifest(latestManifest);
 
-      const executionResponse = await fetch(
+      const executionResponse = await apiFetch(
         `${apiBaseUrl}/api/evidence-analyses/${latestAnalysis.analysisId}/codex-manifest/execution`,
       );
       if (executionResponse.status === 204 || !executionResponse.ok) return;
@@ -246,7 +247,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     let active = true;
     const poll = async () => {
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `${apiBaseUrl}/api/repository-executions/${execution.executionId}`,
         );
         if (!response.ok) return;
@@ -270,7 +271,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setGenerating(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiBaseUrl}/api/studies/${studyId}/evidence`,
         { method: 'POST' },
       );
@@ -297,7 +298,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setAnalysing(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiBaseUrl}/api/studies/${studyId}/analyse-evidence`,
         { method: 'POST' },
       );
@@ -324,7 +325,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setPreparingManifest(true);
     setError(null);
     try {
-      const manifestResponse = await fetch(
+      const manifestResponse = await apiFetch(
         `${apiBaseUrl}/api/evidence-analyses/${analysis.analysisId}/codex-manifest`,
         {
           method: 'POST',
@@ -344,7 +345,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       setPreparingManifest(false);
       setImplementing(true);
 
-      const executionResponse = await fetch(
+      const executionResponse = await apiFetch(
         `${apiBaseUrl}/api/evidence-analyses/${analysis.analysisId}/codex-manifest/execution`,
         { method: 'POST' },
       );
@@ -385,7 +386,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setReleasingExecution(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/release`,
         { method: 'POST' },
       );
@@ -426,7 +427,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setRollingBack(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/rollback`,
         { method: 'POST' },
       );
@@ -463,7 +464,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setReleasingRollback(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/rollback/release`,
         { method: 'POST' },
       );
@@ -519,7 +520,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const resetEvolution = async () => {
     setError(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/demo/reset`, {
+      const response = await apiFetch(`${apiBaseUrl}/api/demo/reset`, {
         method: 'POST',
       });
       const payload = (await response.json()) as { message?: string };

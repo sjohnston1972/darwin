@@ -154,11 +154,11 @@ npm run dev
 
 Local endpoints:
 
-| Service | URL |
-| --- | --- |
-| Darwin control room | `http://localhost:5173` |
-| Darwin Worker API | `http://localhost:8787` |
-| ProjectFlow | run separately from `../projectflow` |
+| Service             | URL                                  |
+| ------------------- | ------------------------------------ |
+| Darwin control room | `http://localhost:5173`              |
+| Darwin Worker API   | `http://localhost:8787`              |
+| ProjectFlow         | run separately from `../projectflow` |
 
 Create `.env` from `.env.example` and configure the live integrations:
 
@@ -169,13 +169,15 @@ OPENAI_TIMEOUT_MS=60000
 DARWIN_AI_MODE=live
 GITHUB_TOKEN=your_fine_grained_github_token
 DARWIN_CALLBACK_TOKEN=a_long_random_shared_secret
+DARWIN_OPERATOR_TOKEN=a_separate_high_entropy_operator_token
+PROJECTFLOW_INGESTION_SECRET=a_separate_target_gateway_secret
 PROJECTFLOW_REPOSITORY=sjohnston1972/projectflow
 PROJECTFLOW_BRANCH=main
 PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
 PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
 ```
 
-The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Secrets stay in Worker and GitHub secret stores; they are not sent to the browser or written into manifests.
+The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. The operator token is entered into Darwin's unlock view and retained only in browser session storage.
 
 ## Quality checks
 
@@ -197,6 +199,9 @@ Configure Worker secrets, apply migrations, and deploy the API and Pages applica
 npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml
 npx wrangler secret put GITHUB_TOKEN --config workers/api/wrangler.toml
 npx wrangler secret put DARWIN_CALLBACK_TOKEN --config workers/api/wrangler.toml
+npx wrangler secret put DARWIN_OPERATOR_TOKEN --config workers/api/wrangler.toml
+npx wrangler secret put PROJECTFLOW_INGESTION_SECRET --config workers/api/wrangler.toml
+npx wrangler pages secret put PROJECTFLOW_INGESTION_SECRET --project-name darwin-projectflow
 npm run deploy:migrate
 npm run deploy:api
 npm run deploy:web
@@ -222,7 +227,7 @@ The full script, failure branches, and reset checklist are in the [Demo Runbook]
 
 ## Security status
 
-This is a public Build Week proof of life, locked to one configured ProjectFlow target. It is **not ready to connect to a production repository or private customer telemetry**. The audit backlog tracks operator authentication, telemetry authentication, protected read APIs, callback replay protection, retention, CSP, and CI hardening.
+This is a public Build Week proof of life, locked to one configured ProjectFlow target. The control plane requires capability-scoped operator authorization, protected responses are non-cacheable, ProjectFlow submits HMAC-signed telemetry through a narrow same-origin gateway, and the simulator is authenticated and resource-bounded. It is **not ready to connect to a production repository or private customer telemetry** while callback replay protection, retention, CSP, and CI hardening remain open.
 
 Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [open security issues](https://github.com/sjohnston1972/darwin/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity).
 

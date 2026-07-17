@@ -2,13 +2,13 @@
 
 ## Production components
 
-| Component | Platform | Identifier |
-| --- | --- | --- |
-| control room | Cloudflare Pages | `darwin-control-room` |
-| API | Cloudflare Worker | `darwin-api` |
-| persistence | Cloudflare D1 | `darwin-telemetry` |
-| target | Cloudflare Pages | `darwin-projectflow` |
-| target automation | GitHub Actions | ProjectFlow workflows |
+| Component         | Platform          | Identifier            |
+| ----------------- | ----------------- | --------------------- |
+| control room      | Cloudflare Pages  | `darwin-control-room` |
+| API               | Cloudflare Worker | `darwin-api`          |
+| persistence       | Cloudflare D1     | `darwin-telemetry`    |
+| target            | Cloudflare Pages  | `darwin-projectflow`  |
+| target automation | GitHub Actions    | ProjectFlow workflows |
 
 ## Worker configuration
 
@@ -29,9 +29,12 @@ Do not commit credentials to Wrangler configuration.
 npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml
 npx wrangler secret put GITHUB_TOKEN --config workers/api/wrangler.toml
 npx wrangler secret put DARWIN_CALLBACK_TOKEN --config workers/api/wrangler.toml
+npx wrangler secret put DARWIN_OPERATOR_TOKEN --config workers/api/wrangler.toml
+npx wrangler secret put PROJECTFLOW_INGESTION_SECRET --config workers/api/wrangler.toml
+npx wrangler pages secret put PROJECTFLOW_INGESTION_SECRET --project-name darwin-projectflow
 ```
 
-ProjectFlow Actions requires the matching callback token and its own provider/deployment credentials.
+ProjectFlow Actions requires the matching callback token and its own provider/deployment credentials. The ProjectFlow Pages Function and Darwin Worker must share the same ingestion secret. `DARWIN_OPERATOR_TOKEN` must be distinct from both.
 
 ## D1 migrations
 
@@ -73,10 +76,10 @@ Release merges the reviewed pull request. Rollback creates and validates a separ
 - Worker health/version;
 - target connection and repository identity;
 - Darwin and ProjectFlow HTML availability;
-- D1 telemetry insertion and aggregate readback;
+- authenticated D1 telemetry insertion and aggregate readback;
 - deterministic 10,000-event simulation response.
 
-The smoke test does not merge code, invoke GPT, or run a live Codex mutation. Smoke-data retention is tracked in issue [#18](https://github.com/sjohnston1972/darwin/issues/18).
+Set `DARWIN_OPERATOR_TOKEN` and `PROJECTFLOW_INGESTION_SECRET` in the smoke-test environment. The smoke test does not merge code, invoke GPT, or run a live Codex mutation. Smoke-data retention is tracked in issue [#18](https://github.com/sjohnston1972/darwin/issues/18).
 
 ## Operational checks
 

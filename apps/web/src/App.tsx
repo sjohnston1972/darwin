@@ -33,6 +33,7 @@ import {
   GitBranch,
   Github,
   LayoutDashboard,
+  LockKeyhole,
   Menu,
   Moon,
   MousePointer2,
@@ -54,6 +55,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -61,6 +63,7 @@ import {
   useLiveTelemetry,
   type LiveTelemetryState,
 } from './telemetry/useLiveTelemetry';
+import { apiFetch, getOperatorToken, setOperatorToken } from './api';
 
 type HealthState = 'checking' | 'online' | 'offline';
 type Theme = 'dark' | 'light';
@@ -194,7 +197,7 @@ function signedNumber(value: number): string {
   return `${value > 0 ? '+' : ''}${value}`;
 }
 
-function App() {
+function DarwinDashboard() {
   const [theme, setTheme] = useState<Theme>(() =>
     document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
   );
@@ -987,7 +990,7 @@ function useTargetConnection() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${apiBaseUrl}/api/target-connection`, {
+    apiFetch(`${apiBaseUrl}/api/target-connection`, {
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -1013,7 +1016,7 @@ function useTargetConnection() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/target-connection`, {
+      const response = await apiFetch(`${apiBaseUrl}/api/target-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -1038,7 +1041,7 @@ function useTargetConnection() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiBaseUrl}/api/target-connection/disconnect`,
         { method: 'POST' },
       );
@@ -3322,6 +3325,121 @@ function StatusRow({
         {value}
       </span>
     </div>
+  );
+}
+
+function OperatorBoundary() {
+  const [state, setState] = useState<'checking' | 'locked' | 'unlocked'>(
+    'checking',
+  );
+  const [token, setToken] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const verify = async (candidate?: string) => {
+    if (candidate !== undefined) setOperatorToken(candidate);
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/auth/session`);
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'Operator authorization failed.');
+      }
+      setError(null);
+      setState('unlocked');
+    } catch (reason) {
+      setOperatorToken(null);
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : 'Operator authorization failed.',
+      );
+      setState('locked');
+    }
+  };
+
+  useEffect(() => {
+    void verify(getOperatorToken() ?? undefined);
+    const lock = () => {
+      setOperatorToken(null);
+      setState('locked');
+      setError('Your operator session is no longer authorized.');
+    };
+    window.addEventListener('darwin:operator-unauthorized', lock);
+    return () =>
+      window.removeEventListener('darwin:operator-unauthorized', lock);
+  }, []);
+
+  if (state === 'unlocked') return <DarwinDashboard />;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const candidate = token.trim();
+    if (!candidate) {
+      setError('Enter the operator access token.');
+      return;
+    }
+    setState('checking');
+    void verify(candidate);
+  };
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-carbon px-5 text-white">
+      <section
+        className="surface-panel w-full max-w-[480px]"
+        aria-live="polite"
+      >
+        <div className="panel-heading">
+          <div className="flex items-center gap-4">
+            <DarwinMark />
+            <div>
+              <p className="section-label">Controlled environment</p>
+              <h1 className="mt-2 text-2xl font-semibold">
+                Darwin operator access
+              </h1>
+            </div>
+          </div>
+          <LockKeyhole className="text-mist" size={20} />
+        </div>
+        <form className="space-y-5 p-6" onSubmit={submit}>
+          <p className="text-sm leading-6 text-mist">
+            Unlock the control plane before viewing behavioral evidence or
+            approving repository mutations.
+          </p>
+          <label className="block text-sm font-medium" htmlFor="operator-token">
+            Operator access token
+          </label>
+          <input
+            id="operator-token"
+            className="connection-input w-full"
+            type="password"
+            autoComplete="current-password"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            disabled={state === 'checking'}
+          />
+          {error && <p className="text-sm text-amber">{error}</p>}
+          <button
+            className="primary-action w-full justify-center"
+            type="submit"
+            disabled={state === 'checking'}
+          >
+            {state === 'checking' ? (
+              <CircleDashed className="is-spinning" size={17} />
+            ) : (
+              <ShieldCheck size={17} />
+            )}
+            {state === 'checking' ? 'Verifying access' : 'Unlock Darwin'}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+function App() {
+  return import.meta.env.MODE === 'test' ? (
+    <DarwinDashboard />
+  ) : (
+    <OperatorBoundary />
   );
 }
 
