@@ -12,7 +12,7 @@ const requireOk = async (response: Response, label: string) => {
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
 ).json()) as { status: string; version: string };
-if (health.status !== 'ok' || health.version !== '0.18.0') {
+if (health.status !== 'ok' || health.version !== '0.20.1') {
   throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
 }
 
@@ -60,9 +60,24 @@ const stored = (await (
     await fetch(`${apiUrl}/api/studies/${studyId}/events?limit=50`),
     'D1 telemetry query',
   )
-).json()) as { events: Array<{ eventId: string }> };
+).json()) as {
+  events: Array<{ eventId: string }>;
+  count: number;
+  sessionCounts: Record<string, number>;
+  participantCount: number;
+};
 if (!stored.events.some((event) => event.eventId === eventId)) {
   throw new Error('The smoke telemetry event was not returned from D1.');
+}
+if (
+  stored.count < 1 ||
+  Object.values(stored.sessionCounts).reduce((sum, count) => sum + count, 0) !==
+    stored.count ||
+  stored.participantCount < 1
+) {
+  throw new Error(
+    'D1 telemetry aggregates did not match the persisted events.',
+  );
 }
 
 const simulation = (await (
