@@ -253,6 +253,7 @@ const isAllowedTargetVersion = (appVersion: string) =>
 
 export const resetSimulationStore = () => {
   simulationStore.clear();
+  simulationInFlight = false;
 };
 
 export const handleRequest = async (
@@ -1643,61 +1644,92 @@ export const handleRequest = async (
         { status: 503, headers: { 'Retry-After': '5' } },
       );
     }
-    let input: unknown;
-    try {
-      input = await request.json();
-    } catch {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Request body must be valid JSON.',
-        },
-        { status: 400 },
-      );
-    }
-
-    const parsed = SimulationRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Simulation input failed validation.',
-          issues: parsed.error.issues,
-        },
-        { status: 400 },
-      );
-    }
-
-    const configuredSeed = Number(env?.DARWIN_DEMO_SEED ?? 1859);
-    if (parsed.data.seed !== configuredSeed) {
-      return json(
-        {
-          error: 'simulation_not_allowed',
-          message: 'Only the configured deterministic demo seed is allowed.',
-        },
-        { status: 403 },
-      );
-    }
-
-    const configuredEventCount = Number(env?.DARWIN_EVENT_COUNT ?? 10_000);
-    const eventCount =
-      configuredEventCount === 10_000 ? configuredEventCount : 10_000;
     simulationInFlight = true;
-    let result: SimulationResult;
     try {
-      result = simulate({ ...parsed.data, eventCount });
+      const maximumSimulationBodyBytes = 4_096;
+      const declaredBodyBytes = Number(
+        request.headers.get('Content-Length') ?? 0,
+      );
+      if (declaredBodyBytes > maximumSimulationBodyBytes) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Simulation request body is too large.',
+          },
+          { status: 413 },
+        );
+      }
+      let input: unknown;
+      try {
+        const body = await request.text();
+        if (
+          new TextEncoder().encode(body).byteLength > maximumSimulationBodyBytes
+        ) {
+          return json(
+            {
+              error: 'payload_too_large',
+              message: 'Simulation request body is too large.',
+            },
+            { status: 413 },
+          );
+        }
+        input = JSON.parse(body);
+      } catch {
+        return json(
+          {
+            error: 'invalid_request',
+            message: 'Request body must be valid JSON.',
+          },
+          { status: 400 },
+        );
+      }
+
+      const parsed = SimulationRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        return json(
+          {
+            error: 'invalid_request',
+            message: 'Simulation input failed validation.',
+            issues: parsed.error.issues,
+          },
+          { status: 400 },
+        );
+      }
+
+      const configuredSeed = Number(env?.DARWIN_DEMO_SEED ?? 1859);
+      if (
+        parsed.data.seed !== configuredSeed ||
+        parsed.data.variant !== 'baseline'
+      ) {
+        return json(
+          {
+            error: 'simulation_not_allowed',
+            message:
+              'Only the configured baseline deterministic demo replay is allowed.',
+          },
+          { status: 403 },
+        );
+      }
+
+      const configuredEventCount = Number(env?.DARWIN_EVENT_COUNT ?? 10_000);
+      const eventCount =
+        configuredEventCount === 10_000 ? configuredEventCount : 10_000;
+      const result: SimulationResult = simulate({
+        ...parsed.data,
+        eventCount,
+      });
+      storeSimulation(result);
+
+      return json(
+        { run: result.run, summary: result.summary },
+        {
+          status: 201,
+          headers: { Location: `/api/simulations/${result.run.id}` },
+        },
+      );
     } finally {
       simulationInFlight = false;
     }
-    storeSimulation(result);
-
-    return json(
-      { run: result.run, summary: result.summary },
-      {
-        status: 201,
-        headers: { Location: `/api/simulations/${result.run.id}` },
-      },
-    );
   }
 
   const summaryMatch = pathname.match(/^\/api\/simulations\/([^/]+)\/summary$/);

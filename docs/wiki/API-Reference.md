@@ -131,7 +131,7 @@ Input:
 }
 ```
 
-The simulation API is separate from measured evidence. It accepts only the configured demo seed, applies separate rate/concurrency limits, and retains at most four metadata/summary records for 15 minutes. Full 10,000-event arrays are not cached.
+The simulation API is separate from measured evidence. It accepts only a strict 4 KB request containing the configured demo seed with the `baseline` variant, applies separate rate/concurrency limits, and retains at most four metadata/summary records for 15 minutes. Full 10,000-event arrays are neither returned nor cached. Comparative baseline/evolved replay remains available only through the offline `npm run simulate` command.
 
 ## Error shape
 

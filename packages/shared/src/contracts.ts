@@ -734,10 +734,12 @@ export const SimulationRunSchema = z.object({
   completedAt: z.string().datetime().optional(),
 });
 
-export const SimulationRequestSchema = z.object({
-  seed: z.number().int().default(1859),
-  variant: OrganismVariantSchema.default('baseline'),
-});
+export const SimulationRequestSchema = z
+  .object({
+    seed: z.number().int().default(1859),
+    variant: OrganismVariantSchema.default('baseline'),
+  })
+  .strict();
 
 export const SimulationMetricsSchema = z.object({
   sessions: z.number().int().positive(),
