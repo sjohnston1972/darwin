@@ -44,7 +44,7 @@ export const TelemetryEventSchema = z.object({
   durationMs: z.number().int().nonnegative().optional(),
 });
 
-const StudyIdentifierSchema = z
+export const StudyIdentifierSchema = z
   .string()
   .min(1)
   .max(128)
@@ -339,6 +339,56 @@ export const OperationalTelemetryMetricsSchema = z.object({
   replayRejected: z.number().int().nonnegative(),
   contextRejected: z.number().int().nonnegative(),
   rateLimited: z.number().int().nonnegative(),
+});
+
+export const RetentionPolicySchema = z.object({
+  version: z.literal('1.0.0'),
+  rawTelemetryDays: z.literal(30),
+  workspaceDays: z.literal(30),
+  derivedEvidenceDays: z.literal(90),
+  executionArtifactDays: z.literal(30),
+  fossilRecordDays: z.literal(365),
+  operationalAuditDays: z.literal(90),
+  maxEventsPerStudy: z.number().int().positive(),
+  maxEventsPerTarget: z.number().int().positive(),
+});
+
+export const RetentionHealthSchema = z.object({
+  status: z.enum(['healthy', 'attention']),
+  policy: RetentionPolicySchema,
+  eventCount: z.number().int().nonnegative(),
+  studyCount: z.number().int().nonnegative(),
+  largestStudyEventCount: z.number().int().nonnegative(),
+  expiredRecordCount: z.number().int().nonnegative(),
+  lastSweepAt: z.string().datetime().nullable(),
+});
+
+export const RetentionDeletedCountsSchema = z.object({
+  telemetryEvents: z.number().int().nonnegative(),
+  workspaces: z.number().int().nonnegative(),
+  evidencePacks: z.number().int().nonnegative(),
+  analyses: z.number().int().nonnegative(),
+  manifests: z.number().int().nonnegative(),
+  executions: z.number().int().nonnegative(),
+  callbackArtifacts: z.number().int().nonnegative(),
+  validations: z.number().int().nonnegative(),
+});
+
+export const RetentionSweepResultSchema = z.object({
+  status: z.literal('completed'),
+  policyVersion: z.literal('1.0.0'),
+  completedAt: z.string().datetime(),
+  compactedExecutions: z.number().int().nonnegative(),
+  deleted: RetentionDeletedCountsSchema,
+});
+
+export const RetentionDeletionResponseSchema = z.object({
+  status: z.literal('deleted'),
+  scope: z.enum(['participant', 'study', 'execution']),
+  studyId: StudyIdentifierSchema.optional(),
+  participantId: StudyIdentifierSchema.optional(),
+  executionId: StudyIdentifierSchema.optional(),
+  deleted: RetentionDeletedCountsSchema,
 });
 
 const storedAt = { receivedAt: z.string().datetime() };
@@ -1024,6 +1074,7 @@ export const HealthResponseSchema = z.object({
     z.literal('local'),
   ]),
   buildId: z.string().min(1),
+  retention: RetentionHealthSchema,
   analysis: z.object({
     mode: z.literal('live'),
     model: z.string().min(1),
@@ -1044,6 +1095,15 @@ export type TelemetryBatch = z.infer<typeof TelemetryBatchSchema>;
 export type TelemetryReceipt = z.infer<typeof TelemetryReceiptSchema>;
 export type OperationalTelemetryMetrics = z.infer<
   typeof OperationalTelemetryMetricsSchema
+>;
+export type RetentionPolicy = z.infer<typeof RetentionPolicySchema>;
+export type RetentionHealth = z.infer<typeof RetentionHealthSchema>;
+export type RetentionDeletedCounts = z.infer<
+  typeof RetentionDeletedCountsSchema
+>;
+export type RetentionSweepResult = z.infer<typeof RetentionSweepResultSchema>;
+export type RetentionDeletionResponse = z.infer<
+  typeof RetentionDeletionResponseSchema
 >;
 export type StoredTelemetryEvent = z.infer<typeof StoredTelemetryEventSchema>;
 export type StudyEventsResponse = z.infer<typeof StudyEventsResponseSchema>;

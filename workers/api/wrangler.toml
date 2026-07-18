@@ -2,12 +2,17 @@ name = "darwin-api"
 main = "src/index.ts"
 compatibility_date = "2026-07-01"
 
+[triggers]
+crons = ["17 3 * * *"]
+
 [vars]
 DARWIN_AI_MODE = "live"
 OPENAI_MODEL = "gpt-5.6"
 OPENAI_TIMEOUT_MS = "90000"
 DARWIN_DEMO_SEED = "1859"
 DARWIN_EVENT_COUNT = "10000"
+DARWIN_MAX_EVENTS_PER_STUDY = "50000"
+DARWIN_MAX_EVENTS_PER_TARGET = "250000"
 PROJECTFLOW_REPOSITORY = "sjohnston1972/projectflow"
 PROJECTFLOW_BRANCH = "main"
 PROJECTFLOW_PRODUCTION_URL = "https://darwin-projectflow.pages.dev/"

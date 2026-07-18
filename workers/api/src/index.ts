@@ -12,7 +12,10 @@ import {
   RepositoryExecutionCallbackSchema,
   RepositoryMutationExecutionSchema,
   RepositoryRollbackCallbackSchema,
+  RetentionDeletionResponseSchema,
+  RetentionSweepResultSchema,
   SimulationRequestSchema,
+  StudyIdentifierSchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
   StudyTelemetrySummarySchema,
@@ -29,6 +32,7 @@ import rootPackage from '../../../package.json';
 
 import { simulate } from './simulation';
 import { getTelemetryRepository } from './persistence/telemetry-repository';
+import { retentionPolicy } from './persistence/retention';
 import { buildEvidencePack } from './evidence';
 import {
   EvidenceReasoningError,
@@ -74,6 +78,8 @@ export interface Env {
   DARWIN_EVENT_COUNT: string;
   DARWIN_RELEASE?: string;
   DARWIN_COMMIT_SHA?: string;
+  DARWIN_MAX_EVENTS_PER_STUDY?: string;
+  DARWIN_MAX_EVENTS_PER_TARGET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_API?: string;
   OPENAI_MODEL: string;
@@ -94,7 +100,7 @@ export interface Env {
 
 const defaultCorsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
 const openAIKey = (env?: Partial<Env>) =>
@@ -123,6 +129,14 @@ const requiredOperatorCapability = (
   pathname: string,
 ): OperatorCapability => {
   if (pathname === '/api/demo/reset') return 'reset';
+  if (
+    pathname === '/api/retention/sweep' ||
+    (method === 'DELETE' &&
+      (pathname.startsWith('/api/studies/') ||
+        pathname.startsWith('/api/repository-executions/')))
+  ) {
+    return 'reset';
+  }
   if (pathname.startsWith('/api/target-connection')) {
     return method === 'GET' ? 'observe' : 'connect';
   }
@@ -478,6 +492,7 @@ export const handleRequest = async (
       status: released ? 200 : 202,
     });
   };
+  const activeRetentionPolicy = retentionPolicy(env);
   const currentCycleStart = async (studyId: string) => {
     const cycle = await telemetryRepository.getEvolutionCycle();
     return cycle.studyId === studyId ? cycle.startedAt : null;
@@ -492,6 +507,10 @@ export const handleRequest = async (
       version,
       commitSha,
       buildId: `v${version}@${commitSha.slice(0, 7)}`,
+      retention: await telemetryRepository.getRetentionHealth(
+        activeRetentionPolicy,
+        new Date().toISOString(),
+      ),
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -510,6 +529,99 @@ export const handleRequest = async (
       OperationalTelemetryMetricsSchema.parse({
         updatedAt: metrics.updatedAt,
         ...metrics.counts,
+      }),
+    );
+  }
+
+  if (request.method === 'POST' && pathname === '/api/retention/sweep') {
+    return json(
+      RetentionSweepResultSchema.parse(
+        await telemetryRepository.runRetentionSweep(
+          activeRetentionPolicy,
+          new Date().toISOString(),
+        ),
+      ),
+    );
+  }
+
+  const participantDeletionMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/participants\/([^/]+)$/,
+  );
+  if (request.method === 'DELETE' && participantDeletionMatch) {
+    const studyId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(participantDeletionMatch[1]!),
+    );
+    const participantId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(participantDeletionMatch[2]!),
+    );
+    if (!studyId.success || !participantId.success) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Study and participant identifiers are invalid.',
+        },
+        { status: 400 },
+      );
+    }
+    return json(
+      RetentionDeletionResponseSchema.parse({
+        status: 'deleted',
+        scope: 'participant',
+        studyId: studyId.data,
+        participantId: participantId.data,
+        deleted: await telemetryRepository.deleteParticipant(
+          studyId.data,
+          participantId.data,
+        ),
+      }),
+    );
+  }
+
+  const studyDeletionMatch = pathname.match(/^\/api\/studies\/([^/]+)$/);
+  if (request.method === 'DELETE' && studyDeletionMatch) {
+    const studyId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(studyDeletionMatch[1]!),
+    );
+    if (!studyId.success) {
+      return json(
+        { error: 'invalid_request', message: 'Study identifier is invalid.' },
+        { status: 400 },
+      );
+    }
+    return json(
+      RetentionDeletionResponseSchema.parse({
+        status: 'deleted',
+        scope: 'study',
+        studyId: studyId.data,
+        deleted: await telemetryRepository.deleteStudy(studyId.data),
+      }),
+    );
+  }
+
+  const executionDeletionMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/artifacts$/,
+  );
+  if (request.method === 'DELETE' && executionDeletionMatch) {
+    const executionId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(executionDeletionMatch[1]!),
+    );
+    if (!executionId.success) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Execution identifier is invalid.',
+        },
+        { status: 400 },
+      );
+    }
+    return json(
+      RetentionDeletionResponseSchema.parse({
+        status: 'deleted',
+        scope: 'execution',
+        executionId: executionId.data,
+          deleted: await telemetryRepository.deleteExecutionArtifacts(
+            executionId.data,
+          ),
       }),
     );
   }
@@ -925,6 +1037,7 @@ export const handleRequest = async (
     const stored = await telemetryRepository.insertEvents(
       events,
       new Date().toISOString(),
+      activeRetentionPolicy,
     );
     await telemetryRepository.incrementOperationalMetrics(
       {
@@ -937,7 +1050,7 @@ export const handleRequest = async (
     return json(
       TelemetryReceiptSchema.parse({
         accepted: stored.accepted,
-        rejected: candidates.length - events.length,
+        rejected: candidates.length - events.length + stored.quotaRejected,
         duplicates: stored.duplicates,
         sequenceConflicts: stored.sequenceConflicts,
       }),
@@ -2227,8 +2340,27 @@ export const handleWorkerRequest = async (
   }
 };
 
+export const runRetentionMaintenance = async (
+  env: Partial<Env>,
+  now = new Date().toISOString(),
+) =>
+  getTelemetryRepository(env.DB).runRetentionSweep(retentionPolicy(env), now);
+
 const worker: ExportedHandler<Env> = {
   fetch: handleWorkerRequest,
+  scheduled(_controller, env, context) {
+    context.waitUntil(
+      runRetentionMaintenance(env).then((result) => {
+        console.info(
+          '[darwin:retention]',
+          JSON.stringify({
+            event: 'retention_sweep_completed',
+            ...result,
+          }),
+        );
+      }),
+    );
+  },
 };
 
 export default worker;

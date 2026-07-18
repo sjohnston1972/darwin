@@ -58,6 +58,8 @@ D1 stores the original validated event JSON plus indexed study/session fields an
 
 The ingestion authentication and operational rejection boundary is documented in [Security and Privacy](Security-and-Privacy.md).
 
+Raw records expire after 30 days and ingestion is bounded to 50,000 events per study and 250,000 for the configured target by default. The full data-class matrix, nightly compaction and operator deletion behavior are defined in [Data retention and deletion](../RETENTION.md).
+
 ## Deterministic parsing
 
 GPT does not parse raw browser records. The evidence engine:

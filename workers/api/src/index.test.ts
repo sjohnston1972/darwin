@@ -9,12 +9,15 @@ import {
   OperationalTelemetryMetricsSchema,
   ParticipantWorkspaceResponseSchema,
   RepositoryMutationExecutionSchema,
+  RetentionDeletionResponseSchema,
+  RetentionSweepResultSchema,
   SimulationSummarySchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
   StudyTelemetrySummarySchema,
   TargetApplicationConnectionSchema,
   TelemetryReceiptSchema,
+  type StudyTelemetryEvent,
 } from '@darwin/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -22,8 +25,14 @@ import {
   handleRequest,
   handleWorkerRequest,
   resetSimulationStore,
+  runRetentionMaintenance,
+  type Env,
 } from './index';
-import { resetInMemoryTelemetry } from './persistence/telemetry-repository';
+import {
+  getTelemetryRepository,
+  resetInMemoryTelemetry,
+} from './persistence/telemetry-repository';
+import { retentionPolicy } from './persistence/retention';
 import { signTargetRequestForTest } from './security/auth';
 import {
   hashCallbackBodyForTest,
@@ -300,6 +309,16 @@ describe('Darwin API', () => {
       commitSha: 'local',
       buildId: 'v0.1.0@local',
     });
+    expect(body.retention).toMatchObject({
+      status: 'healthy',
+      eventCount: 0,
+      expiredRecordCount: 0,
+      policy: {
+        version: '1.0.0',
+        maxEventsPerStudy: 50_000,
+        maxEventsPerTarget: 250_000,
+      },
+    });
     expect(JSON.stringify(body)).not.toMatch(
       /participant|sessionId|repository|execution|patch|eventId/,
     );
@@ -344,6 +363,13 @@ describe('Darwin API', () => {
       ['POST', '/api/target-connection'],
       ['POST', '/api/target-connection/disconnect'],
       ['POST', '/api/demo/reset'],
+      ['POST', '/api/retention/sweep'],
+      ['DELETE', '/api/studies/projectflow-baseline-study'],
+      [
+        'DELETE',
+        '/api/studies/projectflow-baseline-study/participants/participant-test',
+      ],
+      ['DELETE', '/api/repository-executions/execution-test/artifacts'],
       ['GET', '/api/genome'],
       ['GET', '/api/observations/archives'],
       ['GET', '/api/studies/projectflow-baseline-study/events'],
@@ -632,6 +658,141 @@ describe('Darwin API', () => {
     expect(limit.mock.calls[1]![0]).toEqual(limit.mock.calls[2]![0]);
     expect(limit).toHaveBeenCalledWith({
       key: 'projectflow:signed-edge-client',
+    });
+  });
+
+  it('enforces configured per-study and per-target telemetry quotas', async () => {
+    const ingest = (event: StudyTelemetryEvent, environment: Partial<Env>) =>
+      handleRequest(
+        new Request('http://localhost/api/telemetry/events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ events: [event] }),
+        }),
+        environment,
+      );
+    const studyLimitedEnvironment = {
+      DARWIN_MAX_EVENTS_PER_STUDY: '1',
+      DARWIN_MAX_EVENTS_PER_TARGET: '10',
+    };
+    expect(
+      TelemetryReceiptSchema.parse(
+        await (await ingest(studyEvent, studyLimitedEnvironment)).json(),
+      ),
+    ).toMatchObject({ accepted: 1, rejected: 0 });
+    const studyRejected = TelemetryReceiptSchema.parse(
+      await (
+        await ingest(
+          { ...studyEvent, eventId: '59d13df2-8dce-4ad3-b20e-d8b4edc01b64' },
+          studyLimitedEnvironment,
+        )
+      ).json(),
+    );
+    expect(studyRejected).toEqual({
+      accepted: 0,
+      rejected: 1,
+      duplicates: 0,
+    });
+
+    await resetInMemoryTelemetry();
+    const targetLimitedEnvironment = {
+      DARWIN_MAX_EVENTS_PER_STUDY: '10',
+      DARWIN_MAX_EVENTS_PER_TARGET: '1',
+    };
+    await ingest(studyEvent, targetLimitedEnvironment);
+    const targetRejected = TelemetryReceiptSchema.parse(
+      await (
+        await ingest(
+          { ...studyEvent, eventId: '69d13df2-8dce-4ad3-b20e-d8b4edc01b65' },
+          targetLimitedEnvironment,
+        )
+      ).json(),
+    );
+    expect(targetRejected.rejected).toBe(1);
+    const health = HealthResponseSchema.parse(
+      await (
+        await handleRequest(
+          new Request('http://localhost/api/health'),
+          targetLimitedEnvironment,
+        )
+      ).json(),
+    );
+    expect(health.retention).toMatchObject({
+      status: 'attention',
+      eventCount: 1,
+      largestStudyEventCount: 1,
+    });
+  });
+
+  it('deletes participant, study, and execution artifacts by explicit scope', async () => {
+    await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [studyEvent] }),
+      }),
+    );
+    const participantDeletion = RetentionDeletionResponseSchema.parse(
+      await (
+        await handleRequest(
+          new Request(
+            `http://localhost/api/studies/${studyEvent.studyId}/participants/${studyEvent.participantId}`,
+            { method: 'DELETE' },
+          ),
+        )
+      ).json(),
+    );
+    expect(participantDeletion).toMatchObject({
+      scope: 'participant',
+      deleted: { telemetryEvents: 1 },
+    });
+    const studyDeletion = RetentionDeletionResponseSchema.parse(
+      await (
+        await handleRequest(
+          new Request(`http://localhost/api/studies/${studyEvent.studyId}`, {
+            method: 'DELETE',
+          }),
+        )
+      ).json(),
+    );
+    expect(studyDeletion.scope).toBe('study');
+    const executionDeletion = RetentionDeletionResponseSchema.parse(
+      await (
+        await handleRequest(
+          new Request(
+            'http://localhost/api/repository-executions/execution-test/artifacts',
+            { method: 'DELETE' },
+          ),
+        )
+      ).json(),
+    );
+    expect(executionDeletion.scope).toBe('execution');
+  });
+
+  it('sweeps expired telemetry idempotently and records aggregate health', async () => {
+    const policy = retentionPolicy();
+    await getTelemetryRepository().insertEvents(
+      [studyEvent],
+      '2025-01-01T00:00:00.000Z',
+      policy,
+    );
+    const first = RetentionSweepResultSchema.parse(
+      await runRetentionMaintenance({}, '2026-07-18T03:17:00.000Z'),
+    );
+    expect(first.deleted.telemetryEvents).toBe(1);
+    const second = RetentionSweepResultSchema.parse(
+      await runRetentionMaintenance({}, '2026-07-18T03:18:00.000Z'),
+    );
+    expect(second.deleted.telemetryEvents).toBe(0);
+    const health = HealthResponseSchema.parse(
+      await (
+        await handleRequest(new Request('http://localhost/api/health'))
+      ).json(),
+    );
+    expect(health.retention).toMatchObject({
+      status: 'healthy',
+      eventCount: 0,
+      lastSweepAt: '2026-07-18T03:18:00.000Z',
     });
   });
 

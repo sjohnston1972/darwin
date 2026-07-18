@@ -46,6 +46,8 @@ npm run deploy:migrate
 
 Migrations are append-only SQL files under `workers/api/migrations`. Test new migrations against a disposable/local D1 database first. Never edit an already-applied production migration.
 
+The Worker runs the indexed retention sweep daily at `03:17 UTC`. System status reports aggregate quota usage, pending expiry count and the last successful sweep. An authenticated operator can run the same idempotent maintenance path with `POST /api/retention/sweep`; policy and targeted deletion details are in [Data retention and deletion](../RETENTION.md).
+
 ## Build and deploy
 
 Create a semantic tag such as `v0.1.0` on a commit with successful CI, then manually dispatch `.github/workflows/deploy.yml` using that tag. The workflow rejects branch dispatches and generates one build identity from the tag plus its 40-character commit SHA.
@@ -68,7 +70,7 @@ Release merges the reviewed pull request. Rollback creates and validates a separ
 - authenticated D1 telemetry insertion and aggregate readback;
 - deterministic 10,000-event simulation response.
 
-Set `DARWIN_OPERATOR_TOKEN`, `DARWIN_RELEASE`, and `DARWIN_COMMIT_SHA` in the smoke-test environment. The smoke test rejects a deployment whose health metadata differs from that expected workflow commit. It does not merge code, invoke GPT, or run a live Codex mutation. Smoke-data retention is tracked in issue [#18](https://github.com/sjohnston1972/darwin/issues/18).
+Set `DARWIN_OPERATOR_TOKEN`, `PROJECTFLOW_INGESTION_SECRET`, `DARWIN_RELEASE`, and `DARWIN_COMMIT_SHA` in the smoke-test environment. The smoke test rejects a deployment whose health metadata differs from that expected workflow commit, verifies one deterministic automated event, deletes its participant-scoped data immediately, and does not merge code, invoke GPT, or run a live Codex mutation.
 
 ## Operational checks
 

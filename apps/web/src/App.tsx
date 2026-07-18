@@ -8,6 +8,7 @@ import {
   type ObservationArchive,
   type RepositoryMutationExecution,
   type RepositoryRollback,
+  type RetentionHealth,
   type StoredTelemetryEvent,
   type TargetApplicationConnection,
   type TargetConnectionRequest,
@@ -93,6 +94,7 @@ interface ApiHealthState {
   status: HealthState;
   version: string | null;
   commitSha: string | null;
+  retention: RetentionHealth | null;
   analysis: {
     mode: 'live';
     model: string;
@@ -246,6 +248,7 @@ function DarwinDashboard({
     status: 'checking',
     version: null,
     commitSha: null,
+    retention: null,
     analysis: null,
   });
   const [navigationOpen, setNavigationOpen] = useState(false);
@@ -504,12 +507,14 @@ function DarwinDashboard({
                 status: 'online',
                 version: parsed.data.version,
                 commitSha: parsed.data.commitSha,
+                retention: parsed.data.retention,
                 analysis: parsed.data.analysis,
               }
             : {
                 status: 'offline',
                 version: null,
                 commitSha: null,
+                retention: null,
                 analysis: null,
               },
         );
@@ -521,6 +526,7 @@ function DarwinDashboard({
           status: 'offline',
           version: null,
           commitSha: null,
+          retention: null,
           analysis: null,
         });
       });
@@ -838,6 +844,17 @@ function DarwinDashboard({
                     }
                     ready={liveTelemetry.status === 'live'}
                     help="Semantic events currently persisted and returned by the telemetry repository. Production uses Cloudflare D1."
+                  />
+                  <StatusRow
+                    icon={ShieldCheck}
+                    label="Storage retention"
+                    value={
+                      health.retention
+                        ? `${health.retention.eventCount.toLocaleString()} / ${health.retention.policy.maxEventsPerTarget.toLocaleString()} events · ${health.retention.expiredRecordCount} expired · ${health.retention.lastSweepAt ? `swept ${health.retention.lastSweepAt.slice(0, 10)}` : 'awaiting first sweep'}`
+                        : health.status
+                    }
+                    ready={health.retention?.status === 'healthy'}
+                    help="Nightly bounded storage policy: 30-day raw telemetry, 90-day derived evidence, 30-day large artifact compaction, 365-day compact fossil records, per-study/target quotas, and the last completed sweep."
                   />
                   <StatusRow
                     icon={FileCheck2}
