@@ -226,9 +226,10 @@ export const createE2EBoundaryFetch =
           .get('darwin_deployment_verify')
           ?.split('-')[0]
           ?.padEnd(40, '0') ?? e2eReleasedSha;
-      const commitSha = [e2eBaselineSha, e2eReleasedSha, e2eRollbackReleasedSha]
-        .find((candidate) => candidate.startsWith(expectedCommit.slice(0, 12))) ??
-        expectedCommit;
+      const commitSha =
+        [e2eBaselineSha, e2eReleasedSha, e2eRollbackReleasedSha].find(
+          (candidate) => candidate.startsWith(expectedCommit.slice(0, 12)),
+        ) ?? expectedCommit;
       return new Response(
         `<!doctype html><html><head><meta name="darwin-app-version" content="${commitSha.slice(0, 12)}"><meta name="darwin-commit-sha" content="${commitSha}"><title>ProjectFlow</title></head></html>`,
         { headers: { 'Content-Type': 'text/html' } },

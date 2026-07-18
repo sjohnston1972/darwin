@@ -62,7 +62,10 @@ test('@full completes the controlled evolution, archive, and rollback flow', asy
   await generateEvidence.click();
   await expect(page.getByText(/Evidence pack evidence-/)).toBeVisible();
   await expect(
-    page.getByText(/^EV-[a-f0-9]{12}$/).filter({ visible: true }).first(),
+    page
+      .getByText(/^EV-[a-f0-9]{12}$/)
+      .filter({ visible: true })
+      .first(),
   ).toBeVisible();
 
   await page.goto('/?view=mutations');

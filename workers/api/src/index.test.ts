@@ -2149,8 +2149,7 @@ describe('Darwin API', () => {
         },
       ];
     });
-    const evolvedIngestResponse =
-      await ingestConnectedTelemetry(evolvedEvents);
+    const evolvedIngestResponse = await ingestConnectedTelemetry(evolvedEvents);
     expect(evolvedIngestResponse.status).toBe(202);
     const evolvedEvidenceResponse = await handleRequest(
       new Request(

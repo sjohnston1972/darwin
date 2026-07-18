@@ -82,9 +82,7 @@ test('creates and queues a bounded Darwin Lab experiment', async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByText('SYNTHETIC ONLY')).toBeVisible();
 
-  await page
-    .getByRole('button', { name: 'Create bounded experiment' })
-    .click();
+  await page.getByRole('button', { name: 'Create bounded experiment' }).click();
   await expect(
     page.getByRole('heading', {
       level: 2,
