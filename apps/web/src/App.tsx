@@ -5,6 +5,7 @@ import {
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type EvidencePack,
+  type EvidenceSignal,
   type ObservationArchive,
   type RepositoryMutationExecution,
   type RepositoryRollback,
@@ -52,6 +53,7 @@ import {
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -1599,6 +1601,142 @@ function GlobalExplainTooltip() {
   );
 }
 
+const signalPageSize = 8;
+const signalSeverityRank: Record<EvidenceSignal['severity'], number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+const signalTargets = (signal: EvidenceSignal) => [
+  ...new Set(signal.trace.map((event) => event.targetId ?? event.route)),
+];
+
+const signalAttemptRecords = (
+  signal: EvidenceSignal,
+  attempts: EvidencePack['taskAttempts'],
+) => {
+  const affected = new Set(signal.affectedAttemptIds);
+  return attempts.filter((attempt) => affected.has(attempt.attemptId));
+};
+
+const signalSessions = (
+  signal: EvidenceSignal,
+  attempts: EvidencePack['taskAttempts'],
+  events: StoredTelemetryEvent[],
+) => {
+  const eventIds = new Set(signal.supportingEventIds);
+  return [
+    ...new Set([
+      ...signalAttemptRecords(signal, attempts).map(
+        (attempt) => attempt.sessionId,
+      ),
+      ...events
+        .filter((event) => eventIds.has(event.eventId))
+        .map((event) => event.sessionId),
+    ]),
+  ];
+};
+
+const signalTasks = (
+  signal: EvidenceSignal,
+  attempts: EvidencePack['taskAttempts'],
+) => [
+  ...new Set([
+    ...(signal.taskId ? [signal.taskId] : []),
+    ...signalAttemptRecords(signal, attempts).map((attempt) => attempt.taskId),
+  ]),
+];
+
+const signalRank = (signal: EvidenceSignal) =>
+  signalSeverityRank[signal.severity] * 1_000_000 +
+  signal.support.participants * 10_000 +
+  signal.support.sessions * 1_000 +
+  signal.support.attempts * 100 +
+  signal.support.events;
+
+interface SignalPressureGroup {
+  id: string;
+  ruleId: EvidenceSignal['ruleId'];
+  target: string;
+  severity: EvidenceSignal['severity'];
+  signals: EvidenceSignal[];
+  eventCount: number;
+  attemptCount: number;
+  sessionCount: number;
+  participantCount: number;
+}
+
+const buildSignalPressureGroups = (
+  signals: EvidenceSignal[],
+  attempts: EvidencePack['taskAttempts'],
+  events: StoredTelemetryEvent[],
+): SignalPressureGroup[] => {
+  const groups = new Map<string, EvidenceSignal[]>();
+  for (const signal of signals) {
+    const target = signalTargets(signal)[0] ?? 'route-level';
+    const id = `${signal.ruleId}:${target}`;
+    groups.set(id, [...(groups.get(id) ?? []), signal]);
+  }
+  return [...groups.entries()]
+    .map(([id, groupedSignals]) => {
+      const eventIds = new Set(
+        groupedSignals.flatMap((signal) => signal.supportingEventIds),
+      );
+      const attemptIds = new Set(
+        groupedSignals.flatMap((signal) => signal.affectedAttemptIds),
+      );
+      const relatedAttempts = attempts.filter((attempt) =>
+        attemptIds.has(attempt.attemptId),
+      );
+      const sessions = new Set([
+        ...relatedAttempts.map((attempt) => attempt.sessionId),
+        ...events
+          .filter((event) => eventIds.has(event.eventId))
+          .map((event) => event.sessionId),
+      ]);
+      const participants = new Set(
+        relatedAttempts.map((attempt) => attempt.participantId),
+      );
+      const severity = groupedSignals.reduce<EvidenceSignal['severity']>(
+        (highest, signal) =>
+          signalSeverityRank[signal.severity] > signalSeverityRank[highest]
+            ? signal.severity
+            : highest,
+        'low',
+      );
+      return {
+        id,
+        ruleId: groupedSignals[0]!.ruleId,
+        target: id.slice(id.indexOf(':') + 1),
+        severity,
+        signals: [...groupedSignals].sort(
+          (left, right) => signalRank(right) - signalRank(left),
+        ),
+        eventCount: eventIds.size,
+        attemptCount: attemptIds.size,
+        sessionCount: Math.max(
+          sessions.size,
+          ...groupedSignals.map((signal) => signal.support.sessions),
+        ),
+        participantCount: Math.max(
+          participants.size,
+          ...groupedSignals.map((signal) => signal.support.participants),
+        ),
+      };
+    })
+    .sort(
+      (left, right) =>
+        signalSeverityRank[right.severity] -
+          signalSeverityRank[left.severity] ||
+        right.participantCount - left.participantCount ||
+        right.sessionCount - left.sessionCount ||
+        right.attemptCount - left.attemptCount ||
+        right.eventCount - left.eventCount ||
+        left.id.localeCompare(right.id),
+    );
+};
+
 function LiveTelemetryPanel({
   telemetry,
   analysisConfig,
@@ -1613,6 +1751,12 @@ function LiveTelemetryPanel({
     ...new Set(telemetry.events.map((event) => event.sessionId)),
   ];
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [signalSeverityFilter, setSignalSeverityFilter] = useState('all');
+  const [signalRuleEventFilter, setSignalRuleEventFilter] = useState('all');
+  const [signalTargetFilter, setSignalTargetFilter] = useState('all');
+  const [signalSessionFilter, setSignalSessionFilter] = useState('all');
+  const [signalTaskFilter, setSignalTaskFilter] = useState('all');
+  const [signalPage, setSignalPage] = useState(0);
   const [implementationMutationIds, setImplementationMutationIds] = useState<
     string[]
   >([]);
@@ -1620,6 +1764,116 @@ function LiveTelemetryPanel({
   const visibleEvents = selectedSession
     ? telemetry.events.filter((event) => event.sessionId === selectedSession)
     : telemetry.events;
+  const evidenceSignals = telemetry.evidence?.frictionSignals ?? [];
+  const evidenceAttempts = telemetry.evidence?.taskAttempts ?? [];
+  const rankedSignals = useMemo(
+    () =>
+      [...evidenceSignals].sort(
+        (left, right) =>
+          signalRank(right) - signalRank(left) ||
+          left.evidenceId.localeCompare(right.evidenceId),
+      ),
+    [evidenceSignals],
+  );
+  const pressureGroups = useMemo(
+    () =>
+      buildSignalPressureGroups(
+        evidenceSignals,
+        evidenceAttempts,
+        telemetry.events,
+      ),
+    [evidenceAttempts, evidenceSignals, telemetry.events],
+  );
+  const signalRules = useMemo(
+    () => [...new Set(evidenceSignals.map((signal) => signal.ruleId))].sort(),
+    [evidenceSignals],
+  );
+  const signalEventTypes = useMemo(
+    () =>
+      [
+        ...new Set(
+          evidenceSignals.flatMap((signal) =>
+            signal.trace.map((event) => event.eventType),
+          ),
+        ),
+      ].sort(),
+    [evidenceSignals],
+  );
+  const signalTargetOptions = useMemo(
+    () => [...new Set(evidenceSignals.flatMap(signalTargets))].sort(),
+    [evidenceSignals],
+  );
+  const signalSessionOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          evidenceSignals.flatMap((signal) =>
+            signalSessions(signal, evidenceAttempts, telemetry.events),
+          ),
+        ),
+      ].sort(),
+    [evidenceAttempts, evidenceSignals, telemetry.events],
+  );
+  const signalTaskOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          evidenceSignals.flatMap((signal) =>
+            signalTasks(signal, evidenceAttempts),
+          ),
+        ),
+      ].sort(),
+    [evidenceAttempts, evidenceSignals],
+  );
+  const filteredSignals = rankedSignals.filter((signal) => {
+    if (
+      signalSeverityFilter !== 'all' &&
+      signal.severity !== signalSeverityFilter
+    ) {
+      return false;
+    }
+    if (
+      signalRuleEventFilter.startsWith('rule:') &&
+      signal.ruleId !== signalRuleEventFilter.slice('rule:'.length)
+    ) {
+      return false;
+    }
+    if (
+      signalRuleEventFilter.startsWith('event:') &&
+      !signal.trace.some(
+        (event) =>
+          event.eventType === signalRuleEventFilter.slice('event:'.length),
+      )
+    ) {
+      return false;
+    }
+    if (
+      signalTargetFilter !== 'all' &&
+      !signalTargets(signal).includes(signalTargetFilter)
+    ) {
+      return false;
+    }
+    if (
+      signalSessionFilter !== 'all' &&
+      !signalSessions(signal, evidenceAttempts, telemetry.events).includes(
+        signalSessionFilter,
+      )
+    ) {
+      return false;
+    }
+    return (
+      signalTaskFilter === 'all' ||
+      signalTasks(signal, evidenceAttempts).includes(signalTaskFilter)
+    );
+  });
+  const signalPageCount = Math.max(
+    1,
+    Math.ceil(filteredSignals.length / signalPageSize),
+  );
+  const pagedSignals = filteredSignals.slice(
+    signalPage * signalPageSize,
+    (signalPage + 1) * signalPageSize,
+  );
   const configuredModel = analysisConfig?.model ?? 'gpt-5.6';
   const liveModelAvailable = analysisConfig?.liveModelAvailable ?? false;
   const implementationCandidates = telemetry.analysis
@@ -1647,6 +1901,42 @@ function LiveTelemetryPanel({
         : [...current, mutationId],
     );
   };
+  const focusPressureGroup = (group: SignalPressureGroup) => {
+    setSignalSeverityFilter('all');
+    setSignalRuleEventFilter(`rule:${group.ruleId}`);
+    setSignalTargetFilter(group.target);
+    setSignalSessionFilter('all');
+    setSignalTaskFilter('all');
+    setSignalPage(0);
+    window.requestAnimationFrame(() =>
+      document
+        .getElementById('signal-inspector')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    );
+  };
+  const revealExactSignal = (signal: EvidenceSignal) => {
+    setSignalSeverityFilter('all');
+    setSignalRuleEventFilter('all');
+    setSignalTargetFilter('all');
+    setSignalSessionFilter('all');
+    setSignalTaskFilter('all');
+    setSignalPage(
+      Math.max(0, Math.floor(rankedSignals.indexOf(signal) / signalPageSize)),
+    );
+    window.history.replaceState(
+      {},
+      '',
+      `${dashboardRoutes.Observations}#signal-${signal.evidenceId}`,
+    );
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() => {
+        const row = document.getElementById(`signal-${signal.evidenceId}`);
+        if (!(row instanceof HTMLDetailsElement)) return;
+        row.open = true;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }),
+    );
+  };
 
   useEffect(() => {
     setImplementationMutationIds(
@@ -1662,18 +1952,28 @@ function LiveTelemetryPanel({
   }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
   useEffect(() => {
+    setSignalPage(0);
+  }, [
+    signalSeverityFilter,
+    signalRuleEventFilter,
+    signalTargetFilter,
+    signalSessionFilter,
+    signalTaskFilter,
+    telemetry.evidence?.evidenceId,
+  ]);
+
+  useEffect(() => {
     if (!isObservations || !telemetry.evidence) return;
     const signalId = decodeURIComponent(window.location.hash).replace(
       '#signal-',
       '',
     );
     if (!signalId || signalId === window.location.hash) return;
-    const signal = document.getElementById(`signal-${signalId}`);
-    if (!(signal instanceof HTMLDetailsElement)) return;
-    signal.open = true;
-    window.requestAnimationFrame(() =>
-      signal.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+    const signalIndex = rankedSignals.findIndex(
+      (signal) => signal.evidenceId === signalId,
     );
+    if (signalIndex < 0) return;
+    revealExactSignal(rankedSignals[signalIndex]!);
   }, [isObservations, telemetry.evidence?.evidenceId]);
 
   return (
@@ -1856,43 +2156,353 @@ function LiveTelemetryPanel({
           </div>
           {isObservations && (
             <>
-              <div className="evidence-signals">
-                {telemetry.evidence.frictionSignals.length ? (
-                  telemetry.evidence.frictionSignals.map((signal) => (
-                    <details
-                      id={`signal-${signal.evidenceId}`}
-                      key={signal.evidenceId}
+              {evidenceSignals.length ? (
+                <>
+                  <section
+                    className="signal-pressure-overview"
+                    aria-labelledby="pressure-overview-title"
+                  >
+                    <div className="signal-section-heading">
+                      <div>
+                        <span className="section-label">Top pressures</span>
+                        <h3 id="pressure-overview-title">
+                          Ranked by severity and independent support
+                        </h3>
+                      </div>
+                      <span>
+                        {pressureGroups.length} grouped pressures ·{' '}
+                        {evidenceSignals.length} exact signals
+                      </span>
+                    </div>
+                    <div className="top-pressure-grid">
+                      {pressureGroups.slice(0, 3).map((group, index) => (
+                        <button
+                          key={group.id}
+                          onClick={() => focusPressureGroup(group)}
+                          type="button"
+                          aria-label={`Inspect ${group.ruleId.replaceAll('_', ' ')} on ${group.target}`}
+                        >
+                          <span className="pressure-rank">
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                          <span
+                            className={`signal-severity severity-${group.severity}`}
+                          >
+                            {group.severity}
+                          </span>
+                          <strong>{group.ruleId.replaceAll('_', ' ')}</strong>
+                          <code>{group.target}</code>
+                          <small>
+                            {group.participantCount} participants ·{' '}
+                            {group.sessionCount} sessions · {group.eventCount}{' '}
+                            events
+                          </small>
+                        </button>
+                      ))}
+                    </div>
+                    <div
+                      className="pressure-group-list"
+                      aria-label="Ranked pressure groups"
                     >
-                      <summary>
-                        <span>{signal.evidenceId}</span>
-                        <strong>{signal.ruleId.replaceAll('_', ' ')}</strong>
-                        <small>{signal.severity}</small>
-                        <ChevronRight size={15} />
-                      </summary>
-                      <p>{signal.summary}</p>
-                      <div className="signal-provenance">
-                        <span>Rule {signal.ruleVersion}</span>
-                        <span>{signal.support.events} events</span>
-                        <span>{signal.support.sessions} sessions</span>
-                        <span>{signal.support.participants} participants</span>
+                      {pressureGroups.map((group) => (
+                        <details key={group.id}>
+                          <summary>
+                            <span
+                              className={`signal-severity severity-${group.severity}`}
+                            >
+                              {group.severity}
+                            </span>
+                            <span className="pressure-group-title">
+                              <strong>
+                                {group.ruleId.replaceAll('_', ' ')}
+                              </strong>
+                              <code>{group.target}</code>
+                            </span>
+                            <span className="pressure-group-support">
+                              {group.signals.length} signals ·{' '}
+                              {group.eventCount} events · {group.attemptCount}{' '}
+                              attempts · {group.sessionCount} sessions ·{' '}
+                              {group.participantCount} participants
+                            </span>
+                            <ChevronRight size={15} />
+                          </summary>
+                          <div>
+                            {group.signals.map((signal) => (
+                              <a
+                                href={`#signal-${signal.evidenceId}`}
+                                key={signal.evidenceId}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  revealExactSignal(signal);
+                                }}
+                              >
+                                <span>{signal.evidenceId}</span>
+                                <strong>{signal.summary}</strong>
+                                <small>
+                                  {signal.support.events} events ·{' '}
+                                  {signal.support.sessions} sessions
+                                </small>
+                              </a>
+                            ))}
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section
+                    className="signal-inspector"
+                    id="signal-inspector"
+                    aria-labelledby="signal-inspector-title"
+                  >
+                    <div className="signal-section-heading">
+                      <div>
+                        <span className="section-label">
+                          Full signal inspector
+                        </span>
+                        <h3 id="signal-inspector-title">
+                          Exact detector output and raw event links
+                        </h3>
                       </div>
-                      <div className="signal-trace">
-                        {signal.trace.map((event) => (
-                          <code key={event.eventId}>
-                            {event.sequence.toString().padStart(2, '0')} ·{' '}
-                            {event.eventType} · {event.targetId ?? event.route}
-                          </code>
-                        ))}
+                      <span>
+                        {filteredSignals.length} of {evidenceSignals.length}{' '}
+                        signals
+                      </span>
+                    </div>
+                    <div className="signal-filters" aria-label="Signal filters">
+                      <label>
+                        <span>Severity</span>
+                        <select
+                          value={signalSeverityFilter}
+                          onChange={(event) =>
+                            setSignalSeverityFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All severities</option>
+                          <option value="high">High</option>
+                          <option value="medium">Medium</option>
+                          <option value="low">Low</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Rule / event</span>
+                        <select
+                          value={signalRuleEventFilter}
+                          onChange={(event) =>
+                            setSignalRuleEventFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All rules and events</option>
+                          <optgroup label="Detector rules">
+                            {signalRules.map((rule) => (
+                              <option key={rule} value={`rule:${rule}`}>
+                                {rule.replaceAll('_', ' ')}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Trace event types">
+                            {signalEventTypes.map((eventType) => (
+                              <option
+                                key={eventType}
+                                value={`event:${eventType}`}
+                              >
+                                {eventType.replaceAll('_', ' ')}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Target</span>
+                        <select
+                          value={signalTargetFilter}
+                          onChange={(event) =>
+                            setSignalTargetFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All targets</option>
+                          {signalTargetOptions.map((target) => (
+                            <option key={target} value={target}>
+                              {target}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Session</span>
+                        <select
+                          value={signalSessionFilter}
+                          onChange={(event) =>
+                            setSignalSessionFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All sessions</option>
+                          {signalSessionOptions.map((session) => (
+                            <option key={session} value={session}>
+                              {shortId(session)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Task</span>
+                        <select
+                          value={signalTaskFilter}
+                          onChange={(event) =>
+                            setSignalTaskFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All tasks</option>
+                          {signalTaskOptions.map((task) => (
+                            <option key={task} value={task}>
+                              {task.replaceAll('_', ' ')}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="evidence-signals">
+                      {pagedSignals.length ? (
+                        pagedSignals.map((signal) => {
+                          const supportingIds = new Set(
+                            signal.supportingEventIds,
+                          );
+                          const rawEvents = telemetry.events.filter((event) =>
+                            supportingIds.has(event.eventId),
+                          );
+                          return (
+                            <details
+                              id={`signal-${signal.evidenceId}`}
+                              key={signal.evidenceId}
+                            >
+                              <summary>
+                                <span className="evidence-signal-id">
+                                  {signal.evidenceId}
+                                </span>
+                                <span className="evidence-signal-title">
+                                  <strong>
+                                    {signal.ruleId.replaceAll('_', ' ')}
+                                  </strong>
+                                  <small>
+                                    {signalTargets(signal).join(' · ')}
+                                  </small>
+                                </span>
+                                <span className="signal-row-support">
+                                  {signal.support.events} events ·{' '}
+                                  {signal.support.attempts} attempts ·{' '}
+                                  {signal.support.sessions} sessions ·{' '}
+                                  {signal.support.participants} participants
+                                </span>
+                                <span
+                                  className={`signal-severity severity-${signal.severity}`}
+                                >
+                                  {signal.severity}
+                                </span>
+                                <ChevronRight size={15} />
+                              </summary>
+                              <p>{signal.summary}</p>
+                              <div className="signal-provenance">
+                                <span>Rule {signal.ruleVersion}</span>
+                                <span>
+                                  {signal.affectedAttemptIds.length} cited
+                                  attempts
+                                </span>
+                                <span>
+                                  {signal.supportingEventIds.length} cited event
+                                  IDs
+                                </span>
+                                {signalTasks(signal, evidenceAttempts).map(
+                                  (task) => (
+                                    <span key={task}>Task {task}</span>
+                                  ),
+                                )}
+                              </div>
+                              <div className="signal-detail-grid">
+                                <div className="signal-trace">
+                                  <span>Canonical evidence trace</span>
+                                  {signal.trace.map((event) => (
+                                    <code key={event.eventId}>
+                                      {event.sequence
+                                        .toString()
+                                        .padStart(2, '0')}{' '}
+                                      · {event.eventType} ·{' '}
+                                      {event.targetId ?? event.route}
+                                    </code>
+                                  ))}
+                                </div>
+                                <div className="signal-raw-events">
+                                  <span>Loaded raw semantic events</span>
+                                  {rawEvents.length ? (
+                                    rawEvents.map((event) => (
+                                      <EventTraceRow
+                                        event={event}
+                                        key={event.eventId}
+                                      />
+                                    ))
+                                  ) : (
+                                    <p>
+                                      Exact event IDs are retained in the
+                                      evidence pack; their raw records are
+                                      outside the latest loaded trace window.
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </details>
+                          );
+                        })
+                      ) : (
+                        <p className="no-signals">
+                          No exact signals match all selected filters.
+                        </p>
+                      )}
+                    </div>
+                    <nav
+                      className="signal-pagination"
+                      aria-label="Signal pages"
+                    >
+                      <span>
+                        {filteredSignals.length
+                          ? `${signalPage * signalPageSize + 1}–${Math.min((signalPage + 1) * signalPageSize, filteredSignals.length)} of ${filteredSignals.length}`
+                          : '0 signals'}
+                      </span>
+                      <div>
+                        <button
+                          type="button"
+                          disabled={signalPage === 0}
+                          onClick={() =>
+                            setSignalPage((current) => Math.max(0, current - 1))
+                          }
+                        >
+                          Previous
+                        </button>
+                        <span>
+                          Page {Math.min(signalPage + 1, signalPageCount)} of{' '}
+                          {signalPageCount}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={signalPage + 1 >= signalPageCount}
+                          onClick={() =>
+                            setSignalPage((current) =>
+                              Math.min(signalPageCount - 1, current + 1),
+                            )
+                          }
+                        >
+                          Next
+                        </button>
                       </div>
-                    </details>
-                  ))
-                ) : (
+                    </nav>
+                  </section>
+                </>
+              ) : (
+                <div className="evidence-signals">
                   <p className="no-signals">
                     No detector threshold was crossed by the current real
                     sample.
                   </p>
-                )}
-              </div>
+                </div>
+              )}
               <div className="evidence-quality-band">
                 <div>
                   <span>Evidence quality</span>

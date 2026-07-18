@@ -171,6 +171,65 @@ const evidence = {
   },
 } as const;
 
+const observationRules = [
+  'task_abandonment',
+  'navigation_loop',
+  'hover_hesitation',
+  'drag_expectation',
+] as const;
+const observationEvidence = {
+  ...evidence,
+  study: { ...evidence.study, sourceEventCount: 84, attempts: 1 },
+  taskAttempts: [
+    {
+      attemptId: 'attempt-observation-test',
+      taskId: 'find-assigned-task',
+      participantId: 'participant-observation-test',
+      sessionId: 'session-observation-test',
+      appVersion: '1.0.0',
+      source: 'real_user',
+      outcome: 'abandoned',
+      startedAt: timestamp,
+      endedAt: timestamp,
+      durationMs: 42_000,
+      interactionCount: 9,
+      routePath: ['/study/dashboard', '/study/projects'],
+      eventIds: ['00000000-0000-4000-8000-000000000001'],
+    },
+  ],
+  frictionSignals: Array.from({ length: 10 }, (_, index) => {
+    const sequence = index + 1;
+    const eventId = `00000000-0000-4000-8000-${sequence.toString().padStart(12, '0')}`;
+    const ruleId = observationRules[index % observationRules.length]!;
+    const targetId = index % 2 === 0 ? 'nav-projects' : 'capacity-member-1';
+    return {
+      evidenceId: `EV-${sequence.toString().padStart(3, '0')}`,
+      ruleId,
+      ruleVersion: '1.2.0',
+      severity: index < 3 ? 'high' : index < 7 ? 'medium' : 'low',
+      taskId: 'find-assigned-task',
+      summary: `${ruleId.replaceAll('_', ' ')} recurred on ${targetId}.`,
+      affectedAttemptIds: ['attempt-observation-test'],
+      supportingEventIds: [eventId],
+      trace: [
+        {
+          eventId,
+          sequence,
+          eventType: index % 2 === 0 ? 'element_clicked' : 'hover_ended',
+          route: '/study/dashboard',
+          targetId,
+        },
+      ],
+      support: {
+        events: 8 - (index % 4),
+        attempts: 1,
+        sessions: 1,
+        participants: 1,
+      },
+    };
+  }),
+};
+
 const makeCandidate = (
   id: string,
   title: string,
@@ -305,6 +364,7 @@ const response = (body: unknown, status = 200) =>
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
+  latestEvidence: unknown = evidence,
 ) => {
   let liveExecution: Record<string, unknown> | null = null;
   let liveConnection: unknown = initialConnection;
@@ -353,7 +413,7 @@ const installApi = (
             : [],
         });
       }
-      if (url.includes('/evidence/latest')) return response(evidence);
+      if (url.includes('/evidence/latest')) return response(latestEvidence);
       if (url.includes('/evidence-analysis/latest'))
         return latestAnalysis ? response(latestAnalysis) : response(null, 204);
       if (url.endsWith('/analyse-evidence')) return response(analysis, 201);
@@ -866,7 +926,7 @@ describe('Darwin control room', () => {
 
   it('keeps detailed telemetry separate from the mutation workspace', async () => {
     window.history.replaceState({}, '', '/?view=observations');
-    const fetchMock = installApi();
+    const fetchMock = installApi(null, null, observationEvidence);
     render(<App />);
 
     expect(
@@ -886,7 +946,53 @@ describe('Darwin control room', () => {
       'aria-current',
       'page',
     );
+    expect(
+      screen.getByRole('heading', {
+        name: 'Ranked by severity and independent support',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', {
+        name: 'Exact detector output and raw event links',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', {
+        name: /Inspect task abandonment on nav-projects/i,
+      }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Severity')).toBeVisible();
+    expect(screen.getByLabelText('Rule / event')).toBeVisible();
+    expect(screen.getByLabelText('Target')).toBeVisible();
+    expect(screen.getByLabelText('Session')).toBeVisible();
+    expect(screen.getByLabelText('Task')).toBeVisible();
+    expect(screen.getByText('1–8 of 10')).toBeVisible();
     expect(document.getElementById('signal-EV-001')).not.toBeNull();
+    expect(document.getElementById('signal-EV-010')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(document.getElementById('signal-EV-010')).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('Severity'), {
+      target: { value: 'high' },
+    });
+    expect(await screen.findByText('3 of 10 signals')).toBeVisible();
+    expect(screen.getByText('1–3 of 3')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Severity'), {
+      target: { value: 'all' },
+    });
+    const firstSignal = await waitFor(() => {
+      const row = document.getElementById('signal-EV-001');
+      expect(row).not.toBeNull();
+      return row as HTMLDetailsElement;
+    });
+    fireEvent.click(
+      firstSignal.querySelector(':scope > summary') as HTMLElement,
+    );
+    expect(
+      within(firstSignal).getByText('Canonical evidence trace'),
+    ).toBeVisible();
+    expect(
+      within(firstSignal).getByText(/outside the latest loaded trace window/i),
+    ).toBeVisible();
     fireEvent.click(
       screen.getByRole('button', { name: 'Refresh live telemetry' }),
     );
