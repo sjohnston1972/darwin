@@ -19,6 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Check out the tagged ProjectFlow baseline
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: sjohnston1972/projectflow
+          ref: demo-baseline-v2
+          path: .artifacts/projectflow-target
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -26,6 +32,10 @@ jobs:
       - run: mkdir -p ci-logs
       - name: Install dependencies
         run: set -o pipefail; npm ci 2>&1 | tee ci-logs/install.log
+      - name: Install ProjectFlow test target
+        run: npm ci --prefix .artifacts/projectflow-target
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
       - name: Check formatting
         run: set -o pipefail; npm run format:check 2>&1 | tee ci-logs/format.log
       - name: Lint
@@ -34,6 +44,10 @@ jobs:
         run: set -o pipefail; npm run typecheck 2>&1 | tee ci-logs/typecheck.log
       - name: Test
         run: set -o pipefail; npm run test 2>&1 | tee ci-logs/test.log
+      - name: Browser demo smoke
+        env:
+          PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target
+        run: set -o pipefail; npm run test:e2e -- --grep "@smoke" 2>&1 | tee ci-logs/e2e-smoke.log
       - name: Build
         run: set -o pipefail; npm run build 2>&1 | tee ci-logs/build.log
       - name: Audit dependencies
@@ -43,7 +57,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-diagnostics-${{ github.run_id }}
-          path: ci-logs
+          path: |
+            ci-logs
+            playwright-report
+            test-results
           if-no-files-found: ignore
           retention-days: 7
 

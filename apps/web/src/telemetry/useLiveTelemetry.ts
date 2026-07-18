@@ -254,7 +254,14 @@ export function useLiveTelemetry(): LiveTelemetryState {
         const latest = RepositoryMutationExecutionSchema.parse(
           await response.json(),
         );
-        if (active) setExecution(latest);
+        if (active) {
+          setExecution(latest);
+          setGenomeExecutions((current) =>
+            current.map((item) =>
+              item.executionId === latest.executionId ? latest : item,
+            ),
+          );
+        }
       } catch {
         // The telemetry poll will surface broad API availability separately.
       }

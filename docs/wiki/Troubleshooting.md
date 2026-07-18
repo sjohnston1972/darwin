@@ -95,7 +95,7 @@ The current manual refresh does not reload every derived artifact. Reload the pa
 
 ## Tooltip is clipped
 
-Current explanatory tooltips use a body-level portal and viewport clamping. If clipping recurs, record the view, element, viewport dimensions, zoom, theme, and screenshot, then add a focused regression case to the planned Playwright suite.
+Current explanatory tooltips use a body-level portal and viewport clamping. If clipping recurs, record the view, element, viewport dimensions, zoom, theme, and screenshot, then extend the focused Playwright edge-position regression case.
 
 ## Safe diagnostics
 
