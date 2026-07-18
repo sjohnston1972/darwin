@@ -179,6 +179,12 @@ export function DarwinLabView({
   return (
     <div className="lab-workspace">
       <section className="lab-hero" aria-labelledby="lab-title">
+        <img
+          className="lab-trace-visual"
+          src="/assets/darwin-behavioural-trace-wireframe.png"
+          alt=""
+          aria-hidden="true"
+        />
         <div>
           <p className="section-label">
             <FlaskConical size={14} /> Synthetic telemetry laboratory
