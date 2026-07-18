@@ -11,6 +11,7 @@ export type ApiRouteGroup =
   | 'Manifest and execution'
   | 'Repository callbacks'
   | 'Darwin Lab'
+  | 'Behavioural CI'
   | 'Synthetic scale replay';
 
 export interface ApiRouteDefinition {
@@ -353,6 +354,14 @@ export const apiRouteContract = [
   },
   {
     method: 'GET',
+    path: '/api/behavioural-evals',
+    group: 'Behavioural CI',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'List retained outcome-based behavioural acceptance tests.',
+  },
+  {
+    method: 'GET',
     path: '/api/lab/experiments',
     group: 'Darwin Lab',
     access: 'operator',
@@ -430,6 +439,24 @@ export const apiRouteContract = [
     access: 'operator',
     capability: 'reason',
     purpose: 'Run one GPT population analysis over synthetic evidence.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/promote-eval',
+    group: 'Behavioural CI',
+    access: 'operator',
+    capability: 'execute',
+    purpose:
+      'Promote synthetic failure evidence into a retained behavioural eval.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/rerun-eval',
+    group: 'Behavioural CI',
+    access: 'operator',
+    capability: 'simulate',
+    purpose:
+      'Rerun a retained behavioural eval through the bounded browser runner.',
   },
   {
     method: 'POST',

@@ -2,6 +2,7 @@ import {
   LabExperimentSchema,
   LabExperimentsResponseSchema,
   type LabAgentRun,
+  type BehaviouralEval,
   type LabExperiment,
 } from '@darwin/shared';
 import {
@@ -502,6 +503,83 @@ export function DarwinLabView({
         </section>
       )}
 
+      {selected?.evidence && (
+        <section
+          className="surface-panel lab-evidence-panel"
+          aria-labelledby="behavioural-eval-title"
+        >
+          <div className="panel-heading">
+            <div>
+              <p className="section-label">Behavioural CI</p>
+              <h2 id="behavioural-eval-title">
+                {selected.behaviouralEval
+                  ? `${selected.behaviouralEval.evalId} · retained acceptance test`
+                  : 'Turn this failure into a permanent eval'}
+              </h2>
+            </div>
+            {selected.behaviouralEval && (
+              <span className="lab-status status-analysed">
+                <CheckCircle2 size={14} /> {selected.behaviouralEval.status}
+              </span>
+            )}
+          </div>
+          {selected.behaviouralEval ? (
+            <div>
+              <BehaviouralEvalSummary evaluation={selected.behaviouralEval} />
+              <button
+                className="secondary-action mt-4"
+                type="button"
+                disabled={
+                  working !== null ||
+                  selected.status === 'awaiting_runner' ||
+                  selected.status === 'running'
+                }
+                onClick={() =>
+                  void mutateExperiment(
+                    'rerun-eval',
+                    `/api/lab/experiments/${encodeURIComponent(selected.experimentId)}/rerun-eval`,
+                  )
+                }
+              >
+                {working === 'rerun-eval'
+                  ? 'Rerunning…'
+                  : 'Rerun behavioural eval'}
+              </button>
+            </div>
+          ) : (
+            <div className="lab-next-action">
+              <div>
+                <strong>Observed failure → executable contract</strong>
+                <span>
+                  Preserve the goal, oracle, seed, and thresholds. Codex must
+                  make this eval pass without being given a click path.
+                </span>
+              </div>
+              <button
+                className="primary-action"
+                type="button"
+                disabled={
+                  working !== null || selected.evidence.signals.length === 0
+                }
+                onClick={() =>
+                  void mutateExperiment(
+                    'promote-eval',
+                    `/api/lab/experiments/${encodeURIComponent(selected.experimentId)}/promote-eval`,
+                  )
+                }
+              >
+                {working === 'promote-eval' ? (
+                  <CircleDashed className="is-spinning" size={16} />
+                ) : (
+                  <ShieldCheck size={16} />
+                )}
+                Promote to behavioural eval
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
       {selected?.analysis && (
         <section className="surface-panel lab-mutation-panel">
           <div className="panel-heading">
@@ -571,6 +649,35 @@ export function DarwinLabView({
           </p>
         </section>
       )}
+    </div>
+  );
+}
+
+function BehaviouralEvalSummary({
+  evaluation,
+}: {
+  evaluation: BehaviouralEval;
+}) {
+  return (
+    <div className="lab-evidence-summary">
+      <span>{evaluation.goal}</span>
+      <span>≤ {evaluation.maxActions} actions</span>
+      <span>
+        {percent(evaluation.baseline.completionRate)} baseline completion
+      </span>
+      <span>{evaluation.evidenceIds.join(' · ')}</span>
+      {evaluation.lastRun && (
+        <span>
+          Last run: {percent(evaluation.lastRun.completionRate)} ·{' '}
+          {evaluation.lastRun.medianActions ?? '—'} median actions
+        </span>
+      )}
+      <details className="w-full">
+        <summary>Codex acceptance brief</summary>
+        <p className="mt-3 whitespace-pre-line text-sm text-mist">
+          {evaluation.codexBrief}
+        </p>
+      </details>
     </div>
   );
 }

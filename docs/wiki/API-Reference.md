@@ -106,6 +106,18 @@ A release returns `202` with status `deployment_verifying` when the pull request
 
 Fitness calculation requires a released execution, its archived baseline evidence, and a distinct current measured evidence pack. Formula `1.0.0` applies deterministic 30/25/15/15/15 weights to task completion, navigation efficiency, error rate, feature discovery, and median duration. Incompatible or undersized cohorts persist an `insufficient` outcome with limitations and null scores. A released rollback invalidates the outcome and clears the comparison.
 
+## Behavioural CI
+
+Behavioural evals are retained, outcome-based acceptance contracts created from
+recurring synthetic Lab failures. They preserve the goal, oracle boundary,
+thresholds, seed, target snapshot, and supporting evidence IDs for future
+Codex validation.
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| GET | `/api/behavioural-evals` | list retained behavioural acceptance tests |
+| POST | `/api/lab/experiments/:experimentId/promote-eval` | promote completed synthetic evidence into an eval |
+
 ## Darwin Lab
 
 Darwin Lab accepts only configured local, test, preview, or staging target
