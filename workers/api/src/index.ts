@@ -35,7 +35,10 @@ import {
 import rootPackage from '../../../package.json';
 
 import { simulate } from './simulation';
-import { getTelemetryRepository } from './persistence/telemetry-repository';
+import {
+  getTelemetryRepository,
+  type EventPageCursor,
+} from './persistence/telemetry-repository';
 import { retentionPolicy } from './persistence/retention';
 import { buildEvidencePack } from './evidence';
 import {
@@ -237,6 +240,40 @@ const summarizeObservationArchive = ({
       completedAt: execution.completedAt,
     },
   };
+};
+
+const encodeEventCursor = (cursor: EventPageCursor) =>
+  btoa(`${cursor.receivedAt}\n${cursor.eventId}`)
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
+
+const decodeEventCursor = (value: string): EventPageCursor => {
+  if (value.length > 500 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error('invalid_event_cursor');
+  }
+  try {
+    const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      '=',
+    );
+    const [receivedAt, eventId, ...extra] = atob(padded).split('\n');
+    if (
+      !receivedAt ||
+      !eventId ||
+      extra.length > 0 ||
+      Number.isNaN(Date.parse(receivedAt)) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        eventId,
+      )
+    ) {
+      throw new Error('invalid_event_cursor');
+    }
+    return { receivedAt, eventId };
+  } catch {
+    throw new Error('invalid_event_cursor');
+  }
 };
 
 const jsonResponse = (
@@ -707,9 +744,9 @@ export const handleRequest = async (
         status: 'deleted',
         scope: 'execution',
         executionId: executionId.data,
-          deleted: await telemetryRepository.deleteExecutionArtifacts(
-            executionId.data,
-          ),
+        deleted: await telemetryRepository.deleteExecutionArtifacts(
+          executionId.data,
+        ),
       }),
     );
   }
@@ -1241,15 +1278,39 @@ export const handleRequest = async (
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
       : 50;
+    let cursor: EventPageCursor | null = null;
+    const rawCursor = url.searchParams.get('cursor');
+    try {
+      cursor = rawCursor ? decodeEventCursor(rawCursor) : null;
+    } catch {
+      return json(
+        { error: 'invalid_cursor', message: 'Event cursor is invalid.' },
+        { status: 400 },
+      );
+    }
     const receivedAfter = await currentCycleStart(studyId);
-    const [events, summary] = await Promise.all([
-      telemetryRepository.listEvents(studyId, limit, receivedAfter),
-      telemetryRepository.summarizeEvents(studyId, receivedAfter),
-    ]);
+    const page = await telemetryRepository.listEventPage(
+      studyId,
+      limit,
+      receivedAfter,
+      cursor,
+    );
+    const summary = await telemetryRepository.summarizeEvents(
+      studyId,
+      receivedAfter,
+    );
+    const latest = page.events.at(-1);
     return json(
       StudyEventsResponseSchema.parse({
         studyId,
-        events,
+        events: page.events,
+        cursor: latest
+          ? encodeEventCursor({
+              receivedAt: latest.receivedAt,
+              eventId: latest.eventId,
+            })
+          : rawCursor,
+        hasMore: page.hasMore,
         ...summary,
       }),
     );

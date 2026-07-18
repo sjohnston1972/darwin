@@ -47,7 +47,7 @@ const studyEvent = {
   sessionId: 'session-api-test',
   participantId: 'participant-api-test',
   studyId: 'projectflow-baseline-study',
-  appVersion: 'dddddddddddd',
+  appVersion: 'baseline',
   source: 'real_user',
   occurredAt: '2026-07-16T12:00:00.000Z',
   sequence: 0,
@@ -182,6 +182,22 @@ const signedTargetRequest = async (
     },
     ...(body ? { body } : {}),
   });
+};
+
+const ingestConnectedTelemetry = async (
+  events: unknown[],
+  environment: Partial<Env> = {},
+) => {
+  const secret = 'projectflow-ingestion-test-secret';
+  const body = JSON.stringify({ events });
+  return handleRequest(
+    await signedTargetRequest('/api/telemetry/events', body, secret),
+    {
+      PROJECTFLOW_INGESTION_SECRET: secret,
+      PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
+      ...environment,
+    },
+  );
 };
 
 const signedCallbackRequest = async ({
@@ -322,7 +338,7 @@ describe('Darwin API', () => {
       },
     });
     expect(JSON.stringify(body)).not.toMatch(
-      /participant|sessionId|repository|execution|patch|eventId/,
+      /participantId|sessionId|repositoryExecution|patch|eventId/,
     );
 
     const deployedCommit = 'a'.repeat(40);
@@ -488,7 +504,7 @@ describe('Darwin API', () => {
         }),
         expect.objectContaining({
           actor: 'viewer',
-          action: 'GET /api/studies/projectflow-baseline-study/events',
+          action: 'GET /api/studies/projectflow-baseline-study/events/raw',
           capability: 'inspect_evidence',
           outcome: 'denied',
           reason: 'forbidden',
@@ -685,7 +701,11 @@ describe('Darwin API', () => {
     const studyRejected = TelemetryReceiptSchema.parse(
       await (
         await ingest(
-          { ...studyEvent, eventId: '59d13df2-8dce-4ad3-b20e-d8b4edc01b64' },
+          {
+            ...studyEvent,
+            eventId: '59d13df2-8dce-4ad3-b20e-d8b4edc01b64',
+            sequence: 1,
+          },
           studyLimitedEnvironment,
         )
       ).json(),
@@ -694,6 +714,7 @@ describe('Darwin API', () => {
       accepted: 0,
       rejected: 1,
       duplicates: 0,
+      sequenceConflicts: 0,
     });
 
     await resetInMemoryTelemetry();
@@ -705,7 +726,11 @@ describe('Darwin API', () => {
     const targetRejected = TelemetryReceiptSchema.parse(
       await (
         await ingest(
-          { ...studyEvent, eventId: '69d13df2-8dce-4ad3-b20e-d8b4edc01b65' },
+          {
+            ...studyEvent,
+            eventId: '69d13df2-8dce-4ad3-b20e-d8b4edc01b65',
+            sequence: 1,
+          },
           targetLimitedEnvironment,
         )
       ).json(),
@@ -1074,6 +1099,50 @@ describe('Darwin API', () => {
     expect(events.count).toBe(1);
     expect(events.sessionCounts).toEqual({ 'session-api-test': 1 });
     expect(events.participantCount).toBe(1);
+    expect(events.cursor).not.toBeNull();
+    expect(events.hasMore).toBe(false);
+
+    const emptyDeltaResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/studies/projectflow-baseline-study/events/raw?limit=20&cursor=${encodeURIComponent(events.cursor!)}`,
+      ),
+    );
+    const emptyDelta = StudyEventsResponseSchema.parse(
+      await emptyDeltaResponse.json(),
+    );
+    expect(emptyDelta.events).toEqual([]);
+    expect(emptyDelta.cursor).toBe(events.cursor);
+    expect(emptyDelta.count).toBe(1);
+
+    const nextEvent = {
+      ...studyEvent,
+      eventId: 'ffffffff-ffff-4fff-bfff-ffffffffffff',
+      sequence: 1,
+      occurredAt: '2026-07-16T12:00:01.000Z',
+    };
+    await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({ events: [nextEvent] }),
+      }),
+    );
+    const deltaResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/studies/projectflow-baseline-study/events/raw?limit=20&cursor=${encodeURIComponent(events.cursor!)}`,
+      ),
+    );
+    const delta = StudyEventsResponseSchema.parse(await deltaResponse.json());
+    expect(delta.events.map((event) => event.eventId)).toEqual([
+      nextEvent.eventId,
+    ]);
+    expect(delta.count).toBe(2);
+
+    const invalidCursor = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/events/raw?cursor=not-a-cursor',
+      ),
+    );
+    expect(invalidCursor.status).toBe(400);
 
     const summaryResponse = await handleRequest(
       new Request(
@@ -1087,7 +1156,7 @@ describe('Darwin API', () => {
     );
     expect(StudyTelemetrySummarySchema.parse(summaryPayload)).toEqual({
       studyId: 'projectflow-baseline-study',
-      count: 1,
+      count: 2,
       sessionCount: 1,
       participantCount: 1,
       behaviorSignalCount: 0,
@@ -1101,7 +1170,7 @@ describe('Darwin API', () => {
     const session = StudySessionResponseSchema.parse(
       await sessionResponse.json(),
     );
-    expect(session.events.map((event) => event.sequence)).toEqual([0]);
+    expect(session.events.map((event) => event.sequence)).toEqual([0, 1]);
   });
 
   it('persists participant-specific ProjectFlow workspaces', async () => {
@@ -1145,6 +1214,7 @@ describe('Darwin API', () => {
     const start = {
       ...studyEvent,
       eventId: '00000000-0000-4000-8000-000000000101',
+      appVersion: repositorySha.slice(0, 12),
       eventType: 'task_started',
       taskAttemptId: attemptId,
       taskId,
@@ -1152,6 +1222,7 @@ describe('Darwin API', () => {
     const completed = {
       ...studyEvent,
       eventId: '00000000-0000-4000-8000-000000000102',
+      appVersion: repositorySha.slice(0, 12),
       sequence: 1,
       occurredAt: '2026-07-16T12:00:10.000Z',
       eventType: 'task_completed',
@@ -1160,12 +1231,7 @@ describe('Darwin API', () => {
       durationMs: 10_000,
       outcome: 'success',
     };
-    await handleRequest(
-      new Request('http://localhost/api/telemetry/events', {
-        method: 'POST',
-        body: JSON.stringify({ events: [start, completed] }),
-      }),
-    );
+    await ingestConnectedTelemetry([start, completed]);
 
     const generatedResponse = await handleRequest(
       new Request(
@@ -1221,12 +1287,9 @@ describe('Darwin API', () => {
     installOpenAIResponse(evidenceModelOutput);
     expect((await connectTargetApplication()).status).toBe(201);
     const telemetryRequest = (events: unknown[]) =>
-      handleRequest(
-        new Request('http://localhost/api/telemetry/events', {
-          method: 'POST',
-          body: JSON.stringify({ events }),
-        }),
-      );
+      ingestConnectedTelemetry(events, {
+        PROJECTFLOW_ALLOWED_APP_VERSIONS: 'cccccccccccc',
+      });
     const evidenceRequest = () =>
       handleRequest(
         new Request(
@@ -1256,6 +1319,7 @@ describe('Darwin API', () => {
       {
         ...studyEvent,
         eventId: '00000000-0000-4000-8000-000000000182',
+        appVersion: repositorySha.slice(0, 12),
       },
       {
         ...studyEvent,
@@ -1286,6 +1350,7 @@ describe('Darwin API', () => {
       eventId: `00000000-0000-4000-8000-${(sequence + 201)
         .toString()
         .padStart(12, '0')}`,
+      appVersion: repositorySha.slice(0, 12),
       occurredAt: `2026-07-16T12:01:${sequence
         .toString()
         .padStart(2, '0')}.000Z`,
@@ -1338,12 +1403,7 @@ describe('Darwin API', () => {
         outcome: 'success',
       }),
     ];
-    await handleRequest(
-      new Request('http://localhost/api/telemetry/events', {
-        method: 'POST',
-        body: JSON.stringify({ events }),
-      }),
-    );
+    await ingestConnectedTelemetry(events);
     const evidenceResponse = await handleRequest(
       new Request(
         'http://localhost/api/studies/projectflow-baseline-study/evidence',

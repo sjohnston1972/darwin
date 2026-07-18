@@ -17,6 +17,7 @@ import {
   type RepositoryMutationExecution,
   type RepositoryExecutionSummary,
   type StoredTelemetryEvent,
+  type StudyEventsResponse,
 } from '@darwin/shared';
 import { apiFetch } from '../api';
 import { useEffect, useRef, useState } from 'react';
@@ -24,6 +25,30 @@ import { useEffect, useRef, useState } from 'react';
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const studyId = 'projectflow-baseline-study';
 const eventWindowLimit = 200;
+const eventPollBaseMs = 2_000;
+const eventPollMaximumMs = 30_000;
+const executionPollBaseMs = 3_000;
+const retryJitterMs = 500;
+
+export interface LiveTelemetryOptions {
+  canInspectEvidence?: boolean;
+  eventPollingEnabled?: boolean;
+  executionPollingEnabled?: boolean;
+}
+
+type EventWindowResponse = StudyEventsResponse & { sessionCount?: number };
+
+export const shouldPollRepositoryExecution = (
+  execution: Pick<RepositoryMutationExecution, 'status' | 'rollback'> | null,
+) => {
+  if (!execution) return false;
+  const rollbackComplete =
+    !execution.rollback ||
+    ['failed', 'released'].includes(execution.rollback.status);
+  return !(
+    ['failed', 'released'].includes(execution.status) && rollbackComplete
+  );
+};
 
 interface HydratedWorkflow {
   evidence: EvidencePack | null;
@@ -80,6 +105,8 @@ export interface LiveTelemetryState {
   loadMoreObservationArchives: () => Promise<void>;
   execution: RepositoryMutationExecution | null;
   implementing: boolean;
+  lastUpdatedAt: string | null;
+  pollingState: 'fresh' | 'stale' | 'paused';
   preparingManifest: boolean;
   releasingExecution: boolean;
   releasingRollback: boolean;
@@ -100,9 +127,11 @@ export interface LiveTelemetryState {
   startRollback: (executionId?: string) => Promise<void>;
 }
 
-export function useLiveTelemetry(
-  canInspectEvidence: boolean,
-): LiveTelemetryState {
+export function useLiveTelemetry({
+  canInspectEvidence = true,
+  eventPollingEnabled = true,
+  executionPollingEnabled = true,
+}: LiveTelemetryOptions = {}): LiveTelemetryState {
   const [events, setEvents] = useState<StoredTelemetryEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
@@ -151,13 +180,42 @@ export function useLiveTelemetry(
   const [releasingRollback, setReleasingRollback] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [pollingState, setPollingState] =
+    useState<LiveTelemetryState['pollingState']>('stale');
   const resetGeneration = useRef(0);
   const hydrationGeneration = useRef(0);
+  const eventCursor = useRef<string | null>(null);
 
   const loadGenome = async () => {
     const response = await apiFetch(`${apiBaseUrl}/api/genome?limit=10`);
     if (!response.ok) throw new Error(`request returned ${response.status}`);
     return GenomeHistoryResponseSchema.parse(await response.json());
+  };
+
+  const applyEventResponse = (
+    result: EventWindowResponse,
+    incremental: boolean,
+  ) => {
+    setEvents((current) => {
+      if (!incremental) return result.events;
+      const known = new Set(current.map((event) => event.eventId));
+      return [
+        ...current,
+        ...result.events.filter((event) => !known.has(event.eventId)),
+      ].slice(-eventWindowLimit);
+    });
+    eventCursor.current = result.cursor;
+    setCount(result.count);
+    setSessionCounts(result.sessionCounts);
+    setSessionCount(
+      result.sessionCount ?? Object.keys(result.sessionCounts).length,
+    );
+    setParticipantCount(result.participantCount);
+    setBehaviorSignalCount(result.behaviorSignalCount);
+    setLastUpdatedAt(new Date().toISOString());
+    setPollingState('fresh');
+    setStatus('live');
   };
 
   const refreshGenome = async () => {
@@ -308,35 +366,33 @@ export function useLiveTelemetry(
     return request;
   };
 
-  const loadEventWindow = async () => {
-    const summaryResponse = await apiFetch(
-      `${apiBaseUrl}/api/studies/${studyId}/events`,
-    );
-    if (!summaryResponse.ok) {
-      throw new Error(`request returned ${summaryResponse.status}`);
-    }
-    const summary = StudyTelemetrySummarySchema.parse(
-      await summaryResponse.json(),
-    );
+  const loadEventWindow = async (cursor: string | null = null) => {
     if (!canInspectEvidence) {
+      const summaryResponse = await apiFetch(
+        `${apiBaseUrl}/api/studies/${studyId}/events`,
+      );
+      if (!summaryResponse.ok) {
+        throw new Error(`request returned ${summaryResponse.status}`);
+      }
+      const summary = StudyTelemetrySummarySchema.parse(
+        await summaryResponse.json(),
+      );
       return {
         ...summary,
         events: [] as StoredTelemetryEvent[],
         sessionCounts: {} as Record<string, number>,
+        cursor: null,
+        hasMore: false,
       };
     }
+    const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
     const traceResponse = await apiFetch(
-      `${apiBaseUrl}/api/studies/${studyId}/events/raw?limit=${eventWindowLimit}`,
+      `${apiBaseUrl}/api/studies/${studyId}/events/raw?limit=${eventWindowLimit}${cursorQuery}`,
     );
     if (!traceResponse.ok) {
       throw new Error(`request returned ${traceResponse.status}`);
     }
-    const trace = StudyEventsResponseSchema.parse(await traceResponse.json());
-    return {
-      ...summary,
-      events: trace.events,
-      sessionCounts: trace.sessionCounts,
-    };
+    return StudyEventsResponseSchema.parse(await traceResponse.json());
   };
 
   const loadWorkflow = async (): Promise<{
@@ -437,6 +493,8 @@ export function useLiveTelemetry(
   };
 
   const resetCurrentCycleMeasurements = () => {
+    resetGeneration.current += 1;
+    eventCursor.current = null;
     setEvents([]);
     setCount(0);
     setSessionCounts({});
@@ -444,13 +502,22 @@ export function useLiveTelemetry(
     setParticipantCount(0);
     setBehaviorSignalCount(0);
     setWorkflow(emptyWorkflow());
+    setLastUpdatedAt(null);
+    setPollingState(
+      eventPollingEnabled && document.visibilityState === 'visible'
+        ? 'stale'
+        : 'paused',
+    );
   };
 
-  const hydrate = async (manual = false) => {
+  const hydrate = async (manual = false, includeEvents = true) => {
     const hydration = ++hydrationGeneration.current;
     const reset = resetGeneration.current;
     if (manual) setRefreshing(true);
     setError(null);
+    const eventRequest = includeEvents
+      ? loadEventWindow()
+      : Promise.resolve(null);
     const workflowRequest = canInspectEvidence
       ? loadWorkflow()
       : Promise.resolve({ workflow: emptyWorkflow(), failures: [] });
@@ -462,7 +529,7 @@ export function useLiveTelemetry(
       : Promise.resolve(null);
     const [eventResult, workflowResult, genomeResult, archiveResult] =
       await Promise.allSettled([
-        loadEventWindow(),
+        eventRequest,
         workflowRequest,
         genomeRequest,
         archiveRequest,
@@ -471,21 +538,19 @@ export function useLiveTelemetry(
       hydration !== hydrationGeneration.current ||
       reset !== resetGeneration.current
     ) {
+      if (manual) setRefreshing(false);
       return;
     }
 
     const failures: string[] = [];
-    if (eventResult.status === 'fulfilled') {
-      setEvents(eventResult.value.events);
-      setCount(eventResult.value.count);
-      setSessionCounts(eventResult.value.sessionCounts);
-      setSessionCount(eventResult.value.sessionCount);
-      setParticipantCount(eventResult.value.participantCount);
-      setBehaviorSignalCount(eventResult.value.behaviorSignalCount);
-      setStatus('live');
+    if (eventResult.status === 'fulfilled' && eventResult.value) {
+      applyEventResponse(eventResult.value, false);
     } else {
-      failures.push(`Events: ${failureDetail(eventResult.reason)}`);
-      setStatus('offline');
+      if (eventResult.status === 'rejected') {
+        failures.push(`Events: ${failureDetail(eventResult.reason)}`);
+        setStatus('offline');
+        setPollingState('stale');
+      }
     }
 
     if (workflowResult.status === 'fulfilled') {
@@ -502,12 +567,40 @@ export function useLiveTelemetry(
         genomeResult.value.evolutionCycle.genomeEvolutionCount,
       );
       setGenomeExecutions(genomeResult.value.executions);
+      setGenomeNextCursor(genomeResult.value.page.nextCursor);
+      const deepLinkedId = artifactDeepLink('fossil');
+      if (
+        deepLinkedId &&
+        !genomeResult.value.executions.some(
+          (execution) => execution.executionId === deepLinkedId,
+        )
+      ) {
+        try {
+          await loadGenomeExecution(deepLinkedId);
+        } catch (reason) {
+          failures.push(`Genome detail: ${failureDetail(reason)}`);
+        }
+      }
     } else if (genomeResult.status === 'rejected') {
       failures.push(`Genome: ${failureDetail(genomeResult.reason)}`);
     }
 
     if (archiveResult.status === 'fulfilled' && archiveResult.value) {
       setObservationArchives(archiveResult.value.archives);
+      setObservationArchivesNextCursor(archiveResult.value.page.nextCursor);
+      const deepLinkedId = artifactDeepLink('observation');
+      if (
+        deepLinkedId &&
+        !archiveResult.value.archives.some(
+          (archive) => archive.archiveId === deepLinkedId,
+        )
+      ) {
+        try {
+          await loadObservationArchive(deepLinkedId);
+        } catch (reason) {
+          failures.push(`Archive detail: ${failureDetail(reason)}`);
+        }
+      }
     } else if (archiveResult.status === 'rejected') {
       failures.push(`Archives: ${failureDetail(archiveResult.reason)}`);
     }
@@ -523,46 +616,119 @@ export function useLiveTelemetry(
   const refresh = () => hydrate(true);
 
   useEffect(() => {
-    void hydrate();
-    const pollEvents = async () => {
-      const generation = resetGeneration.current;
-      try {
-        const result = await loadEventWindow();
-        if (generation === resetGeneration.current) {
-          setEvents(result.events);
-          setCount(result.count);
-          setSessionCounts(result.sessionCounts);
-          setSessionCount(result.sessionCount);
-          setParticipantCount(result.participantCount);
-          setBehaviorSignalCount(result.behaviorSignalCount);
-          setStatus('live');
-        }
-      } catch (error) {
-        if (generation === resetGeneration.current) {
-          setStatus('offline');
-          setError(`Events: ${failureDetail(error)}`);
-        }
-      }
-    };
-    const interval = window.setInterval(() => void pollEvents(), 2_000);
+    void hydrate(false, false);
     return () => {
       hydrationGeneration.current += 1;
-      window.clearInterval(interval);
     };
   }, [canInspectEvidence]);
 
   useEffect(() => {
-    const rollbackComplete =
-      !execution?.rollback ||
-      ['failed', 'released'].includes(execution.rollback.status);
+    let active = true;
+    let timeout: number | null = null;
+    let emptyPollCount = 0;
+    let failureCount = 0;
+
+    const clearScheduled = () => {
+      if (timeout !== null) window.clearTimeout(timeout);
+      timeout = null;
+    };
+    const schedule = (delayMs: number) => {
+      clearScheduled();
+      if (!active || !eventPollingEnabled) return;
+      timeout = window.setTimeout(() => void poll(), delayMs);
+    };
+    const poll = async () => {
+      if (
+        !active ||
+        !eventPollingEnabled ||
+        document.visibilityState !== 'visible'
+      ) {
+        setPollingState('paused');
+        return;
+      }
+      const generation = resetGeneration.current;
+      const cursor = eventCursor.current;
+      try {
+        const result = await loadEventWindow(cursor);
+        if (!active) return;
+        if (generation !== resetGeneration.current) {
+          schedule(0);
+          return;
+        }
+        applyEventResponse(result, cursor !== null);
+        failureCount = 0;
+        emptyPollCount = result.events.length
+          ? 0
+          : Math.min(emptyPollCount + 1, 4);
+        schedule(
+          result.hasMore
+            ? 50
+            : Math.min(
+                eventPollMaximumMs,
+                eventPollBaseMs * 2 ** emptyPollCount,
+              ),
+        );
+      } catch {
+        if (!active) return;
+        if (generation !== resetGeneration.current) {
+          schedule(0);
+          return;
+        }
+        failureCount = Math.min(failureCount + 1, 5);
+        setStatus('offline');
+        setPollingState('stale');
+        schedule(
+          Math.min(
+            eventPollMaximumMs,
+            eventPollBaseMs * 2 ** (failureCount - 1),
+          ) + Math.round(Math.random() * retryJitterMs),
+        );
+      }
+    };
+    const handleVisibility = () => {
+      clearScheduled();
+      if (document.visibilityState === 'visible') {
+        void poll();
+      } else {
+        setPollingState('paused');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    if (eventPollingEnabled && document.visibilityState === 'visible') {
+      void poll();
+    } else {
+      setPollingState('paused');
+    }
+    return () => {
+      active = false;
+      clearScheduled();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [canInspectEvidence, eventPollingEnabled]);
+
+  useEffect(() => {
     if (
       !execution ||
-      (['failed', 'released'].includes(execution.status) && rollbackComplete)
+      !executionPollingEnabled ||
+      !shouldPollRepositoryExecution(execution)
     ) {
       return;
     }
     let active = true;
+    let timeout: number | null = null;
+    let failureCount = 0;
+    const clearScheduled = () => {
+      if (timeout !== null) window.clearTimeout(timeout);
+      timeout = null;
+    };
+    const schedule = (delayMs: number) => {
+      clearScheduled();
+      if (!active) return;
+      timeout = window.setTimeout(() => void poll(), delayMs);
+    };
     const poll = async () => {
+      if (document.visibilityState !== 'visible') return;
       try {
         const response = await apiFetch(
           `${apiBaseUrl}/api/repository-executions/${execution.executionId}`,
@@ -571,20 +737,40 @@ export function useLiveTelemetry(
         const latest = RepositoryMutationExecutionSchema.parse(
           await response.json(),
         );
-        if (active) {
-          setWorkflow((current) => ({ ...current, execution: latest }));
+        if (!active) return;
+        setWorkflow((current) => ({ ...current, execution: latest }));
+        failureCount = 0;
+        if (shouldPollRepositoryExecution(latest)) {
+          schedule(executionPollBaseMs);
         }
       } catch {
-        // The telemetry poll will surface broad API availability separately.
+        if (!active) return;
+        failureCount = Math.min(failureCount + 1, 5);
+        schedule(
+          Math.min(
+            eventPollMaximumMs,
+            executionPollBaseMs * 2 ** (failureCount - 1),
+          ) + Math.round(Math.random() * retryJitterMs),
+        );
       }
     };
-    const interval = window.setInterval(() => void poll(), 3_000);
-    void poll();
+    const handleVisibility = () => {
+      clearScheduled();
+      if (document.visibilityState === 'visible') void poll();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    if (document.visibilityState === 'visible') void poll();
     return () => {
       active = false;
-      window.clearInterval(interval);
+      clearScheduled();
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [execution?.executionId, execution?.status, execution?.rollback?.status]);
+  }, [
+    execution?.executionId,
+    execution?.status,
+    execution?.rollback?.status,
+    executionPollingEnabled,
+  ]);
 
   const generateEvidence = async () => {
     setGenerating(true);
@@ -839,6 +1025,7 @@ export function useLiveTelemetry(
 
   const resetState = () => {
     resetGeneration.current += 1;
+    eventCursor.current = null;
     setEvents([]);
     setCount(0);
     setSessionCounts({});
@@ -857,6 +1044,12 @@ export function useLiveTelemetry(
     observationArchiveDetailSummaryCache.current.clear();
     pendingGenomeDetails.current.clear();
     pendingObservationArchiveDetails.current.clear();
+    setLastUpdatedAt(null);
+    setPollingState(
+      eventPollingEnabled && document.visibilityState === 'visible'
+        ? 'stale'
+        : 'paused',
+    );
     setError(null);
     setGenerating(false);
     setAnalysing(false);
@@ -906,6 +1099,7 @@ export function useLiveTelemetry(
     genomeExecutions,
     genomeNextCursor,
     implementing,
+    lastUpdatedAt,
     manifest,
     loadGenomeExecution,
     loadMoreGenome,
@@ -915,6 +1109,7 @@ export function useLiveTelemetry(
     observationArchivesNextCursor,
     participantCount,
     preparingManifest,
+    pollingState,
     releaseExecution,
     releasingExecution,
     releaseRollback,

@@ -61,6 +61,8 @@ The default events response contains only total event, session, participant, and
 
 These routes require the `reset` capability. They return aggregate deletion counts and never return deleted content. See [Data retention and deletion](../RETENTION.md) for lifetimes and quota defaults.
 
+The initial `/events/raw` response returns the most recent bounded window and an opaque `cursor`. Reuse that cursor to receive only later events. `hasMore: true` means another immediate delta is available; an empty delta retains the same cursor. Cursors combine receive time and event ID so events received in the same millisecond are not dropped.
+
 ## Evidence and reasoning
 
 The evidence endpoint builds deterministic measured evidence before GPT is available. The analysis endpoint invokes live reasoning only over the current evidence hash and immutable source snapshot. Add `?optional=true` to the two `latest` GET routes to receive 204 when no current artifact exists.

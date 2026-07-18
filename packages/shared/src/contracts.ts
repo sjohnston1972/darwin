@@ -417,6 +417,8 @@ export const StoredTelemetryEventSchema = z.discriminatedUnion('eventType', [
 export const StudyEventsResponseSchema = z.object({
   studyId: StudyIdentifierSchema,
   events: z.array(StoredTelemetryEventSchema),
+  cursor: z.string().min(1).max(500).nullable(),
+  hasMore: z.boolean(),
   count: z.number().int().nonnegative(),
   sessionCounts: z.record(z.string(), z.number().int().nonnegative()),
   participantCount: z.number().int().nonnegative(),

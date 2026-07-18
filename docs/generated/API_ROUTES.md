@@ -13,7 +13,19 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/health` | public | Report service, build, and live-reasoning availability. |
 | GET | `/api/auth/session` | operator session | Validate an operator credential and return its capabilities. |
 | GET | `/api/genome` | operator: inspect_evidence | Return the evolution cycle and repository execution history. |
+| GET | `/api/genome/:executionId` | operator: inspect_evidence | Return one complete repository execution record. |
 | GET | `/api/observations/archives` | operator: inspect_evidence | Return retained evidence and analysis summaries. |
+| GET | `/api/observations/archives/:archiveId` | operator: inspect_evidence | Return one complete evidence and analysis archive. |
+| GET | `/api/operations/metrics` | operator: inspect_evidence | Return aggregate telemetry and security counters. |
+
+## Retention and deletion
+
+| Method | Route | Access | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/retention/sweep` | operator: reset | Run the bounded retention and compaction sweep. |
+| DELETE | `/api/studies/:studyId/participants/:participantId` | operator: reset | Delete one participant and invalidate derived evidence. |
+| DELETE | `/api/studies/:studyId` | operator: reset | Delete one study and its derived artifacts. |
+| DELETE | `/api/repository-executions/:executionId/artifacts` | operator: reset | Delete one execution artifact bundle and callback material. |
 
 ## Target connection
 
@@ -29,7 +41,8 @@ Access labels distinguish public health, operator-session verification, capabili
 | Method | Route | Access | Purpose |
 | --- | --- | --- | --- |
 | POST | `/api/telemetry/events` | signed target | Ingest a signed batch of semantic telemetry events. |
-| GET | `/api/studies/:studyId/events` | operator: inspect_evidence | Return recent events and measured aggregate counts. |
+| GET | `/api/studies/:studyId/events` | operator: observe | Return aggregate measured study counts. |
+| GET | `/api/studies/:studyId/events/raw` | operator: inspect_evidence | Return recent pseudonymous event records. |
 | GET | `/api/studies/:studyId/sessions/:sessionId` | operator: inspect_evidence | Return one ordered measured session trace. |
 | GET | `/api/studies/:studyId/participants/:participantId/workspace` | signed target | Return an anonymous participant workspace. |
 | PUT | `/api/studies/:studyId/participants/:participantId/workspace` | signed target | Replace a validated anonymous participant workspace. |
@@ -72,4 +85,4 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/simulations/:runId` | operator: inspect_evidence | Return synthetic replay metadata. |
 | GET | `/api/simulations/:runId/summary` | operator: inspect_evidence | Return deterministic synthetic aggregates. |
 
-**Contract total:** 31 method/path entries.
+**Contract total:** 39 method/path entries.

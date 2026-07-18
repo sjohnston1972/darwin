@@ -9,6 +9,7 @@ import { InMemoryTelemetryRepository } from './telemetry-repository';
 import { retentionPolicy } from './retention';
 
 const execution: RepositoryMutationExecution = {
+  revision: 0,
   executionId: 'execution-retention-test',
   manifestId: 'manifest-retention-test',
   analysisId: 'analysis-retention-test',
@@ -61,7 +62,7 @@ describe('retention policy', () => {
     const repository = new InMemoryTelemetryRepository();
     const policy = retentionPolicy();
     await repository.reset();
-    await repository.saveRepositoryExecution(execution);
+    await repository.saveRepositoryExecution(execution, null);
 
     const compacted = await repository.runRetentionSweep(
       policy,
@@ -102,7 +103,7 @@ describe('retention policy', () => {
       analysisId: execution.analysisId,
       createdAt: execution.createdAt,
     } as CodexImplementationManifest);
-    await repository.saveRepositoryExecution(execution);
+    await repository.saveRepositoryExecution(execution, null);
 
     await repository.runRetentionSweep(policy, '2025-04-02T00:00:00.000Z');
     await expect(

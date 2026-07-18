@@ -78,7 +78,7 @@ describe('archive pagination', () => {
     const repository = getTelemetryRepository();
     await Promise.all(
       Array.from({ length: 31 }, (_, index) =>
-        repository.saveRepositoryExecution(makeExecution(index)),
+        repository.saveRepositoryExecution(makeExecution(index), null),
       ),
     );
 

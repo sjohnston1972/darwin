@@ -379,11 +379,13 @@ describe('real telemetry evidence engine', () => {
     const first = await buildEvidencePack(
       'projectflow-baseline-study',
       studyEvents,
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
     const reordered = await buildEvidencePack(
       'projectflow-baseline-study',
       [...studyEvents].reverse(),
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
     const hover = first.frictionSignals.find((signal) =>
@@ -423,6 +425,7 @@ describe('real telemetry evidence engine', () => {
           properties: { fromScale: 1, toScale: 1.25 },
         },
       ],
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
     expect(
@@ -456,6 +459,7 @@ describe('real telemetry evidence engine', () => {
     const oneParticipant = await buildEvidencePack(
       'projectflow-baseline-study',
       oneParticipantEvents,
+      applicationMap,
       '2026-07-16T12:05:00.000Z',
     );
     expect(oneParticipant.quality).toMatchObject({
@@ -484,6 +488,7 @@ describe('real telemetry evidence engine', () => {
     const diverseButSparse = await buildEvidencePack(
       'projectflow-baseline-study',
       diverseButSparseEvents,
+      applicationMap,
       '2026-07-16T12:05:00.000Z',
     );
     expect(diverseButSparse.quality).toMatchObject({
@@ -530,6 +535,7 @@ describe('real telemetry evidence engine', () => {
     const fullyCovered = await buildEvidencePack(
       'projectflow-baseline-study',
       fullyCoveredEvents,
+      applicationMap,
       '2026-07-16T12:05:00.000Z',
     );
     expect(fullyCovered.quality).toMatchObject({

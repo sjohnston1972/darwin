@@ -593,6 +593,8 @@ const installApi = (
         return response({
           studyId: 'projectflow-baseline-study',
           events: [],
+          cursor: 'cursor-test',
+          hasMore: false,
           count: 993,
           sessionCounts: {
             'session-one': 320,
@@ -1338,6 +1340,8 @@ describe('Darwin control room', () => {
     expect(
       await screen.findByRole('heading', { name: 'Live study evidence' }),
     ).toBeVisible();
+    expect(await screen.findByText('incremental updates')).toBeVisible();
+    expect(screen.getByText(/Last update/)).toBeVisible();
     expect(
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
@@ -1445,9 +1449,7 @@ describe('Darwin control room', () => {
     render(<App />);
 
     await waitFor(() =>
-      expect(
-        document.querySelectorAll('.execution-panel-embedded'),
-      ).toHaveLength(2),
+      expect(document.querySelectorAll('.fossil-artifact')).toHaveLength(2),
     );
 
     const ids = Array.from(document.querySelectorAll<HTMLElement>('[id]')).map(

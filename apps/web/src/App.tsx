@@ -257,9 +257,13 @@ function DarwinDashboard({
   const [navigationOpen, setNavigationOpen] = useState(false);
   const activeView = getDashboardView();
   const targetConnection = useTargetConnection();
-  const liveTelemetry = useLiveTelemetry(
-    capabilities.includes('inspect_evidence'),
-  );
+  const liveTelemetry = useLiveTelemetry({
+    canInspectEvidence: capabilities.includes('inspect_evidence'),
+    eventPollingEnabled: ['Control room', 'Observations', 'Mutations'].includes(
+      activeView,
+    ),
+    executionPollingEnabled: ['Mutations', 'Genome'].includes(activeView),
+  });
   const repository =
     targetConnection.connection?.repository ??
     liveTelemetry.execution?.repository ??
@@ -2004,6 +2008,13 @@ function LiveTelemetryPanel({
     implementationCandidatesSelected.every(
       (candidate, index) => candidate.id === manifestMutationIds[index],
     );
+  const lastUpdatedLabel = telemetry.lastUpdatedAt
+    ? new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }).format(new Date(telemetry.lastUpdatedAt))
+    : null;
   const toggleImplementationMutation = (mutationId: string) => {
     setImplementationMutationIds((current) =>
       current.includes(mutationId)
@@ -2118,20 +2129,39 @@ function LiveTelemetryPanel({
           </p>
         </div>
         <div className="live-evidence-actions">
-          <button
-            aria-label="Refresh live telemetry"
-            className={`source-status source-${telemetry.status}`}
-            data-explain="Refresh events, evidence, GPT analysis, Codex manifest, current execution, Genome, and observation archives from Darwin's API. Partial failures name the affected subsystem."
-            disabled={telemetry.refreshing}
-            onClick={() => void telemetry.refresh()}
-            type="button"
-          >
-            <span /> {telemetry.refreshing ? 'refreshing' : telemetry.status}
-            <RotateCcw
-              className={telemetry.refreshing ? 'is-spinning' : ''}
-              size={12}
-            />
-          </button>
+          <div className="live-update-stack">
+            <button
+              aria-label="Refresh live telemetry"
+              className={`source-status source-${telemetry.status}`}
+              data-explain="Refresh events, evidence, GPT analysis, Codex manifest, current execution, Genome, and observation archives from Darwin's API. Partial failures name the affected subsystem."
+              disabled={telemetry.refreshing}
+              onClick={() => void telemetry.refresh()}
+              type="button"
+            >
+              <span /> {telemetry.refreshing ? 'refreshing' : telemetry.status}
+              <RotateCcw
+                className={telemetry.refreshing ? 'is-spinning' : ''}
+                size={12}
+              />
+            </button>
+            <div
+              aria-live="polite"
+              className={`live-update-indicator is-${telemetry.pollingState}`}
+            >
+              <span>
+                {telemetry.pollingState === 'paused'
+                  ? 'updates paused'
+                  : telemetry.pollingState === 'stale'
+                    ? 'telemetry stale'
+                    : 'incremental updates'}
+              </span>
+              {telemetry.lastUpdatedAt && lastUpdatedLabel && (
+                <time dateTime={telemetry.lastUpdatedAt}>
+                  Last update {lastUpdatedLabel}
+                </time>
+              )}
+            </div>
+          </div>
           {isObservations && telemetry.canInspectEvidence && (
             <button
               className="primary-action evidence-action"
