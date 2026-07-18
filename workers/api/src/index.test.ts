@@ -366,6 +366,7 @@ describe('Darwin API', () => {
       accepted: 1,
       rejected: 0,
       duplicates: 0,
+      sequenceConflicts: 0,
     });
 
     const replay = await handleRequest(
@@ -376,6 +377,7 @@ describe('Darwin API', () => {
       accepted: 0,
       rejected: 0,
       duplicates: 1,
+      sequenceConflicts: 0,
     });
 
     const unsupportedBody = JSON.stringify({
@@ -585,7 +587,12 @@ describe('Darwin API', () => {
     );
     const receipt = TelemetryReceiptSchema.parse(await ingest.json());
     expect(ingest.status).toBe(202);
-    expect(receipt).toEqual({ accepted: 1, rejected: 1, duplicates: 0 });
+    expect(receipt).toEqual({
+      accepted: 1,
+      rejected: 1,
+      duplicates: 0,
+      sequenceConflicts: 0,
+    });
 
     const duplicate = await handleRequest(
       new Request('http://localhost/api/telemetry/events', {
@@ -597,6 +604,53 @@ describe('Darwin API', () => {
       accepted: 0,
       rejected: 0,
       duplicates: 1,
+      sequenceConflicts: 0,
+    });
+
+    const sequenceConflict = await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          events: [
+            {
+              ...studyEvent,
+              eventId: '00000000-0000-4000-8000-000000000019',
+            },
+          ],
+        }),
+      }),
+    );
+    expect(TelemetryReceiptSchema.parse(await sequenceConflict.json())).toEqual(
+      {
+        accepted: 0,
+        rejected: 0,
+        duplicates: 0,
+        sequenceConflicts: 1,
+      },
+    );
+
+    const crossStudyCollision = await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          events: [
+            {
+              ...studyEvent,
+              eventId: '00000000-0000-4000-8000-000000000020',
+              studyId: 'projectflow-baseline-automated-study',
+              source: 'automated',
+            },
+          ],
+        }),
+      }),
+    );
+    expect(
+      TelemetryReceiptSchema.parse(await crossStudyCollision.json()),
+    ).toEqual({
+      accepted: 1,
+      rejected: 0,
+      duplicates: 0,
+      sequenceConflicts: 0,
     });
 
     const eventsResponse = await handleRequest(

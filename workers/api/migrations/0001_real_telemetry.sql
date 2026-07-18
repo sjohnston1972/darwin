@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS telemetry_events (
   event_json TEXT NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS telemetry_session_sequence
-  ON telemetry_events(session_id, sequence);
+CREATE UNIQUE INDEX IF NOT EXISTS telemetry_study_participant_session_sequence
+  ON telemetry_events(study_id, participant_id, session_id, sequence);
 
 CREATE INDEX IF NOT EXISTS telemetry_study_version
   ON telemetry_events(study_id, app_version, received_at);

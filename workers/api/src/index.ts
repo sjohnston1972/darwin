@@ -669,6 +669,7 @@ export const handleRequest = async (
         accepted: stored.accepted,
         rejected: candidates.length - events.length,
         duplicates: stored.duplicates,
+        sequenceConflicts: stored.sequenceConflicts,
       }),
       { status: 202 },
     );
