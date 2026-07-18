@@ -154,6 +154,37 @@ const isTargetRoute = (pathname: string) =>
   pathname === '/api/telemetry/events' ||
   /^\/api\/studies\/[^/]+\/participants\/[^/]+\/workspace$/.test(pathname);
 
+const auditOperatorAuthorization = ({
+  request,
+  pathname,
+  capability,
+  identity,
+  actor,
+  outcome,
+  reason,
+}: {
+  request: Request;
+  pathname: string;
+  capability: OperatorCapability;
+  identity?: OperatorIdentity;
+  actor?: OperatorIdentity['actor'] | 'anonymous';
+  outcome: 'authorized' | 'denied';
+  reason?: string;
+}) => {
+  console.info(
+    '[darwin:audit]',
+    JSON.stringify({
+      event: 'operator_request_authorization',
+      actor: actor ?? identity?.actor ?? 'anonymous',
+      action: `${request.method} ${pathname}`,
+      target: pathname,
+      capability,
+      outcome,
+      ...(reason ? { reason } : {}),
+    }),
+  );
+};
+
 const corsForRequest = (request: Request, env?: Partial<Env>) => {
   const configuredOrigins = (env?.ALLOWED_ORIGINS ?? '')
     .split(',')
@@ -284,6 +315,18 @@ export const handleRequest = async (
 
   if (request.method === 'GET' && pathname === '/api/auth/session') {
     const authorization = await authorizeOperator(request, env, 'observe');
+    auditOperatorAuthorization({
+      request,
+      pathname,
+      capability: 'observe',
+      ...(authorization.ok
+        ? { identity: authorization.identity, outcome: 'authorized' as const }
+        : {
+            actor: authorization.error === 'forbidden' ? 'viewer' : 'anonymous',
+            outcome: 'denied' as const,
+            reason: authorization.error,
+          }),
+    });
     return authorization.ok
       ? json({
           authenticated: true,
@@ -305,27 +348,30 @@ export const handleRequest = async (
     !isTargetRoute(pathname) &&
     !isCallbackRoute(pathname)
   ) {
-    const authorization = await authorizeOperator(
-      request,
-      env,
-      requiredOperatorCapability(request.method, pathname),
-    );
+    const capability = requiredOperatorCapability(request.method, pathname);
+    const authorization = await authorizeOperator(request, env, capability);
     if (!authorization.ok) {
+      auditOperatorAuthorization({
+        request,
+        pathname,
+        capability,
+        actor: authorization.error === 'forbidden' ? 'viewer' : 'anonymous',
+        outcome: 'denied',
+        reason: authorization.error,
+      });
       return json(
         { error: authorization.error, message: authorization.message },
         { status: authorization.status },
       );
     }
     operatorIdentity = authorization.identity;
-    console.info(
-      '[darwin:audit]',
-      JSON.stringify({
-        event: 'operator_request_authorized',
-        actor: operatorIdentity.actor,
-        action: `${request.method} ${pathname}`,
-        target: pathname,
-      }),
-    );
+    auditOperatorAuthorization({
+      request,
+      pathname,
+      capability,
+      identity: operatorIdentity,
+      outcome: 'authorized',
+    });
   }
 
   const telemetryRepository = getTelemetryRepository(env?.DB);
