@@ -175,6 +175,7 @@ PROJECTFLOW_REPOSITORY=sjohnston1972/projectflow
 PROJECTFLOW_BRANCH=main
 PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
 PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
+PROJECTFLOW_ALLOWED_APP_VERSIONS=baseline,1.0.0
 ```
 
 The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. The operator token is entered into Darwin's unlock view and retained only in browser session storage.

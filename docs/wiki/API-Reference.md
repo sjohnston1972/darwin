@@ -18,6 +18,7 @@ All JSON request/response contracts are defined in `packages/shared/src/contract
 | GET    | `/api/health`                | service version, model, and live-model availability |
 | GET    | `/api/genome`                | evolution cycle and repository execution history    |
 | GET    | `/api/observations/archives` | evidence/analysis retained by completed executions  |
+| GET    | `/api/operations/metrics`     | telemetry acceptance and rejection counters         |
 
 ## Target connection
 
@@ -68,7 +69,9 @@ Ingestion returns:
 }
 ```
 
-The batch body is capped at 256 KB and the event list at 50 records. Production ProjectFlow calls a same-origin Pages Function, which signs the timestamp, target, deployment origin, edge-derived client key, and exact body with `PROJECTFLOW_INGESTION_SECRET`. The Worker rejects unsigned requests, stale or invalid signatures, unsupported studies/provenance/versions, and target-origin mismatches.
+The batch body is capped at 256 KB and the event list at 50 records. Production ProjectFlow calls a same-origin Pages Function, which signs the timestamp, target, deployment origin, edge-derived client key, and exact body with `PROJECTFLOW_INGESTION_SECRET`. The Worker rejects unsigned requests, stale or invalid signatures, exact request replays, unsupported studies/provenance/versions, and target-origin mismatches. `PROJECTFLOW_ALLOWED_APP_VERSIONS` is a comma-separated allow-list for named baseline versions; commit and candidate versions must also match the connected repository or a recorded execution.
+
+`GET /api/operations/metrics` returns persistent counts for telemetry requests, accepted/rejected/duplicate events, authentication failures, request replays, context failures, and rate limits. It is an authenticated control-plane route and never exposes credentials or event payloads.
 
 ## Evidence and reasoning
 

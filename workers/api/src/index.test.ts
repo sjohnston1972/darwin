@@ -6,6 +6,7 @@ import {
   GenomeHistoryResponseSchema,
   HealthResponseSchema,
   ObservationArchivesResponseSchema,
+  OperationalTelemetryMetricsSchema,
   ParticipantWorkspaceResponseSchema,
   RepositoryMutationExecutionSchema,
   SimulationSummarySchema,
@@ -281,6 +282,7 @@ describe('Darwin API', () => {
 
   it('requires capability-scoped operator authorization on every control-plane route', async () => {
     const protectedRoutes = [
+      ['GET', '/api/operations/metrics'],
       ['GET', '/api/target-connection'],
       ['POST', '/api/target-connection'],
       ['POST', '/api/target-connection/disconnect'],
@@ -347,6 +349,7 @@ describe('Darwin API', () => {
       PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
     };
     const body = JSON.stringify({ events: [studyEvent] });
+    const replayTimestamp = Date.now();
     const unsigned = await handleRequest(
       new Request('https://darwin-api.example/api/telemetry/events', {
         method: 'POST',
@@ -357,8 +360,18 @@ describe('Darwin API', () => {
     );
     expect(unsigned.status).toBe(401);
 
+    const wrongDeployment = await handleRequest(
+      await signedTargetRequest('/api/telemetry/events', body, secret, {
+        sourceOrigin: 'https://untrusted.example',
+      }),
+      environment,
+    );
+    expect(wrongDeployment.status).toBe(403);
+
     const accepted = await handleRequest(
-      await signedTargetRequest('/api/telemetry/events', body, secret),
+      await signedTargetRequest('/api/telemetry/events', body, secret, {
+        timestamp: String(replayTimestamp),
+      }),
       environment,
     );
     expect(accepted.status).toBe(202);
@@ -369,27 +382,61 @@ describe('Darwin API', () => {
     });
 
     const replay = await handleRequest(
-      await signedTargetRequest('/api/telemetry/events', body, secret),
+      await signedTargetRequest('/api/telemetry/events', body, secret, {
+        timestamp: String(replayTimestamp),
+      }),
       environment,
     );
-    expect(TelemetryReceiptSchema.parse(await replay.json())).toEqual({
+    expect(replay.status).toBe(409);
+    await expect(replay.json()).resolves.toMatchObject({
+      error: 'target_request_replayed',
+    });
+
+    const duplicate = await handleRequest(
+      await signedTargetRequest('/api/telemetry/events', body, secret, {
+        timestamp: String(replayTimestamp + 1),
+      }),
+      environment,
+    );
+    expect(duplicate.status).toBe(202);
+    expect(TelemetryReceiptSchema.parse(await duplicate.json())).toEqual({
       accepted: 0,
       rejected: 0,
       duplicates: 1,
     });
 
-    const unsupportedBody = JSON.stringify({
-      events: [{ ...studyEvent, studyId: 'attacker-selected-study' }],
-    });
-    const unsupported = await handleRequest(
-      await signedTargetRequest(
-        '/api/telemetry/events',
-        unsupportedBody,
-        secret,
-      ),
-      environment,
+    const unsupportedEvents = [
+      { ...studyEvent, studyId: 'attacker-selected-study' },
+      { ...studyEvent, eventId: crypto.randomUUID(), source: 'automated' },
+      { ...studyEvent, eventId: crypto.randomUUID(), appVersion: '99.0.0' },
+    ];
+    for (const event of unsupportedEvents) {
+      const unsupportedBody = JSON.stringify({ events: [event] });
+      const unsupported = await handleRequest(
+        await signedTargetRequest(
+          '/api/telemetry/events',
+          unsupportedBody,
+          secret,
+        ),
+        environment,
+      );
+      expect(unsupported.status).toBe(403);
+    }
+
+    const metricsResponse = await handleRequest(
+      new Request('http://localhost/api/operations/metrics'),
     );
-    expect(unsupported.status).toBe(403);
+    expect(
+      OperationalTelemetryMetricsSchema.parse(await metricsResponse.json()),
+    ).toMatchObject({
+      telemetryRequests: 8,
+      acceptedEvents: 1,
+      duplicateEvents: 1,
+      authenticationRejected: 2,
+      replayRejected: 1,
+      contextRejected: 3,
+      rejectedEvents: 3,
+    });
   });
 
   it('rate limits signed telemetry on the edge-derived target identity', async () => {
@@ -403,17 +450,31 @@ describe('Darwin API', () => {
       PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
       INGESTION_RATE_LIMITER: { limit },
     };
-    for (const [index, participantId] of [
-      'participant-one',
-      'participant-two',
-    ].entries()) {
+    const rotatedIdentities = [
+      {
+        participantId: 'participant-one',
+        studyId: 'projectflow-baseline-study',
+        source: 'real_user',
+      },
+      {
+        participantId: 'participant-two',
+        studyId: 'projectflow-baseline-study',
+        source: 'real_user',
+      },
+      {
+        participantId: 'participant-three',
+        studyId: 'projectflow-baseline-automated-study',
+        source: 'automated',
+      },
+    ] as const;
+    for (const [index, identity] of rotatedIdentities.entries()) {
       const body = JSON.stringify({
         events: [
           {
             ...studyEvent,
             eventId: `${index + 1}9d13df2-8dce-4ad3-b20e-d8b4edc01b6${index}`,
             sessionId: `session-${index}`,
-            participantId,
+            ...identity,
           },
         ],
       });
@@ -423,8 +484,9 @@ describe('Darwin API', () => {
       );
       expect(response.status).toBe(202);
     }
-    expect(limit).toHaveBeenCalledTimes(2);
+    expect(limit).toHaveBeenCalledTimes(3);
     expect(limit.mock.calls[0]![0]).toEqual(limit.mock.calls[1]![0]);
+    expect(limit.mock.calls[1]![0]).toEqual(limit.mock.calls[2]![0]);
     expect(limit).toHaveBeenCalledWith({
       key: 'projectflow:signed-edge-client',
     });
@@ -456,12 +518,46 @@ describe('Darwin API', () => {
       productionUrl: request.productionUrl,
       studyUrl: request.studyUrl,
     });
+    expect(connection.ingestion).toMatchObject({
+      targetId: 'projectflow',
+      studyIds: [
+        'projectflow-baseline-study',
+        'projectflow-baseline-automated-study',
+      ],
+      allowedOrigins: ['https://darwin-projectflow.pages.dev'],
+      signatureAlgorithm: 'hmac-sha256',
+    });
+    expect(JSON.stringify(connection)).not.toContain(
+      'projectflow-ingestion-test-secret',
+    );
     expect(connection.checks.map((check) => check.id)).toEqual([
       'repository',
       'contract',
       'runtime',
       'telemetry',
     ]);
+
+    const connectedVersionBody = JSON.stringify({
+      events: [
+        {
+          ...studyEvent,
+          eventId: crypto.randomUUID(),
+          appVersion: repositorySha.slice(0, 12),
+        },
+      ],
+    });
+    const connectedVersionTelemetry = await handleRequest(
+      await signedTargetRequest(
+        '/api/telemetry/events',
+        connectedVersionBody,
+        'projectflow-ingestion-test-secret',
+      ),
+      {
+        PROJECTFLOW_INGESTION_SECRET: 'projectflow-ingestion-test-secret',
+        PROJECTFLOW_PRODUCTION_URL: request.productionUrl,
+      },
+    );
+    expect(connectedVersionTelemetry.status).toBe(202);
 
     const loadedResponse = await handleRequest(
       new Request('http://localhost/api/target-connection'),

@@ -21,7 +21,10 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - Raw behavioral evidence and repository artifacts require the evidence-inspector capability.
 - Protected JSON responses use `Cache-Control: no-store`.
 - ProjectFlow sends telemetry and workspace requests through a narrow same-origin Pages Function that HMAC-signs target, deployment origin, timestamp, edge-derived client key, and body.
-- Telemetry accepts only the configured ProjectFlow study, provenance, and application-version formats.
+- Target connection records a non-secret ingestion scope for the configured target, studies, deployment origins, and HMAC credential version.
+- Telemetry accepts only explicitly configured baseline versions or commit versions already present in the connected repository/execution history.
+- Signed telemetry requests are single-use within their validity window; D1 rejects exact request replays before ingestion.
+- Ingestion rate limits use the target identity plus the HMAC-protected client key derived from the visitor address by ProjectFlow's edge gateway, so rotating study or participant IDs does not rotate the limit bucket.
 - The 10,000-event simulation is operator-only, rate/concurrency limited, fixed to the configured seed, and retained as metadata in a four-entry TTL/LRU cache.
 - Repository workflow requests sign the execution, repository, manifest hash, timestamp, nonce, and payload digest; D1 rejects replayed signatures and terminal state rewrites.
 - Callback bodies, patches, output, checks, and changed-file arrays have explicit size limits.
