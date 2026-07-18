@@ -78,17 +78,17 @@ const evidence = {
   study: {
     studyId: 'projectflow-baseline-study',
     appVersion: '1.0.0',
-    sourceEventCount: 14,
-    participants: 1,
-    sessions: 1,
+    sourceEventCount: 993,
+    participants: 3,
+    sessions: 4,
     attempts: 1,
   },
   quality: {
     strength: 'directional',
     score: 60,
-    eventCount: 14,
-    sessionCount: 1,
-    participantCount: 1,
+    eventCount: 993,
+    sessionCount: 4,
+    participantCount: 3,
     completedAttemptCount: 1,
     limitations: ['Fewer than three independent sessions were observed.'],
   },
@@ -315,9 +315,14 @@ const installApi = (
         return response({
           studyId: 'projectflow-baseline-study',
           events: [],
-          count: 14,
-          sessionCounts: { 'session-test': 14 },
-          participantCount: 1,
+          count: 993,
+          sessionCounts: {
+            'session-one': 320,
+            'session-two': 280,
+            'session-three': 210,
+            'session-four': 183,
+          },
+          participantCount: 3,
           behaviorSignalCount: 8,
         });
       }
@@ -581,6 +586,14 @@ describe('Darwin control room', () => {
       screen.queryByRole('heading', { name: 'Repository genome · --' }),
     ).not.toBeInTheDocument();
     expect(await screen.findByText('Selection pressure')).toBeVisible();
+    const measuredSessions = screen
+      .getByText('Measured sessions')
+      .closest('article');
+    expect(measuredSessions).not.toBeNull();
+    expect(within(measuredSessions!).getByText('4')).toBeVisible();
+    expect(
+      within(measuredSessions!).getByText('3 anonymous participants'),
+    ).toBeVisible();
     expect(screen.getByText('Fitness delta')).toBeVisible();
     expect(screen.getByText('Release confidence')).toBeVisible();
     const navigation = screen.getByRole('navigation', {
@@ -879,6 +892,9 @@ describe('Darwin control room', () => {
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
     expect(screen.getByText('directional')).toBeVisible();
+    const studyCounts = screen.getByLabelText('Real study counts');
+    expect(within(studyCounts).getByText('4')).toBeVisible();
+    expect(within(studyCounts).getByText('3')).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Ask gpt-5.6' }),
     ).not.toBeInTheDocument();
