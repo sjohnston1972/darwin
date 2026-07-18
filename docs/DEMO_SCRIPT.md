@@ -35,8 +35,9 @@
 
 1. Review and merge the generated ProjectFlow pull request through the explicit
    release control.
-2. Show the real merged commit and deployment in Genome.
-3. Repeat the measured behavior against the retained application to establish
+2. Show Darwin verify that production reports the real merged commit and app version.
+3. Show that exact measurement boundary and deployment in Genome and Observations.
+4. Repeat the measured behavior against the retained application to establish
    fitness. If a compatible human cohort is unavailable, label the result as
    automated validation and state that user fitness is not yet measured.
 

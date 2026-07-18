@@ -107,6 +107,8 @@ const evidence = {
   study: {
     studyId: 'projectflow-baseline-study',
     appVersion: '1.0.0',
+    measuredCommit: repository.baseSha,
+    deploymentVerifiedAt: timestamp,
     sourceEventCount: 993,
     participants: 3,
     sessions: 4,
@@ -623,6 +625,9 @@ const installApi = (
             studyId: 'projectflow-baseline-study',
             startedAt: released ? timestamp : null,
             genomeEvolutionCount: released ? 1 : 0,
+            measuredCommit: released ? '1'.repeat(40) : null,
+            appVersion: released ? '1'.repeat(12) : null,
+            deploymentVerifiedAt: released ? timestamp : null,
           },
           executions: liveExecution
             ? [executionSummary(liveExecution)]
@@ -759,6 +764,16 @@ const installApi = (
           status: 'released',
           headSha: '1'.repeat(40),
           previewUrl: repository.studyUrl,
+          deploymentVerification: {
+            status: 'verified',
+            expectedCommit: '1'.repeat(40),
+            expectedAppVersion: '1'.repeat(12),
+            observedCommit: '1'.repeat(40),
+            observedAppVersion: '1'.repeat(12),
+            attempts: 2,
+            verifiedAt: timestamp,
+            lastError: null,
+          },
           completedAt: timestamp,
         };
         return response(liveExecution);
@@ -1106,6 +1121,11 @@ describe('Darwin control room', () => {
     expect(
       await screen.findByRole('heading', { name: 'Observation archive' }),
     ).toBeVisible();
+    expect(
+      within(
+        screen.getByLabelText('Verified measurement boundary'),
+      ).getAllByText('111111111111').length,
+    ).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Informed mutation')).toBeVisible();
     const observationArtifact = document.querySelector<HTMLDetailsElement>(
       '#observation-execution-measured-test',

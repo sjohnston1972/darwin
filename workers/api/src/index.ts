@@ -43,7 +43,7 @@ import {
   type EventPageCursor,
 } from './persistence/telemetry-repository';
 import { retentionPolicy } from './persistence/retention';
-import { buildEvidencePack } from './evidence';
+import { EvidenceVersionMismatchError, buildEvidencePack } from './evidence';
 import {
   EvidenceReasoningError,
   analyseEvidence,
@@ -78,6 +78,10 @@ import {
   verifyExecutionCallback,
 } from './security/callback';
 import { findApiRoute } from './api-route-contract';
+import {
+  DeploymentVerificationPendingError,
+  verifyProjectFlowDeployment,
+} from './repository/deployment-verification';
 
 export interface Env {
   DB?: D1Database;
@@ -99,6 +103,8 @@ export interface Env {
   PROJECTFLOW_BRANCH: string;
   PROJECTFLOW_PRODUCTION_URL: string;
   PROJECTFLOW_STUDY_URL: string;
+  PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS?: string;
+  PROJECTFLOW_DEPLOYMENT_POLL_MS?: string;
   PROJECTFLOW_STUDY_ID?: string;
   PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
   PROJECTFLOW_ALLOWED_APP_VERSIONS?: string;
@@ -1548,6 +1554,7 @@ export const handleRequest = async (
   if (request.method === 'POST' && studyEvidenceMatch) {
     trace.beforeState = 'telemetry_ready';
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
+    const cycle = await telemetryRepository.getEvolutionCycle();
     const source = url.searchParams.get('source') ?? 'real_user';
     if (source !== 'real_user' && source !== 'automated') {
       return json(
@@ -1559,7 +1566,7 @@ export const handleRequest = async (
       await telemetryRepository.listEvents(
         studyId,
         10_000,
-        await currentCycleStart(studyId),
+        cycle.studyId === studyId ? cycle.startedAt : null,
       )
     ).filter((event) => event.source === source);
     if (!events.length) {
@@ -1619,11 +1626,30 @@ export const handleRequest = async (
         studyId,
         events,
         targetConnection.applicationMap,
+        undefined,
+        cycle.studyId === studyId
+          ? {
+              appVersion: cycle.appVersion,
+              measuredCommit: cycle.measuredCommit,
+              deploymentVerifiedAt: cycle.deploymentVerifiedAt,
+            }
+          : undefined,
       );
       await telemetryRepository.saveEvidence(pack);
       trace.afterState = 'evidence_ready';
       return json(EvidencePackSchema.parse(pack), { status: 201 });
     } catch (error) {
+      if (error instanceof EvidenceVersionMismatchError) {
+        return json(
+          {
+            error: 'mixed_application_versions',
+            message:
+              'Evidence must contain exactly one application version matching the verified deployment.',
+            appVersions: error.appVersions,
+          },
+          { status: 409 },
+        );
+      }
       if (
         error &&
         typeof error === 'object' &&
@@ -2525,26 +2551,28 @@ export const handleRequest = async (
     }
     if (
       execution.status !== 'preview_ready' &&
-      execution.status !== 'releasing'
+      execution.status !== 'releasing' &&
+      execution.status !== 'deployment_verifying'
     ) {
       return json(
         {
           error: 'not_releasable',
-          message: 'A validated pull request preview is required for release.',
+          message:
+            'A validated preview or merged deployment awaiting verification is required for release.',
         },
         { status: 409 },
       );
     }
-    if (!env?.GITHUB_TOKEN) {
-      return json(
-        {
-          error: 'repository_release_unavailable',
-          message: 'GitHub release credentials are not configured.',
-        },
-        { status: 503 },
-      );
-    }
     if (execution.status === 'preview_ready') {
+      if (!env?.GITHUB_TOKEN) {
+        return json(
+          {
+            error: 'repository_release_unavailable',
+            message: 'GitHub release credentials are not configured.',
+          },
+          { status: 503 },
+        );
+      }
       const releasing = updateRepositoryExecution(execution, {
         status: 'releasing',
       });
@@ -2558,22 +2586,116 @@ export const handleRequest = async (
       }
       execution = releasing;
     }
+    if (execution.status === 'releasing') {
+      if (!env?.GITHUB_TOKEN) {
+        return json(
+          {
+            error: 'repository_release_unavailable',
+            message: 'GitHub release credentials are not configured.',
+          },
+          { status: 503 },
+        );
+      }
+      try {
+        const releasingExecution = execution;
+        const releasedSha = await observeProvider(
+          trace,
+          'github',
+          'merge_evolution_pull_request',
+          () =>
+            mergeEvolutionPullRequest({
+              token: env.GITHUB_TOKEN!,
+              execution: releasingExecution,
+            }),
+        );
+        const deploymentVerifying = updateRepositoryExecution(execution, {
+          status: 'deployment_verifying',
+          headSha: releasedSha,
+          deploymentVerification: {
+            status: 'verifying',
+            expectedCommit: releasedSha,
+            expectedAppVersion: releasedSha.slice(0, 12),
+            observedCommit: null,
+            observedAppVersion: null,
+            attempts: 0,
+            verifiedAt: null,
+            lastError: null,
+          },
+        });
+        if (
+          !(await telemetryRepository.saveRepositoryExecution(
+            deploymentVerifying,
+            execution,
+          ))
+        ) {
+          return currentReleaseAfterConflict(executionId);
+        }
+        execution = deploymentVerifying;
+      } catch (error) {
+        return json(
+          {
+            error:
+              error instanceof GitHubMergeStateUnknownError
+                ? 'repository_merge_state_unknown'
+                : 'repository_release_failed',
+            message:
+              error instanceof Error
+                ? error.message
+                : 'GitHub pull request release failed.',
+            execution: RepositoryMutationExecutionSchema.parse(execution),
+          },
+          { status: 502 },
+        );
+      }
+    }
+
+    const deployment = execution.deploymentVerification;
+    if (!execution.headSha || !deployment) {
+      return json(
+        {
+          error: 'deployment_verification_unavailable',
+          message: 'The merged deployment identity was not retained.',
+        },
+        { status: 409 },
+      );
+    }
     try {
-      const releasingExecution = execution;
-      const releasedSha = await observeProvider(
+      const configuredTimeout = Number(
+        env?.PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS ?? 90_000,
+      );
+      const configuredPoll = Number(
+        env?.PROJECTFLOW_DEPLOYMENT_POLL_MS ?? 5_000,
+      );
+      const deploymentExecution = execution;
+      const verified = await observeProvider(
         trace,
-        'github',
-        'merge_evolution_pull_request',
+        'target',
+        'verify_deployment',
         () =>
-          mergeEvolutionPullRequest({
-            token: env.GITHUB_TOKEN!,
-            execution: releasingExecution,
+          verifyProjectFlowDeployment({
+            studyUrl: deploymentExecution.repository.studyUrl,
+            expectedCommit: deployment.expectedCommit,
+            expectedAppVersion: deployment.expectedAppVersion,
+            timeoutMs: Number.isFinite(configuredTimeout)
+              ? configuredTimeout
+              : 90_000,
+            pollIntervalMs: Number.isFinite(configuredPoll)
+              ? configuredPoll
+              : 5_000,
           }),
       );
       const released = updateRepositoryExecution(execution, {
         status: 'released',
-        headSha: releasedSha,
         previewUrl: execution.repository.studyUrl,
+        deploymentVerification: {
+          ...deployment,
+          status: 'verified',
+          observedCommit: verified.commitSha,
+          observedAppVersion: verified.appVersion,
+          attempts: deployment.attempts + verified.attempts,
+          verifiedAt: verified.verifiedAt,
+          lastError: null,
+        },
       });
       if (
         !(await telemetryRepository.saveRepositoryExecution(
@@ -2584,22 +2706,42 @@ export const handleRequest = async (
         return currentReleaseAfterConflict(executionId);
       }
       execution = released;
+      await telemetryRepository.advanceEvolutionCycle({
+        startedAt: verified.verifiedAt,
+        measuredCommit: verified.commitSha,
+        appVersion: verified.appVersion,
+        deploymentVerifiedAt: verified.verifiedAt,
+      });
+      trace.afterState = 'released';
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
-      return json(
-        {
-          error:
-            error instanceof GitHubMergeStateUnknownError
-              ? 'repository_merge_state_unknown'
-              : 'repository_release_failed',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'GitHub pull request release failed.',
-          execution: RepositoryMutationExecutionSchema.parse(execution),
-        },
-        { status: 502 },
-      );
+      if (error instanceof DeploymentVerificationPendingError) {
+        const pending = RepositoryMutationExecutionSchema.parse({
+          ...execution,
+          deploymentVerification: {
+            ...deployment,
+            observedCommit: error.observed?.commitSha ?? null,
+            observedAppVersion: error.observed?.appVersion ?? null,
+            attempts: deployment.attempts + error.attempts,
+            lastError: error.errorCode,
+          },
+          updatedAt: new Date().toISOString(),
+        });
+        if (
+          !(await telemetryRepository.saveRepositoryExecution(
+            pending,
+            execution,
+          ))
+        ) {
+          return currentReleaseAfterConflict(executionId);
+        }
+        execution = pending;
+        trace.afterState = 'deployment_verifying';
+        return json(RepositoryMutationExecutionSchema.parse(execution), {
+          status: 202,
+        });
+      }
+      throw error;
     }
   }
 

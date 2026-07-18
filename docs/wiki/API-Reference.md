@@ -67,6 +67,19 @@ The initial `/events/raw` response returns the most recent bounded window and an
 
 The evidence endpoint builds deterministic measured evidence before GPT is available. The analysis endpoint invokes live reasoning only over the current evidence hash and immutable source snapshot. Add `?optional=true` to the two `latest` GET routes to receive 204 when no current artifact exists.
 
+## Manifest and execution
+
+| Method | Route                                                         | Purpose                        |
+| ------ | ------------------------------------------------------------- | ------------------------------ |
+| GET    | `/api/evidence-analyses/:analysisId/codex-manifest`           | get manifest                   |
+| POST   | `/api/evidence-analyses/:analysisId/codex-manifest`           | build selected mutation bundle |
+| GET    | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | get execution or 204           |
+| POST   | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | dispatch controlled evolution  |
+| GET    | `/api/repository-executions/:executionId`                     | poll execution                 |
+| POST   | `/api/repository-executions/:executionId/release`             | merge PR and verify production |
+| POST   | `/api/repository-executions/:executionId/rollback`            | dispatch rollback workflow     |
+| POST   | `/api/repository-executions/:executionId/rollback/release`    | merge reviewed rollback PR     |
+
 Manifest selection accepts one or more supported mutation IDs:
 
 ```json
@@ -76,6 +89,10 @@ Manifest selection accepts one or more supported mutation IDs:
 ```
 
 Repository execution responses contain only actual GitHub state. Candidate creation, release, rollback, and rollback release are distinct controlled actions.
+
+A release returns `202` with status `deployment_verifying` when the pull request has merged but the production HTML metadata does not yet report the merged commit and app version. Repeating the same release request rechecks production without merging again. A `200` `released` response includes the verified identity and timestamp that begin the next evidence cycle.
+
+## Repository workflow callbacks
 
 ## Repository callback signing
 

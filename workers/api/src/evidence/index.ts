@@ -1,1 +1,5 @@
-export { buildEvidencePack, reconstructAttempts } from './evidence';
+export {
+  buildEvidencePack,
+  EvidenceVersionMismatchError,
+  reconstructAttempts,
+} from './evidence';

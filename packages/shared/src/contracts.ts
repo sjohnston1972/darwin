@@ -659,6 +659,12 @@ export const EvidencePackSchema = z.object({
   study: z.object({
     studyId: StudyIdentifierSchema,
     appVersion: z.string().min(1),
+    measuredCommit: z
+      .string()
+      .regex(/^[a-f0-9]{40}$/)
+      .nullable()
+      .default(null),
+    deploymentVerifiedAt: z.string().datetime().nullable().default(null),
     sourceEventCount: z.number().int().nonnegative(),
     participants: z.number().int().nonnegative(),
     sessions: z.number().int().nonnegative(),
@@ -921,8 +927,23 @@ export const RepositoryExecutionStatusSchema = z.enum([
   'pull_request_open',
   'preview_ready',
   'releasing',
+  'deployment_verifying',
   'released',
 ]);
+
+export const RepositoryDeploymentVerificationSchema = z.object({
+  status: z.enum(['verifying', 'verified']),
+  expectedCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  expectedAppVersion: z.string().min(1).max(32),
+  observedCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  observedAppVersion: z.string().min(1).max(32).nullable(),
+  attempts: z.number().int().nonnegative(),
+  verifiedAt: z.string().datetime().nullable(),
+  lastError: z.string().min(1).max(500).nullable(),
+});
 
 export const RepositoryExecutionCheckSchema = z.object({
   name: z.string().min(1).max(200),
@@ -993,6 +1014,8 @@ export const RepositoryMutationExecutionSchema = z.object({
     cachedInputTokens: z.number().int().nonnegative().nullable(),
     outputTokens: z.number().int().nonnegative().nullable(),
   }),
+  deploymentVerification:
+    RepositoryDeploymentVerificationSchema.nullable().default(null),
   rollback: RepositoryRollbackSchema.nullable().default(null),
   error: z.string().max(4_000).nullable(),
   createdAt: z.string().datetime(),
@@ -1004,6 +1027,13 @@ export const EvolutionCycleSchema = z.object({
   studyId: StudyIdentifierSchema,
   startedAt: z.string().datetime().nullable(),
   genomeEvolutionCount: z.number().int().nonnegative(),
+  measuredCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable()
+    .default(null),
+  appVersion: z.string().min(1).max(32).nullable().default(null),
+  deploymentVerifiedAt: z.string().datetime().nullable().default(null),
 });
 
 export const CursorPageSchema = z.object({
@@ -1145,6 +1175,7 @@ export const RepositoryExecutionCallbackSchema =
     changedFiles: true,
     checks: true,
     codex: true,
+    deploymentVerification: true,
     error: true,
     completedAt: true,
   })
@@ -1327,6 +1358,9 @@ export type RepositoryMutationExecution = z.infer<
 >;
 export type RepositoryExecutionSummary = z.infer<
   typeof RepositoryExecutionSummarySchema
+>;
+export type RepositoryDeploymentVerification = z.infer<
+  typeof RepositoryDeploymentVerificationSchema
 >;
 export type RepositoryExecutionCallback = z.infer<
   typeof RepositoryExecutionCallbackSchema

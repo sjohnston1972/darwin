@@ -1,4 +1,5 @@
 import {
+  EvolutionCycleSchema,
   RepositoryMutationExecutionSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
@@ -198,6 +199,12 @@ export interface TelemetryRepository {
   ): Promise<void>;
   getOperationalMetrics(): Promise<OperationalMetricsSnapshot>;
   getEvolutionCycle(): Promise<EvolutionCycle>;
+  advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
   saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
   deleteTargetConnection(): Promise<void>;
@@ -253,11 +260,15 @@ const defaultEvolutionCycle = (): EvolutionCycle => ({
   studyId: baselineStudyId,
   startedAt: null,
   genomeEvolutionCount: 0,
+  measuredCommit: null,
+  appVersion: null,
+  deploymentVerifiedAt: null,
 });
 const emptyOperationalMetricCounts = (): OperationalMetricCounts =>
   Object.fromEntries(
     operationalMetricNames.map((name) => [name, 0]),
   ) as OperationalMetricCounts;
+let evolutionCycleStore = defaultEvolutionCycle();
 let latestRetentionSweep: RetentionSweepResult | null = null;
 
 interface ExecutionCursor {
@@ -725,21 +736,21 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   }
 
   async getEvolutionCycle() {
-    const retained = [...repositoryExecutionStore.values()].filter(
-      (execution) => execution.status === 'released',
-    );
-    if (!retained.length) return defaultEvolutionCycle();
-    return {
+    return evolutionCycleStore;
+  }
+
+  async advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    evolutionCycleStore = {
       studyId: baselineStudyId,
-      startedAt: retained.reduce(
-        (latest, execution) =>
-          !latest || execution.updatedAt > latest
-            ? execution.updatedAt
-            : latest,
-        null as string | null,
-      ),
-      genomeEvolutionCount: retained.length,
+      ...boundary,
+      genomeEvolutionCount: evolutionCycleStore.genomeEvolutionCount + 1,
     };
+    return evolutionCycleStore;
   }
 
   async getTargetConnection() {
@@ -1087,6 +1098,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     operationalMetricStore.clear();
     operationalEventStore.clear();
     operationalMetricsUpdatedAt = null;
+    evolutionCycleStore = defaultEvolutionCycle();
     latestRetentionSweep = null;
   }
 }
@@ -1915,6 +1927,20 @@ export class D1TelemetryRepository implements TelemetryRepository {
   }
 
   async getEvolutionCycle() {
+    const row = await this.database
+      .prepare('SELECT state_json FROM demo_state WHERE state_key = ?')
+      .bind('evolution-cycle')
+      .first<{ state_json: string }>();
+    if (row) {
+      try {
+        const parsed = EvolutionCycleSchema.safeParse(
+          JSON.parse(row.state_json),
+        );
+        if (parsed.success) return parsed.data;
+      } catch {
+        // Fall through to the retained-release compatibility path.
+      }
+    }
     const retained = (await this.listRepositoryExecutions()).filter(
       (execution) => execution.status === 'released',
     );
@@ -1929,7 +1955,37 @@ export class D1TelemetryRepository implements TelemetryRepository {
         null as string | null,
       ),
       genomeEvolutionCount: retained.length,
+      measuredCommit: retained[0]?.headSha ?? null,
+      appVersion:
+        retained[0]?.deploymentVerification?.expectedAppVersion ?? null,
+      deploymentVerifiedAt:
+        retained[0]?.deploymentVerification?.verifiedAt ?? null,
     };
+  }
+
+  async advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    const current = await this.getEvolutionCycle();
+    const next: EvolutionCycle = {
+      studyId: baselineStudyId,
+      ...boundary,
+      genomeEvolutionCount: current.genomeEvolutionCount + 1,
+    };
+    await this.database
+      .prepare(
+        `INSERT INTO demo_state (state_key, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(state_key) DO UPDATE SET
+           state_json = excluded.state_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind('evolution-cycle', JSON.stringify(next), next.startedAt)
+      .run();
+    return next;
   }
 
   async getTargetConnection() {

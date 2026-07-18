@@ -12,6 +12,7 @@ import {
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
+  type EvolutionCycle,
   type ObservationArchive,
   type ObservationArchiveSummary,
   type RepositoryMutationExecution,
@@ -87,6 +88,7 @@ export interface LiveTelemetryState {
   analyseEvidence: () => Promise<void>;
   analysing: boolean;
   evidence: EvidencePack | null;
+  evolutionCycle: EvolutionCycle;
   error: string | null;
   events: StoredTelemetryEvent[];
   genomeEvolutionCount: number;
@@ -147,6 +149,14 @@ export function useLiveTelemetry({
   const { analysis, evidence, execution, manifest } = workflow;
   const [preparingManifest, setPreparingManifest] = useState(false);
   const [genomeEvolutionCount, setGenomeEvolutionCount] = useState(0);
+  const [evolutionCycle, setEvolutionCycle] = useState<EvolutionCycle>({
+    studyId,
+    startedAt: null,
+    genomeEvolutionCount: 0,
+    measuredCommit: null,
+    appVersion: null,
+    deploymentVerifiedAt: null,
+  });
   const [genomeExecutions, setGenomeExecutions] = useState<
     RepositoryExecutionSummary[]
   >([]);
@@ -220,6 +230,7 @@ export function useLiveTelemetry({
 
   const refreshGenome = async () => {
     const history = await loadGenome();
+    setEvolutionCycle(history.evolutionCycle);
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
     setGenomeExecutions(history.executions);
     setGenomeNextCursor(history.page.nextCursor);
@@ -1034,6 +1045,14 @@ export function useLiveTelemetry({
     setBehaviorSignalCount(0);
     setWorkflow(emptyWorkflow());
     setGenomeEvolutionCount(0);
+    setEvolutionCycle({
+      studyId,
+      startedAt: null,
+      genomeEvolutionCount: 0,
+      measuredCommit: null,
+      appVersion: null,
+      deploymentVerifiedAt: null,
+    });
     setGenomeExecutions([]);
     setObservationArchives([]);
     setGenomeNextCursor(null);
@@ -1090,6 +1109,7 @@ export function useLiveTelemetry({
     clearError: () => setError(null),
     count,
     evidence,
+    evolutionCycle,
     error,
     events,
     execution,

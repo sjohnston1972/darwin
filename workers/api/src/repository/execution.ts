@@ -21,7 +21,8 @@ const transitions: Record<
   validating: ['pull_request_open', 'failed'],
   pull_request_open: ['preview_ready', 'failed'],
   preview_ready: ['releasing', 'failed'],
-  releasing: ['released', 'failed'],
+  releasing: ['deployment_verifying', 'failed'],
+  deployment_verifying: ['released', 'failed'],
   released: [],
   failed: [],
 };

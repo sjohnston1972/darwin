@@ -67,7 +67,8 @@ Mutation execution states:
 
 ```text
 prepared -> queued -> codex_running -> validating
-         -> pull_request_open -> preview_ready -> releasing -> released
+         -> pull_request_open -> preview_ready -> releasing
+         -> deployment_verifying -> released
          -> failed
 ```
 
@@ -93,6 +94,8 @@ Request and response bodies are validated with the Zod contracts in `packages/sh
 - Failed Codex, validation, preview, release, or rollback states remain visible with real provider output.
 - A pull request is never merged without explicit release authority.
 - Missing measured post-release evidence never becomes an invented fitness improvement.
+- A merged mutation is not recorded as released until ProjectFlow production reports the merged commit and app version.
+- Evidence generation rejects telemetry that crosses application-version boundaries.
 
 ## Related source documents
 

@@ -37,8 +37,8 @@ Darwin demonstrates one complete, inspectable evolution cycle:
 5. Let a human select one or more mutations and create an immutable manifest.
 6. Dispatch a bounded Codex workflow in the target repository.
 7. Review the real patch, checks, pull request, and isolated deployment preview.
-8. Release or reject the mutation, then retain the complete record in Genome.
-9. Prepare and validate a separate rollback when a retained mutation should be reverted.
+8. Release or reject the mutation; after merge, verify the exact production commit before opening the next evidence cycle.
+9. Retain the complete record in Genome and prepare a separate rollback when a retained mutation should be reverted.
 
 The repository does **not** contain a prebuilt evolved ProjectFlow variant. A candidate exists only after a live manifest has been executed against the verified target commit.
 
@@ -58,7 +58,7 @@ Darwin verifies the repository, `darwin.target.json` contract, deployment, telem
 
 ### Observations
 
-The evidence inspector shows persisted events, sessions, anonymous participants, behavioral signals, deterministic evidence IDs, and archived evidence from completed mutation cycles.
+The evidence inspector shows persisted events, sessions, anonymous participants, behavioral signals, deterministic evidence IDs, and the verified production commit, app version, and deployment time that bound each measurement cycle.
 
 [![Live observations](docs/assets/screenshots/observations.png)](https://darwin-control-room.pages.dev/?view=observations)
 
@@ -177,6 +177,8 @@ PROJECTFLOW_BRANCH=main
 PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
 PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
 PROJECTFLOW_ALLOWED_APP_VERSIONS=baseline,1.0.0
+PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS=90000
+PROJECTFLOW_DEPLOYMENT_POLL_MS=5000
 ```
 
 The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. Access tokens are entered into Darwin's unlock view and retained only in browser session storage. The optional viewer token receives aggregate telemetry and connection status only; raw traces, evidence, repository artifacts, and mutation controls require the operator's evidence-inspector or stronger capabilities.
@@ -209,7 +211,7 @@ npx wrangler pages secret put PROJECTFLOW_INGESTION_SECRET --project-name darwin
 
 For an equivalent operator-run deployment, export `DARWIN_RELEASE` and the exact `DARWIN_COMMIT_SHA`, then run `npm run deploy` followed by `npm run smoke:production`. The smoke test fails closed unless the deployed Worker reports both expected values.
 
-ProjectFlow deploys independently from its own `main` branch. Candidate branches receive isolated Cloudflare preview deployments. Darwin never switches production to a candidate before an explicit release action.
+ProjectFlow deploys independently from its own `main` branch. Candidate branches receive isolated Cloudflare preview deployments. Darwin never switches production to a candidate before an explicit release action, and it does not admit post-release telemetry into a new evidence cycle until production reports the merged commit and matching app version.
 
 See [Operations and Deployment](docs/wiki/Operations-and-Deployment.md) for D1 migrations, secrets, rollback, smoke checks, and failure recovery.
 
@@ -221,7 +223,7 @@ See [Operations and Deployment](docs/wiki/Operations-and-Deployment.md) for D1 m
 4. Open **Mutations**, invoke GPT-5.6, and expand the ranked pressure portfolio.
 5. Select one or more supported mutations and start controlled evolution.
 6. Follow the linked GitHub Actions run; review the real patch, checks, PR, and preview.
-7. Release the reviewed mutation and open its expanded Genome record.
+7. Release the reviewed mutation, verify the production deployment, and open its expanded Genome record.
 8. Demonstrate the separate reviewable rollback path when appropriate.
 
 The full script, failure branches, and reset checklist are in the [Demo Runbook](docs/wiki/Demo-Runbook.md).

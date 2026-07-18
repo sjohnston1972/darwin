@@ -40,6 +40,7 @@ const execution: RepositoryMutationExecution = {
   pullRequestNumber: null,
   pullRequestUrl: null,
   previewUrl: null,
+  deploymentVerification: null,
   patch: 'diff --git a/App.tsx b/App.tsx',
   changedFiles: ['apps/projectflow/src/App.tsx'],
   checks: [],

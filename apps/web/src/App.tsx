@@ -2203,6 +2203,40 @@ function LiveTelemetryPanel({
 
       {isObservations && (
         <>
+          <div
+            className="evidence-stats measurement-boundary"
+            aria-label="Verified measurement boundary"
+          >
+            <div data-explain="The exact ProjectFlow production commit admitted into the current evidence cycle only after deployment verification succeeds.">
+              <GitBranch size={16} />
+              <span>Measured commit</span>
+              <strong>
+                {telemetry.evolutionCycle.measuredCommit?.slice(0, 12) ??
+                  'baseline'}
+              </strong>
+            </div>
+            <div data-explain="The single application version required for every event in the current evidence pack.">
+              <Dna size={16} />
+              <span>App version</span>
+              <strong>
+                {telemetry.evolutionCycle.appVersion ?? 'baseline'}
+              </strong>
+            </div>
+            <div data-explain="The production deployment timestamp that anchors the current evidence cycle. Events received before this boundary are excluded.">
+              <ShieldCheck size={16} />
+              <span>Deployment</span>
+              <strong>
+                {telemetry.evolutionCycle.deploymentVerifiedAt
+                  ? `verified ${new Date(
+                      telemetry.evolutionCycle.deploymentVerifiedAt,
+                    ).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`
+                  : 'baseline study'}
+              </strong>
+            </div>
+          </div>
           <div className="evidence-stats" aria-label="Real study counts">
             <div data-explain="Every persisted semantic event in this study, counted across the full database rather than only the recent trace window.">
               <Database size={16} />
@@ -2296,6 +2330,17 @@ function LiveTelemetryPanel({
               <div>
                 <dt>Parser</dt>
                 <dd>{telemetry.evidence.parserVersion}</dd>
+              </div>
+              <div>
+                <dt>App version</dt>
+                <dd>{telemetry.evidence.study.appVersion}</dd>
+              </div>
+              <div>
+                <dt>Measured commit</dt>
+                <dd>
+                  {telemetry.evidence.study.measuredCommit?.slice(0, 12) ??
+                    'baseline'}
+                </dd>
               </div>
               <div>
                 <dt>Quality</dt>
@@ -3283,6 +3328,7 @@ const executionStatusLabel: Record<
   pull_request_open: 'Pull request open',
   preview_ready: 'Preview ready for review',
   releasing: 'Merging reviewed pull request',
+  deployment_verifying: 'Verifying production deployment',
   released: 'Mutation released',
 };
 
@@ -3719,17 +3765,22 @@ function RepositoryExecutionWorkspace({
     'pull_request_open',
     'preview_ready',
     'releasing',
+    'deployment_verifying',
     'released',
   ].includes(status);
   const validationComplete = [
     'pull_request_open',
     'preview_ready',
     'releasing',
+    'deployment_verifying',
     'released',
   ].includes(status);
-  const reviewComplete = ['preview_ready', 'releasing', 'released'].includes(
-    status,
-  );
+  const reviewComplete = [
+    'preview_ready',
+    'releasing',
+    'deployment_verifying',
+    'released',
+  ].includes(status);
   const regionId = executionWorkspaceId(execution.executionId);
   const headingId = `${regionId}-title`;
 
@@ -3760,6 +3811,7 @@ function RepositoryExecutionWorkspace({
             'codex_running',
             'validating',
             'releasing',
+            'deployment_verifying',
           ].includes(status) && (
             <CircleDashed className="is-spinning" size={14} />
           )}
@@ -3769,6 +3821,7 @@ function RepositoryExecutionWorkspace({
             'codex_running',
             'validating',
             'releasing',
+            'deployment_verifying',
           ].includes(status) && <GitBranch size={14} />}
           {executionStatusLabel[status]}
         </span>
@@ -3818,7 +3871,7 @@ function RepositoryExecutionWorkspace({
           state={
             status === 'released'
               ? 'complete'
-              : status === 'releasing'
+              : status === 'releasing' || status === 'deployment_verifying'
                 ? 'active'
                 : 'pending'
           }
@@ -3844,6 +3897,15 @@ function RepositoryExecutionWorkspace({
           <span>Branch</span>
           <code>{execution.branch}</code>
         </div>
+        {execution.deploymentVerification && (
+          <div>
+            <span>Production deployment</span>
+            <code>
+              {execution.deploymentVerification.status} ·{' '}
+              {execution.deploymentVerification.expectedAppVersion}
+            </code>
+          </div>
+        )}
       </div>
 
       <div className="repository-links" aria-label="Repository artifacts">
@@ -3872,6 +3934,20 @@ function RepositoryExecutionWorkspace({
           <div>
             <strong>Repository execution stopped</strong>
             <span>{execution.error}</span>
+          </div>
+        </div>
+      )}
+
+      {execution.deploymentVerification?.lastError && (
+        <div className="execution-error" role="status">
+          <CircleDashed className="is-spinning" size={17} />
+          <div>
+            <strong>Production deployment still converging</strong>
+            <span>
+              {execution.deploymentVerification.lastError} · observed{' '}
+              {execution.deploymentVerification.observedAppVersion ??
+                'no identity'}
+            </span>
           </div>
         </div>
       )}
@@ -4018,10 +4094,27 @@ function RepositoryExecutionWorkspace({
                 <Rocket size={16} /> Release reviewed mutation
               </button>
             )}
-            {(status === 'releasing' || releasing) && (
+            {(status === 'releasing' ||
+              (status !== 'deployment_verifying' && releasing)) && (
               <button className="approve-action" type="button" disabled>
                 <CircleDashed className="is-spinning" size={16} /> Merging pull
                 request
+              </button>
+            )}
+            {status === 'deployment_verifying' && releasing && (
+              <button className="approve-action" type="button" disabled>
+                <CircleDashed className="is-spinning" size={16} /> Verifying
+                production deployment
+              </button>
+            )}
+            {status === 'deployment_verifying' && !releasing && (
+              <button
+                className="approve-action"
+                type="button"
+                onClick={onRelease}
+                data-explain="Recheck the ProjectFlow production metadata. The evidence cycle advances only when the deployed commit and app version match the reviewed merge."
+              >
+                <ShieldCheck size={16} /> Check production deployment
               </button>
             )}
             {status === 'released' && (
