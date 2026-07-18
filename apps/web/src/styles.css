@@ -422,6 +422,55 @@ a:focus-visible {
   cursor: not-allowed;
 }
 
+.primary-action.is-disabled {
+  border-color: #46503e;
+  background: #242a21;
+  color: #89927f;
+  cursor: not-allowed;
+}
+
+.reset-status-band {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+  padding: 16px 18px;
+  border: 1px solid rgb(185 243 107 / 24%);
+  background: rgb(185 243 107 / 7%);
+  color: #b9f36b;
+}
+
+.reset-status-band.is-failed {
+  border-color: rgb(239 140 120 / 30%);
+  background: #241b19;
+  color: #ef9a89;
+}
+
+.reset-status-band > div {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+}
+
+.reset-status-band strong {
+  color: var(--white);
+  font-size: 13px;
+}
+
+.reset-status-band span {
+  color: var(--mist);
+  font-size: 12px;
+}
+
+.reset-status-band > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .demo-status {
   display: inline-flex;
   align-items: center;

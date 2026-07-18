@@ -96,6 +96,7 @@ Request and response bodies are validated with the Zod contracts in `packages/sh
 - Missing measured post-release evidence never becomes an invented fitness improvement.
 - A merged mutation is not recorded as released until ProjectFlow production reports the merged commit and app version.
 - Evidence generation rejects telemetry that crosses application-version boundaries.
+- Reset preserves existing state until an authenticated ProjectFlow workflow callback reaches deployment and production reports the restored baseline commit.
 
 ## Related source documents
 

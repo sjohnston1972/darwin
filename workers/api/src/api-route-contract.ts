@@ -143,6 +143,14 @@ export const apiRouteContract = [
     purpose: 'Remove the active target connection.',
   },
   {
+    method: 'GET',
+    path: '/api/demo/reset',
+    group: 'Target connection',
+    access: 'operator',
+    capability: 'observe',
+    purpose: 'Return the latest verified reset lifecycle or 204.',
+  },
+  {
     method: 'POST',
     path: '/api/demo/reset',
     group: 'Target connection',
@@ -301,6 +309,14 @@ export const apiRouteContract = [
     access: 'callback',
     capability: null,
     purpose: 'Let the signed workflow retrieve its execution manifest.',
+  },
+  {
+    method: 'POST',
+    path: '/api/demo/reset/:resetId/callback',
+    group: 'Repository callbacks',
+    access: 'callback',
+    capability: null,
+    purpose: 'Apply a signed baseline-reset workflow transition.',
   },
   {
     method: 'POST',

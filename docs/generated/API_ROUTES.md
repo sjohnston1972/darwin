@@ -35,6 +35,7 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/target-connection` | operator: observe | Return the verified ProjectFlow connection or 204. |
 | POST | `/api/target-connection` | operator: connect | Verify and persist the configured target boundary. |
 | POST | `/api/target-connection/disconnect` | operator: connect | Remove the active target connection. |
+| GET | `/api/demo/reset` | operator: observe | Return the latest verified reset lifecycle or 204. |
 | POST | `/api/demo/reset` | operator: reset | Clear Darwin demo state and dispatch target restoration. |
 
 ## Telemetry and workspaces
@@ -75,6 +76,7 @@ Access labels distinguish public health, operator-session verification, capabili
 | Method | Route | Access | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/repository-executions/:executionId/manifest` | signed callback | Let the signed workflow retrieve its execution manifest. |
+| POST | `/api/demo/reset/:resetId/callback` | signed callback | Apply a signed baseline-reset workflow transition. |
 | POST | `/api/repository-executions/:executionId/callback` | signed callback | Apply a signed mutation execution transition. |
 | POST | `/api/repository-executions/:executionId/rollback/callback` | signed callback | Apply a signed rollback execution transition. |
 
@@ -86,4 +88,4 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/simulations/:runId` | operator: inspect_evidence | Return synthetic replay metadata. |
 | GET | `/api/simulations/:runId/summary` | operator: inspect_evidence | Return deterministic synthetic aggregates. |
 
-**Contract total:** 40 method/path entries.
+**Contract total:** 42 method/path entries.

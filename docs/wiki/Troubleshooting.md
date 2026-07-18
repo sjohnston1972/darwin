@@ -89,7 +89,7 @@ Concurrent release hardening is tracked in issue #5.
 
 ## Reset appears complete but ProjectFlow is unchanged
 
-The current endpoint confirms dispatch, not finished deployment. Open the ProjectFlow reset workflow and wait for production Pages deployment. Verified reset state is tracked in issue #10.
+Darwin marks reset complete only when ProjectFlow production reports the restored commit and matching app version. If reset remains queued, open the linked workflow and confirm its signed callbacks can reach Darwin. If it remains deploying, inspect Pages deployment health and the observed identity in the reset state. A failed reset preserves existing evidence and exposes **Retry reset**.
 
 ## UI looks stale in another tab
 

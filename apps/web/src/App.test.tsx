@@ -578,15 +578,46 @@ const observationArchiveSummary = () => ({
   },
 });
 
+const resetExecution = (status: 'queued' | 'failed' | 'complete') => ({
+  resetId: `reset-${status}`,
+  status,
+  repository: {
+    fullName: repository.fullName,
+    branch: repository.branch,
+    studyUrl: repository.studyUrl,
+  },
+  baselineTag: 'demo-baseline-v2',
+  policyHash: 'a'.repeat(64),
+  repositoryResetDispatched: status !== 'complete',
+  workflowRunId: status === 'complete' ? null : 901,
+  workflowUrl:
+    status === 'complete'
+      ? null
+      : 'https://github.com/sjohnston1972/projectflow/actions/runs/901',
+  baselineCommit: status === 'complete' ? '1'.repeat(40) : null,
+  deploymentVerification: null,
+  error: status === 'failed' ? 'Baseline validation failed.' : null,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  completedAt: status === 'queued' ? null : timestamp,
+});
+
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
-  initialGenomeExecutions: Record<string, unknown>[] = [],
+  initialGenomeExecutionsOrReset: Record<string, unknown>[] | unknown = [],
   remoteWorkflow?: RemoteWorkflow,
   latestEvidence: unknown = evidence,
 ) => {
+  const initialGenomeExecutions = Array.isArray(initialGenomeExecutionsOrReset)
+    ? initialGenomeExecutionsOrReset
+    : [];
+  const initialReset = Array.isArray(initialGenomeExecutionsOrReset)
+    ? null
+    : initialGenomeExecutionsOrReset;
   let liveExecution: Record<string, unknown> | null = null;
   let liveConnection: unknown = initialConnection;
+  let liveReset: unknown = initialReset;
   const fetchMock = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -896,10 +927,11 @@ const installApi = (
         return liveConnection ? response(liveConnection) : response(null, 204);
       }
       if (url.endsWith('/api/demo/reset')) {
-        return response({
-          status: 'reset',
-          repositoryResetDispatched: true,
-        });
+        if (init?.method === 'POST') {
+          liveReset = resetExecution('complete');
+          return response(liveReset);
+        }
+        return liveReset ? response(liveReset) : response(null, 204);
       }
       return response({ error: 'unexpected_test_route', url }, 404);
     },
@@ -1489,6 +1521,42 @@ describe('Darwin control room', () => {
           String(input).includes('/events/raw?limit=200'),
         ).length,
       ).toBeGreaterThanOrEqual(2),
+    );
+  });
+
+  it('locks measured study access while a baseline reset is incomplete', async () => {
+    installApi(null, null, resetExecution('queued'));
+    render(<App />);
+
+    expect(
+      await screen.findByText('Reset queued in GitHub Actions'),
+    ).toBeVisible();
+    const studyLink = screen.getByText('Measured study locked').closest('a');
+    expect(studyLink).toHaveAttribute('aria-disabled', 'true');
+    expect(studyLink).not.toHaveAttribute('href');
+    expect(
+      screen.getByRole('button', { name: 'Reset evolution demo' }),
+    ).toBeDisabled();
+  });
+
+  it('keeps a visible reset failure and allows a clean retry', async () => {
+    const fetchMock = installApi(null, null, resetExecution('failed'));
+    render(<App />);
+
+    expect(
+      await screen.findByText('Baseline validation failed.'),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry reset' }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/demo/reset'),
+        { method: 'POST' },
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Baseline validation failed.'),
+      ).not.toBeInTheDocument(),
     );
   });
 

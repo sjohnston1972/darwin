@@ -19,6 +19,16 @@ ProjectFlow telemetry and participant-workspace routes require a signed target r
 
 The two collection routes accept an opaque `cursor` and a `limit` from 1 to 25 (default 10). Collection responses expose the next opaque cursor under `page.nextCursor`; full artifact data is returned only by the identifier routes.
 
+## Demo reset
+
+| Method | Route                               | Purpose                                   |
+| ------ | ----------------------------------- | ----------------------------------------- |
+| GET    | `/api/demo/reset`                   | latest reset lifecycle or 204             |
+| POST   | `/api/demo/reset`                   | dispatch or retry baseline restoration    |
+| POST   | `/api/demo/reset/:resetId/callback` | authenticated workflow lifecycle callback |
+
+Reset status progresses through `queued`, `running`, `validating`, `deploying`, then `complete` or `failed`. A dispatch never clears Darwin state. Completion requires production HTML metadata matching the restored commit and app version. The callback route uses the same execution-scoped HMAC and replay protection as repository mutation callbacks.
+
 ## Target connection input
 
 ```json
