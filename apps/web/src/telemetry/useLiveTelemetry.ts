@@ -49,7 +49,9 @@ export interface LiveTelemetryState {
   resetState: () => void;
   resetEvolution: () => Promise<boolean>;
   sessionCounts: Record<string, number>;
-  startControlledEvolution: (mutationIds: string[]) => Promise<void>;
+  startControlledEvolution: (
+    mutationIds: string[],
+  ) => Promise<RepositoryMutationExecution | null>;
   status: 'loading' | 'live' | 'offline';
   releaseExecution: (executionId?: string) => Promise<void>;
   releaseRollback: (executionId?: string) => Promise<void>;
@@ -365,7 +367,7 @@ export function useLiveTelemetry(
   };
 
   const startControlledEvolution = async (mutationIds: string[]) => {
-    if (!analysis) return;
+    if (!analysis) return null;
     setPreparingManifest(true);
     setError(null);
     try {
@@ -409,12 +411,14 @@ export function useLiveTelemetry(
       if (!parsedExecution.success) {
         throw new Error('Repository execution returned an invalid payload.');
       }
+      return parsedExecution.data;
     } catch (error) {
       setError(
         error instanceof Error
           ? error.message
           : 'Controlled evolution failed. Retry the handoff.',
       );
+      return null;
     } finally {
       setPreparingManifest(false);
       setImplementing(false);
