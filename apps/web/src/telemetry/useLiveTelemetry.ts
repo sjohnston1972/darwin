@@ -21,6 +21,23 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const studyId = 'projectflow-baseline-study';
 const eventWindowLimit = 200;
 
+interface HydratedWorkflow {
+  evidence: EvidencePack | null;
+  analysis: EvidenceAnalysis | null;
+  manifest: CodexImplementationManifest | null;
+  execution: RepositoryMutationExecution | null;
+}
+
+const emptyWorkflow = (): HydratedWorkflow => ({
+  evidence: null,
+  analysis: null,
+  manifest: null,
+  execution: null,
+});
+
+const failureDetail = (error: unknown) =>
+  error instanceof Error ? error.message : 'request failed';
+
 export interface LiveTelemetryState {
   behaviorSignalCount: number;
   canInspectEvidence: boolean;
@@ -72,16 +89,11 @@ export function useLiveTelemetry(
   const [sessionCount, setSessionCount] = useState(0);
   const [participantCount, setParticipantCount] = useState(0);
   const [behaviorSignalCount, setBehaviorSignalCount] = useState(0);
-  const [analysis, setAnalysis] = useState<EvidenceAnalysis | null>(null);
   const [analysing, setAnalysing] = useState(false);
-  const [evidence, setEvidence] = useState<EvidencePack | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [manifest, setManifest] = useState<CodexImplementationManifest | null>(
-    null,
-  );
+  const [workflow, setWorkflow] = useState<HydratedWorkflow>(emptyWorkflow);
+  const { analysis, evidence, execution, manifest } = workflow;
   const [preparingManifest, setPreparingManifest] = useState(false);
-  const [execution, setExecution] =
-    useState<RepositoryMutationExecution | null>(null);
   const [genomeEvolutionCount, setGenomeEvolutionCount] = useState(0);
   const [genomeExecutions, setGenomeExecutions] = useState<
     RepositoryMutationExecution[]
@@ -96,22 +108,157 @@ export function useLiveTelemetry(
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
+  const hydrationGeneration = useRef(0);
+
+  const loadGenome = async () => {
+    const response = await apiFetch(`${apiBaseUrl}/api/genome`);
+    if (!response.ok) throw new Error(`request returned ${response.status}`);
+    return GenomeHistoryResponseSchema.parse(await response.json());
+  };
 
   const refreshGenome = async () => {
-    const response = await apiFetch(`${apiBaseUrl}/api/genome`);
-    if (!response.ok) return;
-    const history = GenomeHistoryResponseSchema.parse(await response.json());
+    const history = await loadGenome();
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
     setGenomeExecutions(history.executions);
   };
 
-  const refreshObservationArchives = async () => {
+  const loadObservationArchives = async () => {
     const response = await apiFetch(`${apiBaseUrl}/api/observations/archives`);
-    if (!response.ok) return;
-    const result = ObservationArchivesResponseSchema.parse(
-      await response.json(),
-    );
+    if (!response.ok) throw new Error(`request returned ${response.status}`);
+    return ObservationArchivesResponseSchema.parse(await response.json());
+  };
+
+  const refreshObservationArchives = async () => {
+    const result = await loadObservationArchives();
     setObservationArchives(result.archives);
+  };
+
+  const loadEventWindow = async () => {
+    const summaryResponse = await apiFetch(
+      `${apiBaseUrl}/api/studies/${studyId}/events`,
+    );
+    if (!summaryResponse.ok) {
+      throw new Error(`request returned ${summaryResponse.status}`);
+    }
+    const summary = StudyTelemetrySummarySchema.parse(
+      await summaryResponse.json(),
+    );
+    if (!canInspectEvidence) {
+      return {
+        ...summary,
+        events: [] as StoredTelemetryEvent[],
+        sessionCounts: {} as Record<string, number>,
+      };
+    }
+    const traceResponse = await apiFetch(
+      `${apiBaseUrl}/api/studies/${studyId}/events/raw?limit=${eventWindowLimit}`,
+    );
+    if (!traceResponse.ok) {
+      throw new Error(`request returned ${traceResponse.status}`);
+    }
+    const trace = StudyEventsResponseSchema.parse(await traceResponse.json());
+    return {
+      ...summary,
+      events: trace.events,
+      sessionCounts: trace.sessionCounts,
+    };
+  };
+
+  const loadWorkflow = async (): Promise<{
+    workflow: HydratedWorkflow;
+    failures: string[];
+  }> => {
+    const workflow = emptyWorkflow();
+    const failures: string[] = [];
+    let evidenceResponse: Response;
+    try {
+      evidenceResponse = await apiFetch(
+        `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
+      );
+      if (evidenceResponse.status === 204) return { workflow, failures };
+      if (!evidenceResponse.ok) {
+        throw new Error(`request returned ${evidenceResponse.status}`);
+      }
+      workflow.evidence = EvidencePackSchema.parse(
+        await evidenceResponse.json(),
+      );
+    } catch (error) {
+      failures.push(`Evidence: ${failureDetail(error)}`);
+      return { workflow, failures };
+    }
+
+    let analysisResponse: Response;
+    try {
+      analysisResponse = await apiFetch(
+        `${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest?optional=true`,
+      );
+      if (analysisResponse.status === 204) return { workflow, failures };
+      if (!analysisResponse.ok) {
+        throw new Error(`request returned ${analysisResponse.status}`);
+      }
+      const latestAnalysis = EvidenceAnalysisSchema.parse(
+        await analysisResponse.json(),
+      );
+      if (
+        latestAnalysis.evidenceId !== workflow.evidence.evidenceId ||
+        latestAnalysis.evidenceHash !== workflow.evidence.evidenceHash
+      ) {
+        failures.push('Analysis: latest result does not match latest evidence');
+        return { workflow, failures };
+      }
+      workflow.analysis = latestAnalysis;
+    } catch (error) {
+      failures.push(`Analysis: ${failureDetail(error)}`);
+      return { workflow, failures };
+    }
+
+    try {
+      const manifestResponse = await apiFetch(
+        `${apiBaseUrl}/api/evidence-analyses/${workflow.analysis.analysisId}/codex-manifest`,
+      );
+      if (manifestResponse.status === 404) return { workflow, failures };
+      if (!manifestResponse.ok) {
+        throw new Error(`request returned ${manifestResponse.status}`);
+      }
+      const latestManifest = CodexImplementationManifestSchema.parse(
+        await manifestResponse.json(),
+      );
+      if (
+        latestManifest.analysisId !== workflow.analysis.analysisId ||
+        latestManifest.evidenceHash !== workflow.evidence.evidenceHash
+      ) {
+        failures.push('Manifest: result does not match the active analysis');
+        return { workflow, failures };
+      }
+      workflow.manifest = latestManifest;
+    } catch (error) {
+      failures.push(`Manifest: ${failureDetail(error)}`);
+      return { workflow, failures };
+    }
+
+    try {
+      const executionResponse = await apiFetch(
+        `${apiBaseUrl}/api/evidence-analyses/${workflow.analysis.analysisId}/codex-manifest/execution`,
+      );
+      if (executionResponse.status === 204) return { workflow, failures };
+      if (!executionResponse.ok) {
+        throw new Error(`request returned ${executionResponse.status}`);
+      }
+      const latestExecution = RepositoryMutationExecutionSchema.parse(
+        await executionResponse.json(),
+      );
+      if (
+        latestExecution.analysisId !== workflow.analysis.analysisId ||
+        latestExecution.manifestId !== workflow.manifest.manifestId
+      ) {
+        failures.push('Execution: result does not match the active manifest');
+        return { workflow, failures };
+      }
+      workflow.execution = latestExecution;
+    } catch (error) {
+      failures.push(`Execution: ${failureDetail(error)}`);
+    }
+    return { workflow, failures };
   };
 
   const resetCurrentCycleMeasurements = () => {
@@ -121,161 +268,110 @@ export function useLiveTelemetry(
     setSessionCount(0);
     setParticipantCount(0);
     setBehaviorSignalCount(0);
-    setEvidence(null);
-    setAnalysis(null);
-    setManifest(null);
+    setWorkflow(emptyWorkflow());
   };
 
-  const refresh = async () => {
-    setRefreshing(true);
+  const hydrate = async (manual = false) => {
+    const hydration = ++hydrationGeneration.current;
+    const reset = resetGeneration.current;
+    if (manual) setRefreshing(true);
     setError(null);
-    try {
-      const summaryResponse = await apiFetch(
-        `${apiBaseUrl}/api/studies/${studyId}/events`,
-      );
-      if (!summaryResponse.ok)
-        throw new Error('Live telemetry request failed.');
-      const summary = StudyTelemetrySummarySchema.parse(
-        await summaryResponse.json(),
-      );
-      setCount(summary.count);
-      setSessionCount(summary.sessionCount);
-      setParticipantCount(summary.participantCount);
-      setBehaviorSignalCount(summary.behaviorSignalCount);
-      if (canInspectEvidence) {
-        const traceResponse = await apiFetch(
-          `${apiBaseUrl}/api/studies/${studyId}/events/raw?limit=${eventWindowLimit}`,
-        );
-        if (!traceResponse.ok)
-          throw new Error('Evidence inspector request failed.');
-        const trace = StudyEventsResponseSchema.parse(
-          await traceResponse.json(),
-        );
-        setEvents(trace.events);
-        setSessionCounts(trace.sessionCounts);
-      } else {
-        setEvents([]);
-        setSessionCounts({});
-      }
-      setStatus('live');
-      if (canInspectEvidence) {
-        await Promise.all([refreshGenome(), refreshObservationArchives()]);
-      }
-    } catch (error) {
-      setStatus('offline');
-      setError(
-        error instanceof Error
-          ? error.message
-          : 'Live telemetry refresh failed. Check the API and retry.',
-      );
-    } finally {
-      setRefreshing(false);
+    const workflowRequest = canInspectEvidence
+      ? loadWorkflow()
+      : Promise.resolve({ workflow: emptyWorkflow(), failures: [] });
+    const genomeRequest = canInspectEvidence
+      ? loadGenome()
+      : Promise.resolve(null);
+    const archiveRequest = canInspectEvidence
+      ? loadObservationArchives()
+      : Promise.resolve(null);
+    const [eventResult, workflowResult, genomeResult, archiveResult] =
+      await Promise.allSettled([
+        loadEventWindow(),
+        workflowRequest,
+        genomeRequest,
+        archiveRequest,
+      ] as const);
+    if (
+      hydration !== hydrationGeneration.current ||
+      reset !== resetGeneration.current
+    ) {
+      return;
     }
+
+    const failures: string[] = [];
+    if (eventResult.status === 'fulfilled') {
+      setEvents(eventResult.value.events);
+      setCount(eventResult.value.count);
+      setSessionCounts(eventResult.value.sessionCounts);
+      setSessionCount(eventResult.value.sessionCount);
+      setParticipantCount(eventResult.value.participantCount);
+      setBehaviorSignalCount(eventResult.value.behaviorSignalCount);
+      setStatus('live');
+    } else {
+      failures.push(`Events: ${failureDetail(eventResult.reason)}`);
+      setStatus('offline');
+    }
+
+    if (workflowResult.status === 'fulfilled') {
+      const next = workflowResult.value.workflow;
+      setWorkflow(next);
+      failures.push(...workflowResult.value.failures);
+    } else {
+      setWorkflow(emptyWorkflow());
+      failures.push(`Evidence: ${failureDetail(workflowResult.reason)}`);
+    }
+
+    if (genomeResult.status === 'fulfilled' && genomeResult.value) {
+      setGenomeEvolutionCount(
+        genomeResult.value.evolutionCycle.genomeEvolutionCount,
+      );
+      setGenomeExecutions(genomeResult.value.executions);
+    } else if (genomeResult.status === 'rejected') {
+      failures.push(`Genome: ${failureDetail(genomeResult.reason)}`);
+    }
+
+    if (archiveResult.status === 'fulfilled' && archiveResult.value) {
+      setObservationArchives(archiveResult.value.archives);
+    } else if (archiveResult.status === 'rejected') {
+      failures.push(`Archives: ${failureDetail(archiveResult.reason)}`);
+    }
+
+    setError(
+      failures.length
+        ? `Live refresh incomplete · ${failures.join(' · ')}`
+        : null,
+    );
+    if (manual) setRefreshing(false);
   };
+
+  const refresh = () => hydrate(true);
 
   useEffect(() => {
-    let active = true;
-    if (canInspectEvidence) {
-      void refreshGenome().catch(() => undefined);
-      void refreshObservationArchives().catch(() => undefined);
-    }
-    const load = async () => {
+    void hydrate();
+    const pollEvents = async () => {
       const generation = resetGeneration.current;
       try {
-        const summaryResponse = await apiFetch(
-          `${apiBaseUrl}/api/studies/${studyId}/events`,
-        );
-        if (!summaryResponse.ok)
-          throw new Error('Live telemetry request failed.');
-        const summary = StudyTelemetrySummarySchema.parse(
-          await summaryResponse.json(),
-        );
-        let trace: ReturnType<typeof StudyEventsResponseSchema.parse> | null =
-          null;
-        if (canInspectEvidence) {
-          const traceResponse = await apiFetch(
-            `${apiBaseUrl}/api/studies/${studyId}/events/raw?limit=${eventWindowLimit}`,
-          );
-          if (!traceResponse.ok)
-            throw new Error('Evidence inspector request failed.');
-          trace = StudyEventsResponseSchema.parse(await traceResponse.json());
-        }
-        if (active && generation === resetGeneration.current) {
-          setEvents(trace?.events ?? []);
-          setCount(summary.count);
-          setSessionCounts(trace?.sessionCounts ?? {});
-          setSessionCount(summary.sessionCount);
-          setParticipantCount(summary.participantCount);
-          setBehaviorSignalCount(summary.behaviorSignalCount);
+        const result = await loadEventWindow();
+        if (generation === resetGeneration.current) {
+          setEvents(result.events);
+          setCount(result.count);
+          setSessionCounts(result.sessionCounts);
+          setSessionCount(result.sessionCount);
+          setParticipantCount(result.participantCount);
+          setBehaviorSignalCount(result.behaviorSignalCount);
           setStatus('live');
         }
-      } catch {
-        if (active && generation === resetGeneration.current)
+      } catch (error) {
+        if (generation === resetGeneration.current) {
           setStatus('offline');
+          setError(`Events: ${failureDetail(error)}`);
+        }
       }
     };
-    void load();
-    const initialGeneration = resetGeneration.current;
-    const loadDerivedState = async () => {
-      setEvidence(null);
-      setAnalysis(null);
-      setManifest(null);
-      setExecution(null);
-      const evidenceResponse = await apiFetch(
-        `${apiBaseUrl}/api/studies/${studyId}/evidence/latest?optional=true`,
-      );
-      if (evidenceResponse.status === 204 || !evidenceResponse.ok) return;
-      const latestEvidence = EvidencePackSchema.parse(
-        await evidenceResponse.json(),
-      );
-      if (!active || initialGeneration !== resetGeneration.current) return;
-      setEvidence(latestEvidence);
-
-      const analysisResponse = await apiFetch(
-        `${apiBaseUrl}/api/studies/${studyId}/evidence-analysis/latest?optional=true`,
-      );
-      if (analysisResponse.status === 204 || !analysisResponse.ok) return;
-      const latestAnalysis = EvidenceAnalysisSchema.parse(
-        await analysisResponse.json(),
-      );
-      if (
-        latestAnalysis.evidenceId !== latestEvidence.evidenceId ||
-        latestAnalysis.evidenceHash !== latestEvidence.evidenceHash ||
-        !active ||
-        initialGeneration !== resetGeneration.current
-      ) {
-        return;
-      }
-      setAnalysis(latestAnalysis);
-
-      const manifestResponse = await apiFetch(
-        `${apiBaseUrl}/api/evidence-analyses/${latestAnalysis.analysisId}/codex-manifest`,
-      );
-      if (!manifestResponse.ok) return;
-      const latestManifest = CodexImplementationManifestSchema.parse(
-        await manifestResponse.json(),
-      );
-      if (!active || initialGeneration !== resetGeneration.current) return;
-      setManifest(latestManifest);
-
-      const executionResponse = await apiFetch(
-        `${apiBaseUrl}/api/evidence-analyses/${latestAnalysis.analysisId}/codex-manifest/execution`,
-      );
-      if (executionResponse.status === 204 || !executionResponse.ok) return;
-      if (active && initialGeneration === resetGeneration.current) {
-        setExecution(
-          RepositoryMutationExecutionSchema.parse(
-            await executionResponse.json(),
-          ),
-        );
-      }
-    };
-    if (canInspectEvidence) {
-      void loadDerivedState().catch(() => undefined);
-    }
-    const interval = window.setInterval(() => void load(), 2_000);
+    const interval = window.setInterval(() => void pollEvents(), 2_000);
     return () => {
-      active = false;
+      hydrationGeneration.current += 1;
       window.clearInterval(interval);
     };
   }, [canInspectEvidence]);
@@ -300,7 +396,9 @@ export function useLiveTelemetry(
         const latest = RepositoryMutationExecutionSchema.parse(
           await response.json(),
         );
-        if (active) setExecution(latest);
+        if (active) {
+          setWorkflow((current) => ({ ...current, execution: latest }));
+        }
       } catch {
         // The telemetry poll will surface broad API availability separately.
       }
@@ -325,10 +423,12 @@ export function useLiveTelemetry(
       if (!response.ok) {
         throw new Error(payload.message ?? 'Evidence generation failed.');
       }
-      setEvidence(EvidencePackSchema.parse(payload));
-      setAnalysis(null);
-      setManifest(null);
-      setExecution(null);
+      setWorkflow({
+        evidence: EvidencePackSchema.parse(payload),
+        analysis: null,
+        manifest: null,
+        execution: null,
+      });
     } catch (error) {
       setError(
         error instanceof Error
@@ -352,9 +452,12 @@ export function useLiveTelemetry(
       if (!response.ok) {
         throw new Error(payload.message ?? 'Live evidence analysis failed.');
       }
-      setAnalysis(EvidenceAnalysisSchema.parse(payload));
-      setManifest(null);
-      setExecution(null);
+      setWorkflow((current) => ({
+        ...current,
+        analysis: EvidenceAnalysisSchema.parse(payload),
+        manifest: null,
+        execution: null,
+      }));
     } catch (error) {
       setError(
         error instanceof Error
@@ -387,7 +490,10 @@ export function useLiveTelemetry(
           manifestPayload.message ?? 'Codex manifest generation failed.',
         );
       }
-      setManifest(CodexImplementationManifestSchema.parse(manifestPayload));
+      setWorkflow((current) => ({
+        ...current,
+        manifest: CodexImplementationManifestSchema.parse(manifestPayload),
+      }));
       setPreparingManifest(false);
       setImplementing(true);
 
@@ -400,7 +506,12 @@ export function useLiveTelemetry(
       };
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(executionPayload);
-      if (parsedExecution.success) setExecution(parsedExecution.data);
+      if (parsedExecution.success) {
+        setWorkflow((current) => ({
+          ...current,
+          execution: parsedExecution.data,
+        }));
+      }
       if (!executionResponse.ok) {
         throw new Error(
           parsedExecution.success
@@ -442,12 +553,14 @@ export function useLiveTelemetry(
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
       if (parsedExecution.success) {
-        setExecution(parsedExecution.data);
+        setWorkflow((current) => ({
+          ...current,
+          execution: parsedExecution.data,
+        }));
         if (parsedExecution.data.status === 'released') {
           resetCurrentCycleMeasurements();
           await refreshGenome();
           await refreshObservationArchives();
-          setExecution(null);
         }
       }
       if (!response.ok) {
@@ -483,7 +596,10 @@ export function useLiveTelemetry(
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
       if (parsedExecution.success) {
-        setExecution(parsedExecution.data);
+        setWorkflow((current) => ({
+          ...current,
+          execution: parsedExecution.data,
+        }));
         await refreshGenome();
       }
       if (!response.ok) {
@@ -520,7 +636,10 @@ export function useLiveTelemetry(
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
       if (parsedExecution.success) {
-        setExecution(parsedExecution.data);
+        setWorkflow((current) => ({
+          ...current,
+          execution: parsedExecution.data,
+        }));
         await refreshGenome();
       }
       if (!response.ok) {
@@ -548,10 +667,7 @@ export function useLiveTelemetry(
     setSessionCount(0);
     setParticipantCount(0);
     setBehaviorSignalCount(0);
-    setEvidence(null);
-    setAnalysis(null);
-    setManifest(null);
-    setExecution(null);
+    setWorkflow(emptyWorkflow());
     setGenomeEvolutionCount(0);
     setGenomeExecutions([]);
     setObservationArchives([]);

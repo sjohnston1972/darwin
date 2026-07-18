@@ -1743,7 +1743,7 @@ function LiveTelemetryPanel({
           <button
             aria-label="Refresh live telemetry"
             className={`source-status source-${telemetry.status}`}
-            data-explain="Refresh the latest live event window, study counts, genome state, and observation archive from Darwin's API."
+            data-explain="Refresh events, evidence, GPT analysis, Codex manifest, current execution, Genome, and observation archives from Darwin's API. Partial failures name the affected subsystem."
             disabled={telemetry.refreshing}
             onClick={() => void telemetry.refresh()}
             type="button"
