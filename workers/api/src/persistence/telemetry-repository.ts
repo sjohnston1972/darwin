@@ -1,5 +1,5 @@
 import {
-  EvolutionCycleSchema,
+  RepositoryMutationExecutionSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
@@ -76,7 +76,8 @@ export interface TelemetryRepository {
   ): Promise<CodexImplementationManifest | null>;
   saveRepositoryExecution(
     execution: RepositoryMutationExecution,
-  ): Promise<void>;
+    expected: RepositoryMutationExecution | null,
+  ): Promise<boolean>;
   getRepositoryExecution(
     executionId: string,
   ): Promise<RepositoryMutationExecution | null>;
@@ -99,7 +100,6 @@ export interface TelemetryRepository {
     usedAt: string,
   ): Promise<boolean>;
   getEvolutionCycle(): Promise<EvolutionCycle>;
-  advanceEvolutionCycle(): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
   saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
   deleteTargetConnection(): Promise<void>;
@@ -125,7 +125,6 @@ const defaultEvolutionCycle = (): EvolutionCycle => ({
   startedAt: null,
   genomeEvolutionCount: 0,
 });
-let evolutionCycleStore = defaultEvolutionCycle();
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -272,8 +271,34 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return manifestStore.get(analysisId) ?? null;
   }
 
-  async saveRepositoryExecution(execution: RepositoryMutationExecution) {
+  async saveRepositoryExecution(
+    execution: RepositoryMutationExecution,
+    expected: RepositoryMutationExecution | null,
+  ) {
+    if (
+      (expected === null && execution.revision !== 0) ||
+      (expected !== null &&
+        (execution.executionId !== expected.executionId ||
+          execution.revision !== expected.revision + 1))
+    ) {
+      return false;
+    }
+    const current = repositoryExecutionStore.get(execution.executionId);
+    if (expected === null) {
+      if (current || execution.revision !== 0) return false;
+      repositoryExecutionStore.set(execution.executionId, execution);
+      return true;
+    }
+    if (
+      !current ||
+      current.revision !== expected.revision ||
+      current.status !== expected.status ||
+      (current.rollback?.status ?? null) !== (expected.rollback?.status ?? null)
+    ) {
+      return false;
+    }
     repositoryExecutionStore.set(execution.executionId, execution);
+    return true;
   }
 
   async getRepositoryExecution(executionId: string) {
@@ -330,16 +355,21 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   }
 
   async getEvolutionCycle() {
-    return evolutionCycleStore;
-  }
-
-  async advanceEvolutionCycle() {
-    evolutionCycleStore = {
+    const retained = [...repositoryExecutionStore.values()].filter(
+      (execution) => execution.status === 'released',
+    );
+    if (!retained.length) return defaultEvolutionCycle();
+    return {
       studyId: baselineStudyId,
-      startedAt: new Date().toISOString(),
-      genomeEvolutionCount: evolutionCycleStore.genomeEvolutionCount + 1,
+      startedAt: retained.reduce(
+        (latest, execution) =>
+          !latest || execution.updatedAt > latest
+            ? execution.updatedAt
+            : latest,
+        null as string | null,
+      ),
+      genomeEvolutionCount: retained.length,
     };
-    return evolutionCycleStore;
   }
 
   async getTargetConnection() {
@@ -364,7 +394,6 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     repositoryExecutionStore.clear();
     callbackCredentialStore.clear();
     callbackSignatureStore.clear();
-    evolutionCycleStore = defaultEvolutionCycle();
   }
 }
 
@@ -676,38 +705,74 @@ export class D1TelemetryRepository implements TelemetryRepository {
       : null;
   }
 
-  async saveRepositoryExecution(execution: RepositoryMutationExecution) {
-    await this.database
-      .prepare(
-        `INSERT INTO repository_executions (
-          execution_id, manifest_id, analysis_id, status, updated_at,
-          execution_json
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(execution_id) DO UPDATE SET
-          status = excluded.status,
-          updated_at = excluded.updated_at,
-          execution_json = excluded.execution_json`,
-      )
-      .bind(
-        execution.executionId,
-        execution.manifestId,
-        execution.analysisId,
-        execution.status,
-        execution.updatedAt,
-        JSON.stringify(execution),
-      )
-      .run();
+  async saveRepositoryExecution(
+    execution: RepositoryMutationExecution,
+    expected: RepositoryMutationExecution | null,
+  ) {
+    if (
+      (expected === null && execution.revision !== 0) ||
+      (expected !== null &&
+        (execution.executionId !== expected.executionId ||
+          execution.revision !== expected.revision + 1))
+    ) {
+      return false;
+    }
+    const statement =
+      expected === null
+        ? this.database
+            .prepare(
+              `INSERT OR IGNORE INTO repository_executions (
+                execution_id, manifest_id, analysis_id, status, updated_at,
+                execution_json, revision
+              ) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+            )
+            .bind(
+              execution.executionId,
+              execution.manifestId,
+              execution.analysisId,
+              execution.status,
+              execution.updatedAt,
+              JSON.stringify(execution),
+            )
+        : this.database
+            .prepare(
+              `UPDATE repository_executions
+               SET status = ?, updated_at = ?, execution_json = ?, revision = ?
+               WHERE execution_id = ?
+                 AND revision = ?
+                 AND status = ?
+                 AND (
+                   (? IS NULL AND json_extract(execution_json, '$.rollback.status') IS NULL)
+                   OR json_extract(execution_json, '$.rollback.status') = ?
+                 )`,
+            )
+            .bind(
+              execution.status,
+              execution.updatedAt,
+              JSON.stringify(execution),
+              execution.revision,
+              execution.executionId,
+              expected.revision,
+              expected.status,
+              expected.rollback?.status ?? null,
+              expected.rollback?.status ?? null,
+            );
+    const result = await statement.run();
+    return (result.meta.changes ?? 0) === 1;
   }
 
   private async findRepositoryExecution(where: string, value: string) {
     const row = await this.database
       .prepare(
-        `SELECT execution_json FROM repository_executions WHERE ${where} = ? LIMIT 1`,
+        `SELECT execution_json, revision FROM repository_executions WHERE ${where} = ? LIMIT 1`,
       )
       .bind(value)
-      .first<{ execution_json: string }>();
+      .first<{ execution_json: string; revision: number }>();
     return row
-      ? (JSON.parse(row.execution_json) as RepositoryMutationExecution)
+      ? RepositoryMutationExecutionSchema.parse({
+          ...(JSON.parse(row.execution_json) as RepositoryMutationExecution),
+          revision: row.revision,
+        })
       : null;
   }
 
@@ -726,11 +791,14 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async listRepositoryExecutions() {
     const result = await this.database
       .prepare(
-        `SELECT execution_json FROM repository_executions ORDER BY updated_at DESC`,
+        `SELECT execution_json, revision FROM repository_executions ORDER BY updated_at DESC`,
       )
-      .all<{ execution_json: string }>();
-    return result.results.map(
-      (row) => JSON.parse(row.execution_json) as RepositoryMutationExecution,
+      .all<{ execution_json: string; revision: number }>();
+    return result.results.map((row) =>
+      RepositoryMutationExecutionSchema.parse({
+        ...(JSON.parse(row.execution_json) as RepositoryMutationExecution),
+        revision: row.revision,
+      }),
     );
   }
 
@@ -803,21 +871,6 @@ export class D1TelemetryRepository implements TelemetryRepository {
   }
 
   async getEvolutionCycle() {
-    const row = await this.database
-      .prepare(`SELECT state_json FROM demo_state WHERE state_key = ?`)
-      .bind('evolution-cycle')
-      .first<{ state_json: string }>();
-    if (row) {
-      try {
-        const parsed = EvolutionCycleSchema.safeParse(
-          JSON.parse(row.state_json),
-        );
-        if (parsed.success) return parsed.data;
-      } catch {
-        // Fall through to the retained-release compatibility path.
-      }
-    }
-
     const retained = (await this.listRepositoryExecutions()).filter(
       (execution) => execution.status === 'released',
     );
@@ -833,26 +886,6 @@ export class D1TelemetryRepository implements TelemetryRepository {
       ),
       genomeEvolutionCount: retained.length,
     };
-  }
-
-  async advanceEvolutionCycle() {
-    const current = await this.getEvolutionCycle();
-    const next: EvolutionCycle = {
-      studyId: baselineStudyId,
-      startedAt: new Date().toISOString(),
-      genomeEvolutionCount: current.genomeEvolutionCount + 1,
-    };
-    await this.database
-      .prepare(
-        `INSERT INTO demo_state (state_key, state_json, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(state_key) DO UPDATE SET
-           state_json = excluded.state_json,
-           updated_at = excluded.updated_at`,
-      )
-      .bind('evolution-cycle', JSON.stringify(next), next.startedAt)
-      .run();
-    return next;
   }
 
   async getTargetConnection() {

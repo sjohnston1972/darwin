@@ -33,12 +33,15 @@ import {
 } from './reasoning';
 import { captureRepositorySnapshot } from './repository/github-source';
 import {
+  attachRepositoryRollback,
   createRepositoryRollback,
   createRepositoryExecution,
+  retryRepositoryExecution,
   updateRepositoryRollback,
   updateRepositoryExecution,
 } from './repository/execution';
 import {
+  GitHubMergeStateUnknownError,
   dispatchRollbackWorkflow,
   dispatchEvolutionWorkflow,
   dispatchResetWorkflow,
@@ -326,6 +329,49 @@ export const handleRequest = async (
   }
 
   const telemetryRepository = getTelemetryRepository(env?.DB);
+  const currentExecutionAfterConflict = async (executionId: string) => {
+    const current =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    return current
+      ? json(
+          {
+            error: 'concurrent_update',
+            message:
+              'Repository execution changed while this request was running.',
+            execution: RepositoryMutationExecutionSchema.parse(current),
+          },
+          { status: 409 },
+        )
+      : json(
+          {
+            error: 'not_found',
+            message: 'Repository execution no longer exists.',
+          },
+          { status: 404 },
+        );
+  };
+  const currentReleaseAfterConflict = async (
+    executionId: string,
+    rollback = false,
+  ) => {
+    const current =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!current) {
+      return json(
+        {
+          error: 'not_found',
+          message: 'Repository execution no longer exists.',
+        },
+        { status: 404 },
+      );
+    }
+    const released = rollback
+      ? current.rollback?.status === 'released'
+      : current.status === 'released';
+    return json(RepositoryMutationExecutionSchema.parse(current), {
+      status: released ? 200 : 202,
+    });
+  };
   const currentCycleStart = async (studyId: string) => {
     const cycle = await telemetryRepository.getEvolutionCycle();
     return cycle.studyId === studyId ? cycle.startedAt : null;
@@ -1011,7 +1057,9 @@ export const handleRequest = async (
     }
     let execution;
     try {
-      execution = createRepositoryExecution(manifest);
+      execution = existing
+        ? retryRepositoryExecution(existing, manifest)
+        : createRepositoryExecution(manifest);
     } catch (error) {
       return json(
         {
@@ -1024,7 +1072,11 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
-    await telemetryRepository.saveRepositoryExecution(execution);
+    if (
+      !(await telemetryRepository.saveRepositoryExecution(execution, existing))
+    ) {
+      return currentExecutionAfterConflict(execution.executionId);
+    }
     try {
       const callbackCredential = await issueExecutionCallbackCredential(
         execution.executionId,
@@ -1039,20 +1091,32 @@ export const handleRequest = async (
         manifestHash: manifest.manifestHash,
         callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/callback`,
       });
-      execution = updateRepositoryExecution(execution, { status: 'queued' });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      const queued = updateRepositoryExecution(execution, {
+        status: 'queued',
+      });
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(queued, execution))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
+      }
+      execution = queued;
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 201,
       });
     } catch (error) {
-      execution = updateRepositoryExecution(execution, {
+      const failed = updateRepositoryExecution(execution, {
         status: 'failed',
         error:
           error instanceof Error
             ? error.message
             : 'GitHub workflow dispatch failed.',
       });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(failed, execution))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
+      }
+      execution = failed;
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 502,
       });
@@ -1102,11 +1166,16 @@ export const handleRequest = async (
       if (!manifest) {
         throw new Error('The retained execution manifest could not be loaded.');
       }
-      execution = RepositoryMutationExecutionSchema.parse({
-        ...execution,
-        rollback,
-      });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      const withRollback = attachRepositoryRollback(execution, rollback);
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          withRollback,
+          execution,
+        ))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
+      }
+      execution = withRollback;
       const callbackCredential = await issueExecutionCallbackCredential(
         execution.executionId,
       );
@@ -1121,21 +1190,36 @@ export const handleRequest = async (
         manifestHash: manifest.manifestHash,
         callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/rollback/callback`,
       });
-      execution = updateRepositoryRollback(execution, { status: 'queued' });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      const queued = updateRepositoryRollback(execution, {
+        status: 'queued',
+      });
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(queued, execution))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
+      }
+      execution = queued;
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 201,
       });
     } catch (error) {
-      if (execution.rollback) {
-        execution = updateRepositoryRollback(execution, {
+      if (execution.rollback && execution.rollback.status !== 'failed') {
+        const failed = updateRepositoryRollback(execution, {
           status: 'failed',
           error:
             error instanceof Error
               ? error.message
               : 'GitHub rollback workflow dispatch failed.',
         });
-        await telemetryRepository.saveRepositoryExecution(execution);
+        if (
+          !(await telemetryRepository.saveRepositoryExecution(
+            failed,
+            execution,
+          ))
+        ) {
+          return currentExecutionAfterConflict(execution.executionId);
+        }
+        execution = failed;
       }
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 502,
@@ -1268,7 +1352,11 @@ export const handleRequest = async (
         );
       }
       const updated = updateRepositoryRollback(execution, callback);
-      await telemetryRepository.saveRepositoryExecution(updated);
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(updated, execution))
+      ) {
+        return currentExecutionAfterConflict(executionId);
+      }
       return json(RepositoryMutationExecutionSchema.parse(updated));
     } catch (error) {
       return json(
@@ -1359,7 +1447,11 @@ export const handleRequest = async (
         );
       }
       const updated = updateRepositoryExecution(execution, callback);
-      await telemetryRepository.saveRepositoryExecution(updated);
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(updated, execution))
+      ) {
+        return currentExecutionAfterConflict(executionId);
+      }
       return json(RepositoryMutationExecutionSchema.parse(updated));
     } catch (error) {
       return json(
@@ -1391,7 +1483,10 @@ export const handleRequest = async (
     if (execution.rollback?.status === 'released') {
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
-    if (execution.rollback?.status !== 'preview_ready') {
+    if (
+      execution.rollback?.status !== 'preview_ready' &&
+      execution.rollback?.status !== 'releasing'
+    ) {
       return json(
         {
           error: 'not_releasable',
@@ -1409,33 +1504,56 @@ export const handleRequest = async (
         { status: 503 },
       );
     }
-    execution = updateRepositoryRollback(execution, { status: 'releasing' });
-    await telemetryRepository.saveRepositoryExecution(execution);
+    if (execution.rollback.status === 'preview_ready') {
+      const releasing = updateRepositoryRollback(execution, {
+        status: 'releasing',
+      });
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          releasing,
+          execution,
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId, true);
+      }
+      execution = releasing;
+    }
     try {
       const releasedSha = await mergeRollbackPullRequest({
         token: env.GITHUB_TOKEN,
         execution,
         rollback: execution.rollback!,
       });
-      execution = updateRepositoryRollback(execution, {
+      const released = updateRepositoryRollback(execution, {
         status: 'released',
         headSha: releasedSha,
         previewUrl: execution.repository.studyUrl,
       });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          released,
+          execution,
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId, true);
+      }
+      execution = released;
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
-      execution = updateRepositoryRollback(execution, {
-        status: 'failed',
-        error:
-          error instanceof Error
-            ? error.message
-            : 'GitHub rollback pull request release failed.',
-      });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      return json(RepositoryMutationExecutionSchema.parse(execution), {
-        status: 502,
-      });
+      return json(
+        {
+          error:
+            error instanceof GitHubMergeStateUnknownError
+              ? 'repository_rollback_merge_state_unknown'
+              : 'repository_rollback_release_failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'GitHub rollback pull request release failed.',
+          execution: RepositoryMutationExecutionSchema.parse(execution),
+        },
+        { status: 502 },
+      );
     }
   }
 
@@ -1455,7 +1573,10 @@ export const handleRequest = async (
     if (execution.status === 'released') {
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
-    if (execution.status !== 'preview_ready') {
+    if (
+      execution.status !== 'preview_ready' &&
+      execution.status !== 'releasing'
+    ) {
       return json(
         {
           error: 'not_releasable',
@@ -1473,33 +1594,55 @@ export const handleRequest = async (
         { status: 503 },
       );
     }
-    execution = updateRepositoryExecution(execution, { status: 'releasing' });
-    await telemetryRepository.saveRepositoryExecution(execution);
+    if (execution.status === 'preview_ready') {
+      const releasing = updateRepositoryExecution(execution, {
+        status: 'releasing',
+      });
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          releasing,
+          execution,
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId);
+      }
+      execution = releasing;
+    }
     try {
       const releasedSha = await mergeEvolutionPullRequest({
         token: env.GITHUB_TOKEN,
         execution,
       });
-      execution = updateRepositoryExecution(execution, {
+      const released = updateRepositoryExecution(execution, {
         status: 'released',
         headSha: releasedSha,
         previewUrl: execution.repository.studyUrl,
       });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      await telemetryRepository.advanceEvolutionCycle();
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          released,
+          execution,
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId);
+      }
+      execution = released;
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
-      execution = updateRepositoryExecution(execution, {
-        status: 'failed',
-        error:
-          error instanceof Error
-            ? error.message
-            : 'GitHub pull request release failed.',
-      });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      return json(RepositoryMutationExecutionSchema.parse(execution), {
-        status: 502,
-      });
+      return json(
+        {
+          error:
+            error instanceof GitHubMergeStateUnknownError
+              ? 'repository_merge_state_unknown'
+              : 'repository_release_failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'GitHub pull request release failed.',
+          execution: RepositoryMutationExecutionSchema.parse(execution),
+        },
+        { status: 502 },
+      );
     }
   }
 

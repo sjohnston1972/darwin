@@ -1003,16 +1003,36 @@ describe('Darwin API', () => {
       workflowUrl:
         'https://github.com/sjohnston1972/projectflow/actions/runs/123',
     };
-    const replayTimestamp = String(Date.now());
-    const firstRunningResponse = await handleRequest(
-      await callbackRequest(runningCallbackBody, replayTimestamp),
-      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+    const replayTimestamp = Date.now();
+    const runningRequests = await Promise.all([
+      callbackRequest(runningCallbackBody, String(replayTimestamp)),
+      callbackRequest(runningCallbackBody, String(replayTimestamp + 1)),
+    ]);
+    const runningResponses = await Promise.all(
+      runningRequests.map((runningRequest) =>
+        handleRequest(runningRequest, {
+          DARWIN_CALLBACK_TOKEN: 'callback-test-token',
+        }),
+      ),
     );
+    expect(runningResponses.map(({ status }) => status).sort()).toEqual([
+      200, 409,
+    ]);
+    const acceptedRunningResponse = runningResponses.find(
+      ({ status }) => status === 200,
+    )!;
+    const conflictedRunningResponse = runningResponses.find(
+      ({ status }) => status === 409,
+    )!;
     execution = RepositoryMutationExecutionSchema.parse(
-      await firstRunningResponse.json(),
+      await acceptedRunningResponse.json(),
     );
+    await expect(conflictedRunningResponse.json()).resolves.toMatchObject({
+      error: 'concurrent_update',
+      execution: { status: 'codex_running' },
+    });
     const replayedRunningResponse = await handleRequest(
-      await callbackRequest(runningCallbackBody, replayTimestamp),
+      await callbackRequest(runningCallbackBody, String(replayTimestamp)),
       { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
     );
     expect(replayedRunningResponse.status).toBe(409);
@@ -1053,19 +1073,51 @@ describe('Darwin API', () => {
     const invalid = await callback({ status: 'released' });
     expect(invalid.response.status).toBe(409);
 
-    const releaseResponse = await handleRequest(
-      new Request(
-        `http://localhost/api/repository-executions/${execution.executionId}/release`,
-        { method: 'POST' },
+    const releaseUrl = `http://localhost/api/repository-executions/${execution.executionId}/release`;
+    const mergeCallsBeforeRelease = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).endsWith('/merge')).length;
+    const releaseResponses = await Promise.all(
+      [0, 1].map(() =>
+        handleRequest(new Request(releaseUrl, { method: 'POST' }), {
+          GITHUB_TOKEN: 'github-test-token',
+        }),
       ),
-      { GITHUB_TOKEN: 'github-test-token' },
     );
+    expect(releaseResponses.map(({ status }) => status).sort()).toEqual([
+      200, 202,
+    ]);
+    const releaseResponse = releaseResponses.find(
+      ({ status }) => status === 200,
+    )!;
     const releasedExecution = RepositoryMutationExecutionSchema.parse(
       await releaseResponse.json(),
     );
     expect(releaseResponse.status).toBe(200);
     expect(releasedExecution.status).toBe('released');
     expect(releasedExecution.headSha).toBe('f'.repeat(40));
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).endsWith('/merge'))
+        .length,
+    ).toBe(mergeCallsBeforeRelease + 1);
+    const repeatedReleaseResponse = await handleRequest(
+      new Request(releaseUrl, { method: 'POST' }),
+      { GITHUB_TOKEN: 'github-test-token' },
+    );
+    expect(repeatedReleaseResponse.status).toBe(200);
+    expect(
+      RepositoryMutationExecutionSchema.parse(
+        await repeatedReleaseResponse.json(),
+      ).status,
+    ).toBe('released');
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).endsWith('/merge'))
+        .length,
+    ).toBe(mergeCallsBeforeRelease + 1);
     const terminalRewrite = await callback({
       status: 'released',
       headSha: 'a'.repeat(40),
@@ -1127,7 +1179,10 @@ describe('Darwin API', () => {
     });
     callbackNonce = latestWorkflowInputs().callback_nonce!;
 
-    const rollbackCallback = async (body: Record<string, unknown>) => {
+    const rollbackCallback = async (
+      body: Record<string, unknown>,
+      timestamp?: string,
+    ) => {
       const callbackBody = JSON.stringify(body);
       const response = await handleRequest(
         await signedCallbackRequest({
@@ -1138,14 +1193,39 @@ describe('Darwin API', () => {
           executionId: execution.executionId,
           repository: execution.repository.fullName,
           manifestHash: alternativeManifest.manifestHash,
+          ...(timestamp ? { timestamp } : {}),
         }),
         { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
       );
       return { response, body: await response.json() };
     };
+    const rollbackCallbackTimestamp = Date.now();
+    const rollbackValidatingResponses = await Promise.all([
+      rollbackCallback(
+        { status: 'validating' },
+        String(rollbackCallbackTimestamp),
+      ),
+      rollbackCallback(
+        { status: 'validating' },
+        String(rollbackCallbackTimestamp + 1),
+      ),
+    ]);
+    expect(
+      rollbackValidatingResponses.map(({ response }) => response.status).sort(),
+    ).toEqual([200, 409]);
     rollbackExecution = RepositoryMutationExecutionSchema.parse(
-      (await rollbackCallback({ status: 'validating' })).body,
+      rollbackValidatingResponses.find(
+        ({ response }) => response.status === 200,
+      )!.body,
     );
+    expect(
+      rollbackValidatingResponses.find(
+        ({ response }) => response.status === 409,
+      )!.body,
+    ).toMatchObject({
+      error: 'concurrent_update',
+      execution: { rollback: { status: 'validating' } },
+    });
     rollbackExecution = RepositoryMutationExecutionSchema.parse(
       (
         await rollbackCallback({
@@ -1177,19 +1257,51 @@ describe('Darwin API', () => {
     );
     expect(rollbackExecution.rollback?.status).toBe('preview_ready');
 
-    const rollbackReleaseResponse = await handleRequest(
-      new Request(
-        `http://localhost/api/repository-executions/${execution.executionId}/rollback/release`,
-        { method: 'POST' },
+    const rollbackReleaseUrl = `http://localhost/api/repository-executions/${execution.executionId}/rollback/release`;
+    const mergeCallsBeforeRollback = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).endsWith('/merge')).length;
+    const rollbackReleaseResponses = await Promise.all(
+      [0, 1].map(() =>
+        handleRequest(new Request(rollbackReleaseUrl, { method: 'POST' }), {
+          GITHUB_TOKEN: 'github-test-token',
+        }),
       ),
-      { GITHUB_TOKEN: 'github-test-token' },
     );
+    expect(rollbackReleaseResponses.map(({ status }) => status).sort()).toEqual(
+      [200, 202],
+    );
+    const rollbackReleaseResponse = rollbackReleaseResponses.find(
+      ({ status }) => status === 200,
+    )!;
     rollbackExecution = RepositoryMutationExecutionSchema.parse(
       await rollbackReleaseResponse.json(),
     );
     expect(rollbackReleaseResponse.status).toBe(200);
     expect(rollbackExecution.rollback?.status).toBe('released');
     expect(rollbackExecution.rollback?.headSha).toBe('f'.repeat(40));
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).endsWith('/merge'))
+        .length,
+    ).toBe(mergeCallsBeforeRollback + 1);
+    const repeatedRollbackReleaseResponse = await handleRequest(
+      new Request(rollbackReleaseUrl, { method: 'POST' }),
+      { GITHUB_TOKEN: 'github-test-token' },
+    );
+    expect(repeatedRollbackReleaseResponse.status).toBe(200);
+    expect(
+      RepositoryMutationExecutionSchema.parse(
+        await repeatedRollbackReleaseResponse.json(),
+      ).rollback?.status,
+    ).toBe('released');
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).endsWith('/merge'))
+        .length,
+    ).toBe(mergeCallsBeforeRollback + 1);
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {
