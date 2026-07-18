@@ -1442,6 +1442,7 @@ a:focus-visible {
 
 .live-update-stack {
   display: grid;
+  min-width: max-content;
   justify-items: end;
   gap: 6px;
 }
@@ -1450,6 +1451,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 7px;
+  white-space: nowrap;
   color: var(--mist);
   font-family: var(--font-mono);
   font-size: 10px;
