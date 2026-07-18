@@ -31,6 +31,9 @@ const requireOk = async (response: Response, label: string) => {
   return response;
 };
 
+const sleep = (durationMs: number) =>
+  new Promise((resolve) => setTimeout(resolve, durationMs));
+
 const expectedSecurityHeaders = {
   'content-security-policy': [
     "default-src 'self'",
@@ -79,38 +82,66 @@ const fetchPageWithSecurityPolicy = async (
       return response;
     } catch (error) {
       lastError = error;
-      if (attempt < 6)
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      if (attempt < 6) await sleep(2_000);
     }
   }
   throw lastError;
 };
 
-const health = (await (
-  await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
-).json()) as {
+type HealthResponse = {
   status: string;
   version: string;
   commitSha: string;
   buildId: string;
 };
-if (
-  health.status !== 'ok' ||
-  health.version !== expectedRelease ||
-  health.commitSha !== expectedCommit ||
-  health.buildId !== `v${expectedRelease}@${expectedCommit.slice(0, 7)}`
-) {
-  throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
-}
 
-const targetConnection = (await (
-  await requireOk(
-    await fetch(`${apiUrl}/api/target-connection`, {
-      headers: operatorHeaders,
-    }),
-    'Target connection',
-  )
-).json()) as {
+const expectedBuildId = `v${expectedRelease}@${expectedCommit.slice(0, 7)}`;
+const fetchExpectedHealth = async () => {
+  let lastHealth: HealthResponse | undefined;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 15; attempt += 1) {
+    try {
+      const response = await requireOk(
+        await fetch(`${apiUrl}/api/health`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        }),
+        'API health',
+      );
+      lastHealth = (await response.json()) as HealthResponse;
+      if (
+        lastHealth.status === 'ok' &&
+        lastHealth.version === expectedRelease &&
+        lastHealth.commitSha === expectedCommit &&
+        lastHealth.buildId === expectedBuildId
+      ) {
+        return lastHealth;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 15) await sleep(2_000);
+  }
+  if (lastHealth) {
+    throw new Error(
+      `Unexpected API health response after deployment propagation window: ${JSON.stringify(lastHealth)}`,
+    );
+  }
+  throw lastError;
+};
+
+const health = await fetchExpectedHealth();
+
+const targetConnectionResponse = await requireOk(
+  await fetch(`${apiUrl}/api/target-connection`, {
+    headers: operatorHeaders,
+  }),
+  'Target connection',
+);
+if (targetConnectionResponse.status === 204) {
+  throw new Error('ProjectFlow target connection is not configured.');
+}
+const targetConnection = (await targetConnectionResponse.json()) as {
   status: string;
   repository: {
     fullName: string;
@@ -176,7 +207,7 @@ await requireOk(
 
 const stored = (await (
   await requireOk(
-    await fetch(`${apiUrl}/api/studies/${studyId}/events?limit=50`, {
+    await fetch(`${apiUrl}/api/studies/${studyId}/events/raw?limit=50`, {
       headers: operatorHeaders,
     }),
     'D1 telemetry query',
