@@ -2031,7 +2031,22 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    return json(EvidencePackSchema.parse(pack));
+    try {
+      return json(EvidencePackSchema.parse(pack));
+    } catch (error) {
+      console.error('Stored evidence pack failed schema validation.', error);
+      if (url.searchParams.get('optional') === 'true') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+      return json(
+        {
+          error: 'evidence_invalid',
+          message:
+            'The stored evidence pack is no longer compatible with the current schema.',
+        },
+        { status: 422 },
+      );
+    }
   }
 
   const analyseEvidenceMatch = pathname.match(
