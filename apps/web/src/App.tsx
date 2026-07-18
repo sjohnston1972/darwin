@@ -112,6 +112,16 @@ const dashboardRoutes: Record<DashboardView, string> = {
   Genome: '/?view=genome',
 };
 
+const executionWorkspaceId = (executionId: string) =>
+  `repository-execution-${executionId}`;
+
+const scrollToExecutionWorkspace = (workspaceId: string) => {
+  document.getElementById(workspaceId)?.scrollIntoView?.({
+    behavior: 'smooth',
+    block: 'start',
+  });
+};
+
 function getDashboardView(): DashboardView {
   switch (new URLSearchParams(window.location.search).get('view')) {
     case 'target':
@@ -2068,12 +2078,11 @@ function LiveTelemetryPanel({
                           telemetry.execution.status !== 'failed' &&
                           manifestMatchesSelection
                         ) {
-                          document
-                            .getElementById('validation')
-                            ?.scrollIntoView?.({
-                              behavior: 'smooth',
-                              block: 'start',
-                            });
+                          scrollToExecutionWorkspace(
+                            executionWorkspaceId(
+                              telemetry.execution.executionId,
+                            ),
+                          );
                           return;
                         }
                         void telemetry
@@ -2082,18 +2091,16 @@ function LiveTelemetryPanel({
                               (candidate) => candidate.id,
                             ),
                           )
-                          .then(() =>
+                          .then((execution) => {
+                            if (!execution) return;
+                            const workspaceId = executionWorkspaceId(
+                              execution.executionId,
+                            );
                             window.setTimeout(
-                              () =>
-                                document
-                                  .getElementById('validation')
-                                  ?.scrollIntoView?.({
-                                    behavior: 'smooth',
-                                    block: 'start',
-                                  }),
+                              () => scrollToExecutionWorkspace(workspaceId),
                               0,
-                            ),
-                          );
+                            );
+                          });
                       }}
                     >
                       {telemetry.preparingManifest || telemetry.implementing ? (
@@ -2747,12 +2754,14 @@ function RepositoryExecutionWorkspace({
   const reviewComplete = ['preview_ready', 'releasing', 'released'].includes(
     status,
   );
+  const regionId = executionWorkspaceId(execution.executionId);
+  const headingId = `${regionId}-title`;
 
   return (
     <section
       className={`${embedded ? 'execution-panel execution-panel-embedded' : 'mt-8 surface-panel execution-panel'}`}
-      id="validation"
-      aria-labelledby="repository-execution-title"
+      id={regionId}
+      aria-labelledby={headingId}
     >
       <div className="panel-heading execution-heading">
         <div>
@@ -2762,10 +2771,7 @@ function RepositoryExecutionWorkspace({
               : 'Live repository mutation'}
           </p>
           <div className="heading-with-help">
-            <h2
-              id="repository-execution-title"
-              className="mt-2 text-xl font-semibold"
-            >
+            <h2 id={headingId} className="mt-2 text-xl font-semibold">
               {archived ? 'Codex execution record' : 'Codex execution'}
             </h2>
             <InfoTip text="A real GitHub Actions run applies the selected manifest to the exact ProjectFlow commit, enforces repository policy, runs validation, opens a pull request, and deploys a review preview. Retained mutations can be rolled back through a separately reviewed inverse pull request." />
@@ -3099,13 +3105,19 @@ function RollbackWorkspace({
   const status = rollback?.status;
   const rollbackInProgress =
     status && !['failed', 'released', 'preview_ready'].includes(status);
+  const regionId = `${executionWorkspaceId(execution.executionId)}-rollback`;
+  const headingId = `${regionId}-title`;
 
   return (
-    <section className="rollback-workspace" aria-labelledby="rollback-title">
+    <section
+      className="rollback-workspace"
+      id={regionId}
+      aria-labelledby={headingId}
+    >
       <div className="rollback-heading">
         <div>
           <p className="section-label">Controlled rollback</p>
-          <h3 id="rollback-title" className="mt-2 text-lg font-semibold">
+          <h3 id={headingId} className="mt-2 text-lg font-semibold">
             {rollback?.status === 'released'
               ? 'Mutation reverted through review'
               : 'Prepare a reviewable inverse change'}

@@ -302,9 +302,47 @@ const manifest = {
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
+const makeArchivedExecution = (executionId: string, shaCharacter: string) => ({
+  executionId,
+  manifestId: `${manifest.manifestId}-${executionId}`,
+  analysisId: analysis.analysisId,
+  repository,
+  status: 'released',
+  branch: `darwin/${executionId}`,
+  baseSha: repository.baseSha,
+  headSha: shaCharacter.repeat(40),
+  workflowRunId: 123,
+  workflowUrl: 'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+  pullRequestNumber: 7,
+  pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
+  previewUrl: repository.studyUrl,
+  patch: '@@ archived patch @@\n-old behavior\n+measured behavior',
+  changedFiles: ['apps/projectflow/src/App.tsx'],
+  checks: [
+    {
+      name: 'npm run verify',
+      status: 'passed',
+      durationMs: 1200,
+      output: 'Typecheck, tests, and build passed.',
+    },
+  ],
+  codex: {
+    threadId: null,
+    finalMessage: 'Implemented the approved measured mutation.',
+    inputTokens: null,
+    cachedInputTokens: null,
+    outputTokens: null,
+  },
+  error: null,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  completedAt: timestamp,
+});
+
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
+  initialGenomeExecutions: Record<string, unknown>[] = [],
 ) => {
   let liveExecution: Record<string, unknown> | null = null;
   let liveConnection: unknown = initialConnection;
@@ -329,7 +367,7 @@ const installApi = (
             startedAt: released ? timestamp : null,
             genomeEvolutionCount: released ? 1 : 0,
           },
-          executions: liveExecution ? [liveExecution] : [],
+          executions: liveExecution ? [liveExecution] : initialGenomeExecutions,
         });
       }
       if (url.endsWith('/api/observations/archives')) {
@@ -917,5 +955,43 @@ describe('Darwin control room', () => {
     expect(
       screen.queryByRole('heading', { name: 'Live study evidence' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('uses unique execution IDs and resolvable ARIA references in Genome', async () => {
+    window.history.replaceState({}, '', '/?view=genome');
+    installApi(null, null, [
+      makeArchivedExecution('execution-one', '1'),
+      makeArchivedExecution('execution-two', '2'),
+    ]);
+    render(<App />);
+
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('.execution-panel-embedded'),
+      ).toHaveLength(2),
+    );
+
+    const ids = Array.from(document.querySelectorAll<HTMLElement>('[id]')).map(
+      (element) => element.id,
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+
+    for (const element of document.querySelectorAll<HTMLElement>(
+      '[aria-labelledby], [aria-describedby], [aria-controls]',
+    )) {
+      for (const attribute of [
+        'aria-labelledby',
+        'aria-describedby',
+        'aria-controls',
+      ]) {
+        const references = element.getAttribute(attribute)?.split(/\s+/) ?? [];
+        for (const reference of references) {
+          expect(
+            document.getElementById(reference),
+            `${attribute} must resolve ${reference}`,
+          ).not.toBeNull();
+        }
+      }
+    }
   });
 });
