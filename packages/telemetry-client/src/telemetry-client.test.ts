@@ -12,6 +12,7 @@ import { createTelemetryClient } from './telemetry-client';
 describe('DarwinTelemetryClient', () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     localStorage.clear();
     document.body.replaceChildren();
     vi.restoreAllMocks();
@@ -245,6 +246,230 @@ describe('DarwinTelemetryClient', () => {
     const body = JSON.parse(String(request?.body)) as { events: unknown[] };
     expect(body.events).toHaveLength(2);
 
+    client.destroy();
+  });
+
+  it('retains Beacon batches until a server receipt acknowledges them', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T09:00:00.000Z'));
+    const sendBeacon = vi.fn(() => true);
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ accepted: 3, rejected: 0 }), {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-beacon',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      batchSize: 20,
+      retryBaseMs: 100,
+      random: () => 0.5,
+      fetcher,
+    });
+    client.init();
+
+    window.dispatchEvent(new Event('pagehide'));
+    expect(sendBeacon).toHaveBeenCalledOnce();
+    expect(client.snapshot()).toHaveLength(3);
+
+    await expect(client.flush()).resolves.toMatchObject({
+      status: 'retrying',
+    });
+    expect(client.snapshot()).toHaveLength(3);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(client.snapshot()).toHaveLength(0);
+    client.destroy();
+  });
+
+  it('recovers acknowledged events after an offline retry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T09:00:00.000Z'));
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ accepted: 2, rejected: 0 }), {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-offline',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      batchSize: 20,
+      retryBaseMs: 100,
+      random: () => 0.5,
+      fetcher,
+    });
+    client.init();
+
+    await expect(client.flush()).resolves.toMatchObject({
+      status: 'retrying',
+      attempt: 1,
+    });
+    expect(client.snapshot()).toHaveLength(2);
+    expect(client.health()).toMatchObject({
+      deliveryFailures: 1,
+      consecutiveDeliveryFailures: 1,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(client.snapshot()).toHaveLength(0);
+    expect(client.health()).toMatchObject({
+      consecutiveDeliveryFailures: 0,
+      nextRetryAt: null,
+    });
+    client.destroy();
+  });
+
+  it('retains a batch when its receipt does not account for every event', async () => {
+    vi.useFakeTimers();
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-partial-receipt',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      batchSize: 20,
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ accepted: 1, rejected: 0 }), {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    });
+    client.init();
+
+    await expect(client.flush()).resolves.toMatchObject({
+      status: 'retrying',
+      attempt: 1,
+    });
+    expect(client.snapshot()).toHaveLength(2);
+    expect(client.health().lastDeliveryError).toContain('complete batch');
+    client.destroy();
+  });
+
+  it('honors Retry-After before retrying a rate-limited batch', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T09:00:00.000Z'));
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 429,
+          headers: { 'Retry-After': '3' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ accepted: 2, rejected: 0 }), {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-rate-limit',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      batchSize: 20,
+      retryBaseMs: 100,
+      random: () => 0.5,
+      fetcher,
+    });
+    client.init();
+
+    await expect(client.flush()).resolves.toMatchObject({
+      status: 'retrying',
+      retryAt: '2026-07-18T09:00:03.000Z',
+    });
+    await expect(client.flush()).resolves.toMatchObject({
+      status: 'retrying',
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(fetcher).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(client.snapshot()).toHaveLength(0);
+    client.destroy();
+  });
+
+  it('falls back to memory when persistent outbox writes fail', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    });
+    const healthUpdates: Array<{ storageFailures: number }> = [];
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-quota',
+      initialRoute: '/study',
+      onHealth: (health) => healthUpdates.push(health),
+    });
+
+    expect(() => client.init()).not.toThrow();
+    expect(client.snapshot()).toHaveLength(2);
+    expect(client.health().storageFailures).toBe(1);
+    expect(healthUpdates.at(-1)?.storageFailures).toBe(1);
+    client.destroy();
+  });
+
+  it('reports every event dropped by the bounded outbox', () => {
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-overflow',
+      initialRoute: '/study',
+      maxOutboxSize: 3,
+    });
+    client.init();
+    client.trackPageView('/study/projects');
+    client.trackPageView('/study/tasks');
+
+    expect(client.snapshot()).toHaveLength(3);
+    expect(client.health()).toMatchObject({
+      outboxSize: 3,
+      droppedEvents: 1,
+    });
+    client.destroy();
+  });
+
+  it('contains timer-driven delivery failures without unhandled rejections', async () => {
+    vi.useFakeTimers();
+    const unhandled = vi.fn();
+    window.addEventListener('unhandledrejection', unhandled);
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-timer',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      flushIntervalMs: 100,
+      retryBaseMs: 1_000,
+      fetcher: vi.fn<typeof fetch>().mockRejectedValue(new Error('offline')),
+    });
+    client.init();
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(client.health().deliveryFailures).toBe(1);
+    expect(unhandled).not.toHaveBeenCalled();
+
+    window.removeEventListener('unhandledrejection', unhandled);
     client.destroy();
   });
 });

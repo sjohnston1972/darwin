@@ -50,9 +50,13 @@ Darwin does not collect:
 
 ## Browser delivery
 
-The telemetry client keeps a local outbox, batches at most 50 events, posts to `/api/telemetry/events`, and uses event IDs for idempotency. D1 stores the original validated event JSON plus indexed study/session fields and a server receipt timestamp.
+The telemetry client keeps a local outbox, batches at most 50 events, posts to `/api/telemetry/events`, and uses event IDs for idempotency. Events leave the outbox only when a schema-valid server receipt accounts for the complete batch. Beacon delivery during page hide is treated as an unacknowledged attempt, so the same event IDs are safely retried and deduplicated later.
 
-Delivery reliability and ingestion authentication are active hardening items. See issues [#2](https://github.com/sjohnston1972/darwin/issues/2) and [#11](https://github.com/sjohnston1972/darwin/issues/11).
+Failed and rate-limited delivery uses bounded exponential backoff with jitter and honors `Retry-After`. Storage quota/privacy failures fall back to the in-memory outbox. `client.health()` and the optional `onHealth` callback expose outbox size, dropped-event count, storage failures, delivery failures, consecutive failures, and the next retry time; overflow is bounded and never silent. Timer-driven flushes contain failures so instrumentation cannot create unhandled promise rejections in ProjectFlow.
+
+D1 stores the original validated event JSON plus indexed study/session fields and a server receipt timestamp.
+
+The ingestion authentication and operational rejection boundary is documented in [Security and Privacy](Security-and-Privacy.md).
 
 ## Deterministic parsing
 
