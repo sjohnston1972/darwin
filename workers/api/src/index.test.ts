@@ -45,11 +45,11 @@ const studyEvent = {
   eventType: 'page_view',
 } as const;
 
-const candidate = (id: string, total: number) => ({
+const candidate = (id: string, total: number, evidenceId = 'EV-001') => ({
   id,
   title: `Mutation ${id}`,
   problem: 'Assigned work takes too many interactions to reach.',
-  evidenceIds: ['EV-001'],
+  evidenceIds: [evidenceId],
   pressureClusterIds: ['task-discovery-pressure'],
   hypothesis: 'A direct route will improve discovery.',
   change: `Implement ${id} as a direct task-discovery capability.`,
@@ -78,7 +78,7 @@ const candidate = (id: string, total: number) => ({
   codexBrief: `Implement ${id} while preserving existing routes.`,
 });
 
-const evidenceModelOutput = {
+const modelOutputForEvidence = (evidenceId: string) => ({
   evidenceAssessment: {
     summary: 'The ordered journey shows indirect assigned-work navigation.',
     pressureClusters: [
@@ -86,7 +86,7 @@ const evidenceModelOutput = {
         id: 'task-discovery-pressure',
         title: 'Assigned work is buried',
         interpretation: 'The information architecture hides assigned tasks.',
-        evidenceIds: ['EV-001'],
+        evidenceIds: [evidenceId],
         affectedTargets: ['nav-projects'],
         userConsequence: 'Users take a long route to assigned work.',
         competingExplanations: ['The participant may be unfamiliar.'],
@@ -95,15 +95,17 @@ const evidenceModelOutput = {
     ],
     selectionRationale: 'The direct route has the clearest causal path.',
   },
-  selectedMutation: candidate('direct-my-work', 90),
+  selectedMutation: candidate('direct-my-work', 90, evidenceId),
   alternatives: [
-    candidate('dashboard-work-queue', 75),
-    candidate('global-search', 70),
+    candidate('dashboard-work-queue', 75, evidenceId),
+    candidate('global-search', 70, evidenceId),
   ],
   unsupportedIdeasRejected: [
     { idea: 'Rewrite telemetry', reason: 'Telemetry is protected.' },
   ],
-};
+});
+
+const evidenceModelOutput = modelOutputForEvidence('EV-001');
 
 const liveEnv = {
   DARWIN_AI_MODE: 'live',
@@ -1003,16 +1005,18 @@ describe('Darwin API', () => {
         body: JSON.stringify({ events }),
       }),
     );
-    await handleRequest(
+    const evidenceResponse = await handleRequest(
       new Request(
         'http://localhost/api/studies/projectflow-baseline-study/evidence',
         { method: 'POST' },
       ),
     );
+    const evidence = EvidencePackSchema.parse(await evidenceResponse.json());
+    const signalId = evidence.frictionSignals[0]!.evidenceId;
 
     const analysisPath =
       'http://localhost/api/studies/projectflow-baseline-study/analyse-evidence';
-    installOpenAIResponse(evidenceModelOutput);
+    installOpenAIResponse(modelOutputForEvidence(signalId));
     const firstResponse = await handleRequest(
       new Request(analysisPath, { method: 'POST' }),
       liveEnv,
@@ -1027,7 +1031,7 @@ describe('Darwin API', () => {
     expect(firstResponse.status).toBe(201);
     expect(secondResponse.status).toBe(200);
     expect(second).toEqual(first);
-    expect(first.selectedMutation.evidenceIds).toContain('EV-001');
+    expect(first.selectedMutation.evidenceIds).toContain(signalId);
 
     const manifestResponse = await handleRequest(
       new Request(

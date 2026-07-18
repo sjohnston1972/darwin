@@ -54,7 +54,10 @@ const candidateJsonSchema = {
     evidenceIds: {
       type: 'array',
       minItems: 1,
-      items: { type: 'string', pattern: '^EV-\\d{3}$' },
+      items: {
+        type: 'string',
+        pattern: '^EV-(?:\\d{3}|[a-f0-9]{12})$',
+      },
     },
     pressureClusterIds: {
       type: 'array',
@@ -180,7 +183,10 @@ export const evidenceAnalysisJsonSchema = {
               evidenceIds: {
                 type: 'array',
                 minItems: 1,
-                items: { type: 'string', pattern: '^EV-\\d{3}$' },
+                items: {
+                  type: 'string',
+                  pattern: '^EV-(?:\\d{3}|[a-f0-9]{12})$',
+                },
               },
               affectedTargets: {
                 type: 'array',

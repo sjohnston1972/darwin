@@ -123,11 +123,11 @@ describe('real telemetry evidence engine', () => {
       attempts: 1,
     });
     expect(first.frictionSignals[0]).toMatchObject({
-      evidenceId: 'EV-001',
       ruleId: 'excess_path_length',
       taskId,
       affectedAttemptIds: [attemptId],
     });
+    expect(first.frictionSignals[0]?.evidenceId).toMatch(/^EV-[a-f0-9]{12}$/);
     expect(first.frictionSignals[0]?.supportingEventIds).toContain(id(1));
   });
 
@@ -222,7 +222,7 @@ describe('real telemetry evidence engine', () => {
       '2026-07-16T12:02:00.000Z',
     );
 
-    expect(pack.parserVersion).toBe('1.2.0');
+    expect(pack.parserVersion).toBe('1.3.0');
     expect(pack.quality).toMatchObject({
       strength: 'directional',
       sessionCount: 1,
@@ -241,7 +241,7 @@ describe('real telemetry evidence engine', () => {
       expect.arrayContaining([
         expect.objectContaining({
           ruleId: 'rage_click',
-          ruleVersion: '1.2.0',
+          ruleVersion: '1.3.0',
           support: expect.objectContaining({ events: 2, sessions: 1 }),
           supportingEventIds: [id(12), id(13)],
         }),
@@ -262,5 +262,119 @@ describe('real telemetry evidence engine', () => {
     expect(
       pack.frictionSignals.filter((signal) => signal.ruleId === 'rage_click'),
     ).toHaveLength(1);
+  });
+
+  it('groups recurring behavior by canonical context with stable bounded traces', async () => {
+    const recurringHovers = Array.from({ length: 15 }, (_, index) => ({
+      ...base(20 + index, '/study/projects/apollo/tasks'),
+      eventId: id(200 + index),
+      sessionId: `session-hover-${index % 5}`,
+      participantId: `participant-hover-${index % 3}`,
+      taskAttemptId: `attempt-hover-${index % 5}`,
+      taskId,
+      eventType: 'hover_ended' as const,
+      targetId: 'task-create-open',
+      properties: {
+        pointerType: 'mouse' as const,
+        durationMs: 900 + index,
+        clicked: false,
+        immediateExit: false,
+        hoverToClickMs: null,
+      },
+    })) satisfies StoredTelemetryEvent[];
+    const recurringDrags = Array.from({ length: 2 }, (_, index) => ({
+      ...base(40 + index, '/study/projects/apollo/tasks'),
+      eventId: id(240 + index),
+      sessionId: `session-drag-${index}`,
+      participantId: `participant-drag-${index}`,
+      taskAttemptId: `attempt-drag-${index}`,
+      taskId,
+      eventType: 'drag_attempted' as const,
+      targetId: 'task-card-apl-241',
+      properties: {
+        pointerType: 'mouse' as const,
+        draggable: false,
+        distancePx: 80 + index,
+      },
+    })) satisfies StoredTelemetryEvent[];
+    const distinctHoverContexts: StoredTelemetryEvent[] = [
+      {
+        ...recurringHovers[0]!,
+        eventId: id(250),
+        sequence: 35,
+        route: '/study/dashboard',
+      },
+      {
+        ...recurringHovers[0]!,
+        eventId: id(251),
+        sequence: 36,
+        targetId: 'task-search-open',
+      },
+      {
+        ...recurringHovers[0]!,
+        eventId: id(252),
+        sequence: 37,
+        appVersion: '1.1.0',
+      },
+    ];
+    const studyEvents = [
+      ...recurringHovers,
+      ...recurringDrags,
+      ...distinctHoverContexts,
+    ];
+    const first = await buildEvidencePack(
+      'projectflow-baseline-study',
+      studyEvents,
+      '2026-07-16T12:02:00.000Z',
+    );
+    const reordered = await buildEvidencePack(
+      'projectflow-baseline-study',
+      [...studyEvents].reverse(),
+      '2026-07-16T12:02:00.000Z',
+    );
+    const hover = first.frictionSignals.find((signal) =>
+      signal.supportingEventIds.includes(id(200)),
+    );
+    const reorderedHover = reordered.frictionSignals.find((signal) =>
+      signal.supportingEventIds.includes(id(200)),
+    );
+
+    expect(
+      first.frictionSignals.filter(
+        (signal) => signal.ruleId === 'hover_hesitation',
+      ),
+    ).toHaveLength(4);
+    expect(hover).toMatchObject({
+      ruleId: 'hover_hesitation',
+      support: { events: 15, attempts: 5, sessions: 5, participants: 3 },
+    });
+    expect(hover?.supportingEventIds).toHaveLength(15);
+    expect(hover?.trace).toHaveLength(12);
+    expect(reorderedHover?.evidenceId).toBe(hover?.evidenceId);
+    expect(reorderedHover?.trace).toEqual(hover?.trace);
+    expect(
+      first.frictionSignals.find(
+        (signal) => signal.ruleId === 'drag_expectation',
+      )?.support,
+    ).toEqual({ events: 2, attempts: 2, sessions: 2, participants: 2 });
+
+    const withUnrelatedSignal = await buildEvidencePack(
+      'projectflow-baseline-study',
+      [
+        ...studyEvents,
+        {
+          ...base(10, '/study/dashboard'),
+          eventId: id(260),
+          eventType: 'viewport_zoom_changed',
+          properties: { fromScale: 1, toScale: 1.25 },
+        },
+      ],
+      '2026-07-16T12:02:00.000Z',
+    );
+    expect(
+      withUnrelatedSignal.frictionSignals.find((signal) =>
+        signal.supportingEventIds.includes(id(200)),
+      )?.evidenceId,
+    ).toBe(hover?.evidenceId);
   });
 });

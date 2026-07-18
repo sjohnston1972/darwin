@@ -9,8 +9,8 @@ import {
   type TaskAttempt,
 } from '@darwin/shared';
 
-const parserVersion = '1.2.0' as const;
-const ruleVersion = '1.2.0' as const;
+const parserVersion = '1.3.0' as const;
+const ruleVersion = '1.3.0' as const;
 const declaredInteractionBudget: Record<string, number> = {
   'create-project': 3,
   'create-assigned-task': 5,
@@ -30,6 +30,7 @@ interface SignalCandidate {
   summary: string;
   attempts: string[];
   events: StoredTelemetryEvent[];
+  canonicalGroupKey?: string;
 }
 
 const terminalTypes = new Set(['task_completed', 'task_failed']);
@@ -48,8 +49,8 @@ export async function buildEvidencePack(
     );
   const taskAttempts = reconstructAttempts(events, generatedAt);
   const candidates = detectFriction(events, taskAttempts);
-  const frictionSignals = candidates.map((candidate, index) =>
-    signalFromCandidate(candidate, index),
+  const frictionSignals = await Promise.all(
+    candidates.map((candidate) => signalFromCandidate(candidate)),
   );
   const tasks = summarizeTasks(taskAttempts);
   const evidenceClass = evidenceClassFor(events);
@@ -490,7 +491,8 @@ function detectFriction(
   return compactBehaviorCandidates(candidates).sort(
     (left, right) =>
       order.indexOf(left.ruleId) - order.indexOf(right.ruleId) ||
-      (left.taskId ?? '').localeCompare(right.taskId ?? ''),
+      (left.taskId ?? '').localeCompare(right.taskId ?? '') ||
+      canonicalSignalKey(left).localeCompare(canonicalSignalKey(right)),
   );
 }
 
@@ -514,51 +516,82 @@ function compactBehaviorCandidates(candidates: SignalCandidate[]) {
       continue;
     }
     const representative = candidate.events[0];
-    const key = [
-      candidate.ruleId,
-      candidate.taskId ?? 'session',
-      representative ? (targetOf(representative) ?? representative.route) : '',
-    ].join(':');
+    const key = representative
+      ? canonicalStringify({
+          ruleId: candidate.ruleId,
+          taskId: candidate.taskId ?? 'session',
+          appVersion: representative.appVersion,
+          route: representative.route,
+          targetId: targetOf(representative) ?? null,
+          viewport: representative.viewport,
+          context: behaviorContext(representative),
+        })
+      : canonicalSignalKey(candidate);
     const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, { ...candidate });
+      grouped.set(key, { ...candidate, canonicalGroupKey: key });
       continue;
     }
-    existing.events = [...existing.events, ...candidate.events].slice(0, 12);
+    existing.events = [...existing.events, ...candidate.events];
     existing.attempts = [
       ...new Set([...existing.attempts, ...candidate.attempts]),
-    ];
+    ].sort();
     if (severityRank(candidate.severity) > severityRank(existing.severity)) {
       existing.severity = candidate.severity;
     }
-    const count = existing.events.length;
+    const count = new Set(existing.events.map((event) => event.eventId)).size;
     existing.summary = `${existing.summary.split(' Observed ')[0]} Observed ${count} times in this bounded evidence group.`;
   }
   return [...compacted, ...grouped.values()];
 }
 
+function behaviorContext(event: StoredTelemetryEvent) {
+  switch (event.eventType) {
+    case 'interaction_signal':
+      return {
+        signal: event.properties.signal,
+        pointerType: event.properties.pointerType,
+        relatedTargetIds: [...(event.properties.relatedTargetIds ?? [])].sort(),
+      };
+    case 'hover_ended':
+    case 'drag_attempted':
+    case 'touch_cancelled':
+      return { pointerType: event.properties.pointerType };
+    case 'browser_navigation':
+      return {
+        direction: event.properties.direction,
+        fromRoute: event.properties.fromRoute,
+        toRoute: event.properties.toRoute,
+      };
+    case 'viewport_zoom_changed':
+      return { direction: 'increase' };
+    default:
+      return {};
+  }
+}
+
 const severityRank = (severity: EvidenceSignal['severity']) =>
   ({ low: 0, medium: 1, high: 2 })[severity];
 
-function signalFromCandidate(
+async function signalFromCandidate(
   candidate: SignalCandidate,
-  index: number,
-): EvidenceSignal {
+): Promise<EvidenceSignal> {
   const uniqueEvents = [
     ...new Map(
       candidate.events.map((event) => [event.eventId, event]),
     ).values(),
-  ];
+  ].sort(compareEvidenceEvents);
+  const groupHash = await sha256(canonicalSignalKey(candidate));
   return {
-    evidenceId: `EV-${String(index + 1).padStart(3, '0')}`,
+    evidenceId: `EV-${groupHash.slice(0, 12)}`,
     ruleId: candidate.ruleId,
     ruleVersion,
     severity: candidate.severity,
     ...(candidate.taskId ? { taskId: candidate.taskId } : {}),
     summary: candidate.summary,
-    affectedAttemptIds: candidate.attempts,
+    affectedAttemptIds: [...new Set(candidate.attempts)].sort(),
     supportingEventIds: uniqueEvents.map((event) => event.eventId),
-    trace: uniqueEvents.slice(0, 12).map(traceEvent),
+    trace: representativeEvents(uniqueEvents, 12).map(traceEvent),
     support: {
       events: uniqueEvents.length,
       attempts: new Set(candidate.attempts).size,
@@ -567,6 +600,62 @@ function signalFromCandidate(
         .size,
     },
   };
+}
+
+function canonicalSignalKey(candidate: SignalCandidate) {
+  if (candidate.canonicalGroupKey) return candidate.canonicalGroupKey;
+  return canonicalStringify({
+    ruleId: candidate.ruleId,
+    taskId: candidate.taskId ?? 'session',
+    attempts: [...new Set(candidate.attempts)].sort(),
+    appVersions: [
+      ...new Set(candidate.events.map((event) => event.appVersion)),
+    ].sort(),
+    routes: [...new Set(candidate.events.map((event) => event.route))].sort(),
+    targets: [
+      ...new Set(candidate.events.map(targetOf).filter(Boolean)),
+    ].sort(),
+  });
+}
+
+function representativeEvents(events: StoredTelemetryEvent[], limit: number) {
+  if (events.length <= limit) return events;
+  const buckets = new Map<string, StoredTelemetryEvent[]>();
+  for (const event of events) {
+    const key = `${event.participantId}:${event.sessionId}`;
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(event);
+    buckets.set(key, bucket);
+  }
+  const orderedBuckets = [...buckets.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, bucket]) => bucket.sort(compareEvidenceEvents));
+  const selected: StoredTelemetryEvent[] = [];
+  for (let round = 0; selected.length < limit; round += 1) {
+    let found = false;
+    for (const bucket of orderedBuckets) {
+      const event = bucket[round];
+      if (!event) continue;
+      selected.push(event);
+      found = true;
+      if (selected.length === limit) break;
+    }
+    if (!found) break;
+  }
+  return selected.sort(compareEvidenceEvents);
+}
+
+function compareEvidenceEvents(
+  left: StoredTelemetryEvent,
+  right: StoredTelemetryEvent,
+) {
+  return (
+    left.occurredAt.localeCompare(right.occurredAt) ||
+    left.participantId.localeCompare(right.participantId) ||
+    left.sessionId.localeCompare(right.sessionId) ||
+    left.sequence - right.sequence ||
+    left.eventId.localeCompare(right.eventId)
+  );
 }
 
 function traceEvent(event: StoredTelemetryEvent): EvidenceTraceEvent {

@@ -502,10 +502,14 @@ export const EvidenceQualitySchema = z.object({
   limitations: z.array(z.string().min(1)),
 });
 
+export const EvidenceSignalIdentifierSchema = z
+  .string()
+  .regex(/^EV-(?:\d{3}|[a-f0-9]{12})$/);
+
 export const EvidenceSignalSchema = z.object({
-  evidenceId: z.string().regex(/^EV-\d{3}$/),
+  evidenceId: EvidenceSignalIdentifierSchema,
   ruleId: FrictionRuleSchema,
-  ruleVersion: z.enum(['1.0.0', '1.1.0', '1.2.0']),
+  ruleVersion: z.enum(['1.0.0', '1.1.0', '1.2.0', '1.3.0']),
   severity: z.enum(['low', 'medium', 'high']),
   taskId: StudyIdentifierSchema.optional(),
   summary: z.string().min(1),
@@ -540,7 +544,7 @@ export const EvidencePackSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   generatedAt: z.string().datetime(),
-  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0']),
+  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0', '1.3.0']),
   evidenceClass: EvidenceClassSchema,
   study: z.object({
     studyId: StudyIdentifierSchema,
@@ -588,7 +592,7 @@ export const EvidenceMutationCandidateSchema = z.object({
   id: StudyIdentifierSchema,
   title: z.string().min(1),
   problem: z.string().min(1),
-  evidenceIds: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  evidenceIds: z.array(EvidenceSignalIdentifierSchema).min(1),
   pressureClusterIds: z.array(StudyIdentifierSchema).min(1),
   hypothesis: z.string().min(1),
   change: z.string().min(1),
@@ -621,7 +625,7 @@ export const EvidencePressureClusterSchema = z.object({
   id: StudyIdentifierSchema,
   title: z.string().min(1),
   interpretation: z.string().min(1),
-  evidenceIds: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  evidenceIds: z.array(EvidenceSignalIdentifierSchema).min(1),
   affectedTargets: z.array(SemanticTargetSchema),
   userConsequence: z.string().min(1),
   competingExplanations: z.array(z.string().min(1)).min(1),
@@ -734,7 +738,7 @@ export const CodexImplementationManifestSchema = z.object({
   repository: RepositoryContextSchema.optional(),
   createdAt: z.string().datetime(),
   brief: z.string().min(1),
-  evidenceCitations: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  evidenceCitations: z.array(EvidenceSignalIdentifierSchema).min(1),
   allowedPaths: z.array(z.string().min(1)).min(1),
   protectedPaths: z.array(z.string().min(1)).min(1),
   acceptanceCriteria: z.array(z.string().min(1)).min(1),
