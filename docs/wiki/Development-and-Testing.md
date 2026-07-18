@@ -2,12 +2,12 @@
 
 ## Workspaces
 
-| Workspace | Purpose |
-| --- | --- |
-| `@darwin/web` | React control room |
-| `@darwin/api` | Worker API, evidence, reasoning, execution |
-| `@darwin/shared` | Zod schemas and types |
-| `@darwin/telemetry-client` | browser instrumentation |
+| Workspace                  | Purpose                                    |
+| -------------------------- | ------------------------------------------ |
+| `@darwin/web`              | React control room                         |
+| `@darwin/api`              | Worker API, evidence, reasoning, execution |
+| `@darwin/shared`           | Zod schemas and types                      |
+| `@darwin/telemetry-client` | browser instrumentation                    |
 
 ## Common commands
 
@@ -19,6 +19,7 @@ npm run format:check
 npm run docs:check
 npm run typecheck
 npm run test
+npm run test:e2e
 npm run build
 npm run simulate -- --seed=1859 --variant=baseline
 npm run smoke:production
@@ -52,7 +53,13 @@ Testing Library renders control-room states with mocked API responses and verifi
 
 ### Browser flow
 
-Playwright is installed but the complete browser suite is still tracked in issue [#23](https://github.com/sjohnston1972/darwin/issues/23).
+Playwright runs the real Darwin UI, local Worker, isolated local D1 database, and standalone ProjectFlow target. The suite covers target connection, popup study launch, real semantic telemetry arrival, deterministic evidence, a schema-validated GPT fixture, mutation multi-selection, manifest execution, repository polling, checks, release, Genome archival, and controlled rollback. It also checks every workspace at desktop and 390px, viewport-clamped tooltips, and keyboard navigation.
+
+Only the external OpenAI and GitHub network boundaries are deterministic fixtures. Fixture mode is opt-in through `workers/api/wrangler.e2e.toml` and is refused for non-localhost Worker requests. ProjectFlow defaults to `../projectflow`; set `PROJECTFLOW_E2E_DIR` to another checkout directory when needed.
+
+Pull-request CI runs the `@smoke` cross-window path. The deployment workflow runs the complete browser suite before any production deployment.
+
+Install Chromium once on a development machine with `npx playwright install chromium` before the first browser-suite run.
 
 ## Reasoning context changes
 

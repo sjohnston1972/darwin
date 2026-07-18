@@ -79,6 +79,28 @@ const evidence = {
     sessionCount: 6,
     participantCount: 4,
     completedAttemptCount: 3,
+    terminalAttemptCount: 4,
+    dimensions: {
+      volume: { score: 100, observedEvents: 84, minimumEvents: 20 },
+      diversity: {
+        score: 100,
+        observedParticipants: 4,
+        minimumParticipants: 3,
+        observedSessions: 6,
+        minimumSessions: 3,
+      },
+      completion: {
+        score: 80,
+        terminalAttempts: 4,
+        minimumTerminalAttempts: 5,
+      },
+      recency: {
+        score: 100,
+        latestEventAt: timestamp,
+        maximumAgeDays: 30,
+      },
+      weakestScore: 80,
+    },
     limitations: ['One task has fewer than five completed attempts.'],
   },
   journeys: [
@@ -103,6 +125,10 @@ const evidence = {
   ],
   frictionSignals,
   applicationMap: {
+    source: {
+      repositorySha: 'a'.repeat(40),
+      sourceHash: 'b'.repeat(64),
+    },
     product: {
       name: 'ProjectFlow',
       purpose: 'Project management workspace.',
@@ -110,8 +136,7 @@ const evidence = {
       domainEntities: ['project', 'task', 'user'],
       primaryGoals: ['find assigned work'],
     },
-    activeVariant: {
-      name: 'baseline',
+    activeGenome: {
       version: '1.0.0',
       navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
       capabilities: ['project-scoped task search'],
@@ -142,7 +167,16 @@ const installApi = async (page: Page) => {
     if (path.endsWith('/api/auth/session')) {
       return json(route, {
         actor: 'playwright-operator',
-        capabilities: ['observe', 'mutate', 'admin'],
+        capabilities: [
+          'observe',
+          'inspect_evidence',
+          'reason',
+          'execute',
+          'release',
+          'reset',
+          'connect',
+          'simulate',
+        ],
       });
     }
     if (path.endsWith('/api/health')) {
@@ -150,6 +184,27 @@ const installApi = async (page: Page) => {
         status: 'ok',
         service: 'darwin-api',
         version: '0.23.0',
+        commitSha: 'a'.repeat(40),
+        buildId: 'observation-visual-test',
+        retention: {
+          status: 'healthy',
+          policy: {
+            version: '1.0.0',
+            rawTelemetryDays: 30,
+            workspaceDays: 30,
+            derivedEvidenceDays: 90,
+            executionArtifactDays: 30,
+            fossilRecordDays: 365,
+            operationalAuditDays: 90,
+            maxEventsPerStudy: 10_000,
+            maxEventsPerTarget: 100_000,
+          },
+          eventCount: 84,
+          studyCount: 1,
+          largestStudyEventCount: 84,
+          expiredRecordCount: 0,
+          lastSweepAt: null,
+        },
         analysis: {
           mode: 'live',
           model: 'gpt-5.6',
@@ -158,10 +213,12 @@ const installApi = async (page: Page) => {
         timestamp,
       });
     }
-    if (path.endsWith('/events')) {
+    if (path.endsWith('/events/raw')) {
       return json(route, {
         studyId: 'projectflow-baseline-study',
         events: [],
+        cursor: null,
+        hasMore: false,
         count: 84,
         sessionCounts: {
           'session-observation-test': 24,
@@ -187,12 +244,18 @@ const installApi = async (page: Page) => {
           genomeEvolutionCount: 0,
         },
         executions: [],
+        fitnessOutcomes: [],
+        page: { limit: 10, nextCursor: null },
       });
     }
     if (path.endsWith('/api/observations/archives')) {
-      return json(route, { archives: [] });
+      return json(route, {
+        archives: [],
+        page: { limit: 10, nextCursor: null },
+      });
     }
     if (path.endsWith('/api/target-connection')) return json(route, null, 204);
+    if (path.endsWith('/api/demo/reset')) return json(route, null, 204);
     return json(route, { error: 'unexpected_visual_test_route', path }, 404);
   });
 };

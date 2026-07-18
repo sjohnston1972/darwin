@@ -92,6 +92,12 @@ import {
   createResetExecution,
   updateResetExecution,
 } from './repository/reset-execution';
+import {
+  advanceE2EExecution,
+  advanceE2ERollback,
+  createE2EBoundaryFetch,
+  e2eFixturesEnabled,
+} from './testing/e2e-fixtures';
 
 export interface Env {
   DB?: D1Database;
@@ -124,6 +130,7 @@ export interface Env {
   DARWIN_OPERATOR_TOKEN?: string;
   DARWIN_VIEWER_TOKEN?: string;
   PROJECTFLOW_INGESTION_SECRET?: string;
+  DARWIN_E2E_FIXTURES?: string;
 }
 
 const defaultCorsHeaders = {
@@ -673,6 +680,13 @@ export const handleRequest = async (
   const { originAllowed } = requestCors;
   const json = (body: unknown, init: ResponseInit = {}) =>
     jsonResponse(body, init, corsHeaders);
+  const useE2EFixtures = e2eFixturesEnabled(
+    env?.DARWIN_E2E_FIXTURES,
+    url.hostname,
+  );
+  const providerFetch = (
+    pack?: Parameters<typeof createE2EBoundaryFetch>[0],
+  ) => (useE2EFixtures ? createE2EBoundaryFetch(pack) : undefined);
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -832,6 +846,7 @@ export const handleRequest = async (
           githubToken: env?.GITHUB_TOKEN,
           productionUrl: current.repository.productionUrl,
           studyUrl: current.repository.studyUrl,
+          fetch: providerFetch(),
         }),
     );
     await telemetryRepository.saveTargetConnection(
@@ -880,6 +895,7 @@ export const handleRequest = async (
         expectedAppVersion: execution.baselineCommit.slice(0, 12),
         timeoutMs: 500,
         pollIntervalMs: 0,
+        fetcher: providerFetch() ?? fetch,
       });
       const verifiedDeployment = {
         ...deployment,
@@ -1255,6 +1271,7 @@ export const handleRequest = async (
           captureRepositorySnapshot({
             ...requested,
             githubToken: env?.GITHUB_TOKEN,
+            fetch: providerFetch(),
           }),
       );
       const runtimeResponse = await observeProvider(
@@ -1467,7 +1484,10 @@ export const handleRequest = async (
       studyUrl: target.studyUrl,
     });
     await telemetryRepository.saveResetExecution(execution);
-    if (!env?.GITHUB_TOKEN && !env?.DARWIN_CALLBACK_TOKEN) {
+    if (
+      useE2EFixtures ||
+      (!env?.GITHUB_TOKEN && !env?.DARWIN_CALLBACK_TOKEN)
+    ) {
       resetSimulationStore();
       await telemetryRepository.reset({ preserveResetExecutions: true });
       execution = DemoResetExecutionSchema.parse({
@@ -1505,6 +1525,7 @@ export const handleRequest = async (
         callbackUrl: `${url.origin}/api/demo/reset/${execution.resetId}/callback`,
         callbackNonce: callbackCredential.nonce,
         policyHash: execution.policyHash,
+        fetch: providerFetch(),
       });
       execution = DemoResetExecutionSchema.parse({
         ...execution,
@@ -2017,6 +2038,7 @@ export const handleRequest = async (
             studyUrl:
               targetConnection?.repository.studyUrl ||
               configuredTarget(env).studyUrl,
+            fetch: providerFetch(),
           }),
       );
     } catch {
@@ -2068,6 +2090,7 @@ export const handleRequest = async (
               ? Math.min(90_000, Math.max(1_000, configuredTimeout))
               : 12_000,
             repositorySnapshot,
+            fetch: providerFetch(pack),
           }),
       );
       console.info(
@@ -2298,6 +2321,7 @@ export const handleRequest = async (
             callbackNonce: callbackCredential.nonce,
             manifestHash: manifest.manifestHash,
             callbackUrl: `${url.origin}/api/repository-executions/${dispatchExecution.executionId}/callback`,
+            fetch: providerFetch(),
           }),
       );
       const queued = updateRepositoryExecution(execution, {
@@ -2401,6 +2425,7 @@ export const handleRequest = async (
           callbackNonce: callbackCredential.nonce,
           manifestHash: manifest.manifestHash,
           callbackUrl: `${url.origin}/api/repository-executions/${dispatchExecution.executionId}/rollback/callback`,
+          fetch: providerFetch(),
         }),
       );
       const queued = updateRepositoryRollback(execution, {
@@ -2447,8 +2472,20 @@ export const handleRequest = async (
   );
   if (request.method === 'GET' && repositoryExecutionMatch) {
     const executionId = decodeURIComponent(repositoryExecutionMatch[1]!);
-    const execution =
+    let execution =
       await telemetryRepository.getRepositoryExecution(executionId);
+    if (execution && useE2EFixtures) {
+      const current = execution;
+      const advanced = current.rollback
+        ? advanceE2ERollback(current)
+        : advanceE2EExecution(current);
+      if (
+        advanced !== current &&
+        (await telemetryRepository.saveRepositoryExecution(advanced, current))
+      ) {
+        execution = advanced;
+      }
+    }
     return execution
       ? json(RepositoryMutationExecutionSchema.parse(execution))
       : json(
@@ -2837,6 +2874,7 @@ export const handleRequest = async (
             token: env.GITHUB_TOKEN!,
             execution: releasingExecution,
             rollback: releasingExecution.rollback!,
+            fetch: providerFetch(),
           }),
       );
       const released = updateRepositoryRollback(execution, {
@@ -2955,6 +2993,7 @@ export const handleRequest = async (
             mergeEvolutionPullRequest({
               token: env.GITHUB_TOKEN!,
               execution: releasingExecution,
+              fetch: providerFetch(),
             }),
         );
         const deploymentVerifying = updateRepositoryExecution(execution, {
@@ -3031,6 +3070,7 @@ export const handleRequest = async (
             pollIntervalMs: Number.isFinite(configuredPoll)
               ? configuredPoll
               : 5_000,
+            fetcher: providerFetch() ?? fetch,
           }),
       );
       await refreshVerifiedTargetSnapshot({

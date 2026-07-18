@@ -805,6 +805,7 @@ export function useLiveTelemetry({
         );
         if (!active) return;
         setWorkflow((current) => ({ ...current, execution: latest }));
+        genomeDetailCache.current.set(latest.executionId, latest);
         failureCount = 0;
         if (shouldPollRepositoryExecution(latest)) {
           schedule(executionPollBaseMs);

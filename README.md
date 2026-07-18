@@ -195,10 +195,15 @@ npm run format:check
 npm run docs:check
 npm run typecheck
 npm run test
+npm run test:e2e
 npm run build
 ```
 
 The deterministic reasoning context is regenerated during `npm run build` and verified during `npm run typecheck`. The generated Worker route reference comes from the checked route contract; use `npm run docs:generate` after route changes and `npm run docs:check` to verify it.
+
+The Playwright suite starts Darwin's real local Worker with an isolated D1 database plus the standalone ProjectFlow application. Only the OpenAI and GitHub network boundaries use deterministic fixtures, and that fixture mode is rejected on non-localhost requests. Set `PROJECTFLOW_E2E_DIR` when ProjectFlow is not available at `../projectflow`. Pull-request CI runs the `@smoke` browser path; the deployment workflow runs the complete suite.
+
+Install the local browser runtime once with `npx playwright install chromium` before the first browser-suite run.
 
 ## Deployment
 

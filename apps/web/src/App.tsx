@@ -3475,6 +3475,7 @@ function ObservationArchiveArtifact({
   const deepLinked =
     window.location.hash === `#observation-${archive.archiveId}`;
   const [open, setOpen] = useState(deepLinked);
+
   const hydrate = async () => {
     if (detail || loading) return;
     setLoading(true);
@@ -3666,6 +3667,11 @@ function FossilExecutionArtifact({
   const deepLinked =
     window.location.hash === `#fossil-${execution.executionId}`;
   const [open, setOpen] = useState(deepLinked);
+
+  useEffect(() => {
+    if (executionDetail) setDetail(executionDetail);
+  }, [executionDetail]);
+
   const hydrate = async () => {
     if (detail || loading) return;
     setLoading(true);
