@@ -90,7 +90,7 @@ flowchart LR
 
 Every analysis stores the ProjectFlow base SHA and a SHA-256 fingerprint of the exact source context. Every manifest is bound to that analysis, evidence hash, repository commit, allowed paths, protected paths, and validation commands.
 
-Read the detailed [Architecture wiki page](docs/wiki/Architecture.md) and [controlled evolution workflow](docs/wiki/AI-and-Mutation-Workflow.md).
+Read the canonical [technical architecture](docs/ARCHITECTURE.md), the [Architecture wiki companion](docs/wiki/Architecture.md), and the [controlled evolution workflow](docs/wiki/AI-and-Mutation-Workflow.md).
 
 ## Evidence boundary
 
@@ -186,12 +186,13 @@ The GitHub token requires the ProjectFlow permissions needed to dispatch Actions
 ```powershell
 npm run lint
 npm run format:check
+npm run docs:check
 npm run typecheck
 npm run test
 npm run build
 ```
 
-The deterministic reasoning context is regenerated during `npm run build` and verified during `npm run typecheck`.
+The deterministic reasoning context is regenerated during `npm run build` and verified during `npm run typecheck`. The generated Worker route reference comes from the checked route contract; use `npm run docs:generate` after route changes and `npm run docs:check` to verify it.
 
 ## Deployment
 
@@ -233,6 +234,12 @@ Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [op
 
 ## Documentation
 
+- [Current product specification](docs/PRODUCT_SPEC.md)
+- [Canonical technical architecture](docs/ARCHITECTURE.md)
+- [Real telemetry and evidence plan](docs/REAL_TELEMETRY_PLAN.md)
+- [Three-minute demo source](docs/DEMO_SCRIPT.md)
+- [Generated Worker API routes](docs/generated/API_ROUTES.md)
+- [Documentation ownership and freshness](docs/DOCUMENTATION.md)
 - [GitHub wiki](https://github.com/sjohnston1972/darwin/wiki)
 - [Wiki source in this repository](docs/wiki/Home.md)
 - [Architecture](docs/wiki/Architecture.md)

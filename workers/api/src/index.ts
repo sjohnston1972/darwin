@@ -67,6 +67,7 @@ import {
   issueExecutionCallbackCredential,
   verifyExecutionCallback,
 } from './security/callback';
+import { findApiRoute } from './api-route-contract';
 
 export interface Env {
   DB?: D1Database;
@@ -127,54 +128,8 @@ const jsonResponse = (
 const requiredOperatorCapability = (
   method: string,
   pathname: string,
-): OperatorCapability => {
-  if (pathname === '/api/demo/reset') return 'reset';
-  if (
-    pathname === '/api/retention/sweep' ||
-    (method === 'DELETE' &&
-      (pathname.startsWith('/api/studies/') ||
-        pathname.startsWith('/api/repository-executions/')))
-  ) {
-    return 'reset';
-  }
-  if (pathname.startsWith('/api/target-connection')) {
-    return method === 'GET' ? 'observe' : 'connect';
-  }
-  if (pathname === '/api/simulations') return 'simulate';
-  if (/\/release$/.test(pathname)) return 'release';
-  if (method === 'POST' && pathname.includes('/analyse-evidence')) {
-    return 'reason';
-  }
-  if (method === 'POST' && pathname.endsWith('/evidence')) return 'reason';
-  if (
-    method === 'POST' &&
-    (pathname.includes('/codex-manifest') ||
-      pathname.includes('/repository-executions'))
-  ) {
-    return 'execute';
-  }
-  if (
-    (method === 'GET' && /\/events\/raw$/.test(pathname)) ||
-    pathname === '/api/genome' ||
-    pathname === '/api/observations/archives' ||
-    pathname.includes('/sessions/') ||
-    pathname.includes('/evidence') ||
-    pathname.includes('/repository-executions') ||
-    pathname.startsWith('/api/simulations/')
-  ) {
-    return 'inspect_evidence';
-  }
-  return 'observe';
-};
-
-const isCallbackRoute = (pathname: string) =>
-  /^\/api\/repository-executions\/[^/]+\/(?:manifest|callback|rollback\/callback)$/.test(
-    pathname,
-  );
-
-const isTargetRoute = (pathname: string) =>
-  pathname === '/api/telemetry/events' ||
-  /^\/api\/studies\/[^/]+\/participants\/[^/]+\/workspace$/.test(pathname);
+): OperatorCapability =>
+  findApiRoute(method, pathname)?.capability ?? 'observe';
 
 const auditOperatorAuthorization = ({
   request,
@@ -417,10 +372,11 @@ export const handleRequest = async (
   }
 
   let operatorIdentity: OperatorIdentity | null = null;
+  const routeAccess = findApiRoute(request.method, pathname)?.access;
   if (
-    pathname !== '/api/health' &&
-    !isTargetRoute(pathname) &&
-    !isCallbackRoute(pathname)
+    routeAccess !== 'public' &&
+    routeAccess !== 'target' &&
+    routeAccess !== 'callback'
   ) {
     const capability = requiredOperatorCapability(request.method, pathname);
     const authorization = await authorizeOperator(request, env, capability);

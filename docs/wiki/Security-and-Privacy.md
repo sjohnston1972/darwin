@@ -1,5 +1,7 @@
 # Security and Privacy
 
+> Canonical trust boundaries: [`docs/ARCHITECTURE.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/ARCHITECTURE.md). Canonical telemetry boundary: [`docs/REAL_TELEMETRY_PLAN.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/REAL_TELEMETRY_PLAN.md).
+
 ## Security posture
 
 Darwin is a public hackathon proof of life connected to one configured public demo target. It demonstrates a controlled workflow, but the current public deployment is not approved for private repositories, customer telemetry, personal data, or unsupervised production changes.

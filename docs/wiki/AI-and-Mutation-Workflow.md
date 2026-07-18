@@ -1,5 +1,7 @@
 # AI and Mutation Workflow
 
+> Canonical product boundary: [`docs/PRODUCT_SPEC.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/PRODUCT_SPEC.md). Canonical trust and repository flow: [`docs/ARCHITECTURE.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/ARCHITECTURE.md).
+
 ## Roles
 
 Darwin separates three responsibilities:

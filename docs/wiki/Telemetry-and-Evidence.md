@@ -1,5 +1,7 @@
 # Telemetry and Evidence
 
+> Canonical collection and parsing plan: [`docs/REAL_TELEMETRY_PLAN.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/REAL_TELEMETRY_PLAN.md). This page explains how to operate the current implementation.
+
 ## Design goal
 
 Darwin needs enough behavioral context to reason about product friction without turning the telemetry client into a session-replay recorder.

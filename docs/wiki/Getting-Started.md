@@ -1,5 +1,7 @@
 # Getting Started
 
+> Canonical installation and supported workflow: [`README.md`](https://github.com/sjohnston1972/darwin/blob/main/README.md). This page expands the first-run walkthrough.
+
 ## Prerequisites
 
 - Node.js 22 or newer

@@ -1,5 +1,7 @@
 # Operations and Deployment
 
+> Canonical deployment entry point: [`README.md`](https://github.com/sjohnston1972/darwin/blob/main/README.md). This page owns operational detail and is reviewed with the [documentation freshness checklist](https://github.com/sjohnston1972/darwin/blob/main/docs/DOCUMENTATION.md).
+
 ## Production components
 
 | Component         | Platform          | Identifier            |

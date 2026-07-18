@@ -1,5 +1,7 @@
 # Troubleshooting
 
+> Canonical supported commands and deployment flow: [`README.md`](https://github.com/sjohnston1972/darwin/blob/main/README.md). Update this page whenever a release changes a failure or recovery path.
+
 ## Darwin API shows offline
 
 1. Open `/api/health` directly.

@@ -1,0 +1,337 @@
+import type { OperatorCapability } from './security/auth';
+
+export type ApiRouteAccess =
+  'public' | 'session' | 'operator' | 'target' | 'callback';
+export type ApiRouteGroup =
+  | 'Runtime and history'
+  | 'Retention and deletion'
+  | 'Target connection'
+  | 'Telemetry and workspaces'
+  | 'Evidence and reasoning'
+  | 'Manifest and execution'
+  | 'Repository callbacks'
+  | 'Synthetic scale replay';
+
+export interface ApiRouteDefinition {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  path: string;
+  group: ApiRouteGroup;
+  access: ApiRouteAccess;
+  capability: OperatorCapability | null;
+  purpose: string;
+}
+
+export const apiRouteContract = [
+  {
+    method: 'GET',
+    path: '/api/health',
+    group: 'Runtime and history',
+    access: 'public',
+    capability: null,
+    purpose: 'Report service, build, and live-reasoning availability.',
+  },
+  {
+    method: 'GET',
+    path: '/api/auth/session',
+    group: 'Runtime and history',
+    access: 'session',
+    capability: null,
+    purpose: 'Validate an operator credential and return its capabilities.',
+  },
+  {
+    method: 'GET',
+    path: '/api/genome',
+    group: 'Runtime and history',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return the evolution cycle and repository execution history.',
+  },
+  {
+    method: 'GET',
+    path: '/api/observations/archives',
+    group: 'Runtime and history',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return retained evidence and analysis summaries.',
+  },
+  {
+    method: 'GET',
+    path: '/api/operations/metrics',
+    group: 'Runtime and history',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return aggregate telemetry and security counters.',
+  },
+  {
+    method: 'POST',
+    path: '/api/retention/sweep',
+    group: 'Retention and deletion',
+    access: 'operator',
+    capability: 'reset',
+    purpose: 'Run the bounded retention and compaction sweep.',
+  },
+  {
+    method: 'DELETE',
+    path: '/api/studies/:studyId/participants/:participantId',
+    group: 'Retention and deletion',
+    access: 'operator',
+    capability: 'reset',
+    purpose: 'Delete one participant and invalidate derived evidence.',
+  },
+  {
+    method: 'DELETE',
+    path: '/api/studies/:studyId',
+    group: 'Retention and deletion',
+    access: 'operator',
+    capability: 'reset',
+    purpose: 'Delete one study and its derived artifacts.',
+  },
+  {
+    method: 'DELETE',
+    path: '/api/repository-executions/:executionId/artifacts',
+    group: 'Retention and deletion',
+    access: 'operator',
+    capability: 'reset',
+    purpose: 'Delete one execution artifact bundle and callback material.',
+  },
+  {
+    method: 'GET',
+    path: '/api/target-connection',
+    group: 'Target connection',
+    access: 'operator',
+    capability: 'observe',
+    purpose: 'Return the verified ProjectFlow connection or 204.',
+  },
+  {
+    method: 'POST',
+    path: '/api/target-connection',
+    group: 'Target connection',
+    access: 'operator',
+    capability: 'connect',
+    purpose: 'Verify and persist the configured target boundary.',
+  },
+  {
+    method: 'POST',
+    path: '/api/target-connection/disconnect',
+    group: 'Target connection',
+    access: 'operator',
+    capability: 'connect',
+    purpose: 'Remove the active target connection.',
+  },
+  {
+    method: 'POST',
+    path: '/api/demo/reset',
+    group: 'Target connection',
+    access: 'operator',
+    capability: 'reset',
+    purpose: 'Clear Darwin demo state and dispatch target restoration.',
+  },
+  {
+    method: 'POST',
+    path: '/api/telemetry/events',
+    group: 'Telemetry and workspaces',
+    access: 'target',
+    capability: null,
+    purpose: 'Ingest a signed batch of semantic telemetry events.',
+  },
+  {
+    method: 'GET',
+    path: '/api/studies/:studyId/events',
+    group: 'Telemetry and workspaces',
+    access: 'operator',
+    capability: 'observe',
+    purpose: 'Return aggregate measured study counts.',
+  },
+  {
+    method: 'GET',
+    path: '/api/studies/:studyId/events/raw',
+    group: 'Telemetry and workspaces',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return recent pseudonymous event records.',
+  },
+  {
+    method: 'GET',
+    path: '/api/studies/:studyId/sessions/:sessionId',
+    group: 'Telemetry and workspaces',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return one ordered measured session trace.',
+  },
+  {
+    method: 'GET',
+    path: '/api/studies/:studyId/participants/:participantId/workspace',
+    group: 'Telemetry and workspaces',
+    access: 'target',
+    capability: null,
+    purpose: 'Return an anonymous participant workspace.',
+  },
+  {
+    method: 'PUT',
+    path: '/api/studies/:studyId/participants/:participantId/workspace',
+    group: 'Telemetry and workspaces',
+    access: 'target',
+    capability: null,
+    purpose: 'Replace a validated anonymous participant workspace.',
+  },
+  {
+    method: 'POST',
+    path: '/api/studies/:studyId/evidence',
+    group: 'Evidence and reasoning',
+    access: 'operator',
+    capability: 'reason',
+    purpose: 'Build and persist deterministic measured evidence.',
+  },
+  {
+    method: 'GET',
+    path: '/api/studies/:studyId/evidence/latest',
+    group: 'Evidence and reasoning',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return the latest current-cycle evidence pack.',
+  },
+  {
+    method: 'POST',
+    path: '/api/studies/:studyId/analyse-evidence',
+    group: 'Evidence and reasoning',
+    access: 'operator',
+    capability: 'reason',
+    purpose: 'Invoke and cache live evidence-citing GPT reasoning.',
+  },
+  {
+    method: 'GET',
+    path: '/api/studies/:studyId/evidence-analysis/latest',
+    group: 'Evidence and reasoning',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return the latest current-cycle analysis.',
+  },
+  {
+    method: 'GET',
+    path: '/api/evidence-analyses/:analysisId/codex-manifest',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return the immutable implementation manifest.',
+  },
+  {
+    method: 'POST',
+    path: '/api/evidence-analyses/:analysisId/codex-manifest',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'execute',
+    purpose: 'Build a manifest for the human-selected mutation bundle.',
+  },
+  {
+    method: 'GET',
+    path: '/api/evidence-analyses/:analysisId/codex-manifest/execution',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return the manifest execution or 204.',
+  },
+  {
+    method: 'POST',
+    path: '/api/evidence-analyses/:analysisId/codex-manifest/execution',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'execute',
+    purpose: 'Dispatch the bounded ProjectFlow mutation workflow.',
+  },
+  {
+    method: 'GET',
+    path: '/api/repository-executions/:executionId',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Poll the real repository execution state.',
+  },
+  {
+    method: 'POST',
+    path: '/api/repository-executions/:executionId/release',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'release',
+    purpose: 'Merge the reviewed mutation pull request.',
+  },
+  {
+    method: 'POST',
+    path: '/api/repository-executions/:executionId/rollback',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'execute',
+    purpose: 'Dispatch the controlled rollback workflow.',
+  },
+  {
+    method: 'POST',
+    path: '/api/repository-executions/:executionId/rollback/release',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'release',
+    purpose: 'Merge the reviewed rollback pull request.',
+  },
+  {
+    method: 'GET',
+    path: '/api/repository-executions/:executionId/manifest',
+    group: 'Repository callbacks',
+    access: 'callback',
+    capability: null,
+    purpose: 'Let the signed workflow retrieve its execution manifest.',
+  },
+  {
+    method: 'POST',
+    path: '/api/repository-executions/:executionId/callback',
+    group: 'Repository callbacks',
+    access: 'callback',
+    capability: null,
+    purpose: 'Apply a signed mutation execution transition.',
+  },
+  {
+    method: 'POST',
+    path: '/api/repository-executions/:executionId/rollback/callback',
+    group: 'Repository callbacks',
+    access: 'callback',
+    capability: null,
+    purpose: 'Apply a signed rollback execution transition.',
+  },
+  {
+    method: 'POST',
+    path: '/api/simulations',
+    group: 'Synthetic scale replay',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Run the deterministic 10,000-event synthetic replay.',
+  },
+  {
+    method: 'GET',
+    path: '/api/simulations/:runId',
+    group: 'Synthetic scale replay',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return synthetic replay metadata.',
+  },
+  {
+    method: 'GET',
+    path: '/api/simulations/:runId/summary',
+    group: 'Synthetic scale replay',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return deterministic synthetic aggregates.',
+  },
+] as const satisfies readonly ApiRouteDefinition[];
+
+const matchesPath = (template: string, pathname: string) => {
+  const expected = template.split('/');
+  const actual = pathname.split('/');
+  return (
+    expected.length === actual.length &&
+    expected.every(
+      (segment, index) => segment.startsWith(':') || segment === actual[index],
+    )
+  );
+};
+
+export const findApiRoute = (method: string, pathname: string) =>
+  apiRouteContract.find(
+    (route) => route.method === method && matchesPath(route.path, pathname),
+  );
