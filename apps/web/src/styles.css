@@ -2988,6 +2988,31 @@ a:focus-visible {
   padding: 22px 24px;
 }
 
+.archive-pagination {
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid #2b302d;
+  padding: 18px 24px;
+}
+
+.archive-detail-state {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #a9b2ac;
+  font-size: 12px;
+}
+
+.archive-detail-state.is-error {
+  color: #ef9a89;
+}
+
+.archive-detail-state.is-error span {
+  margin-right: 8px;
+}
+
 .observation-archive-stats,
 .observation-archive-copy {
   display: grid;
@@ -3909,6 +3934,16 @@ html[data-theme='light'] .observation-archive-signals strong {
 
 html[data-theme='light'] .observation-archive-copy p {
   color: #536b7d;
+}
+
+html[data-theme='light'] .archive-pagination,
+html[data-theme='light'] .archive-detail-state {
+  border-color: #cbd8e2;
+  color: #5f7485;
+}
+
+html[data-theme='light'] .archive-detail-state.is-error {
+  color: #984239;
 }
 
 html[data-theme='light'] .status-badge,

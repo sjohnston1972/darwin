@@ -30,6 +30,27 @@ export interface ExecutionCallbackCredential {
   createdAt: string;
 }
 
+export interface CursorPageOptions {
+  limit: number;
+  cursor?: string | null;
+}
+
+export interface RepositoryExecutionPage {
+  executions: RepositoryMutationExecution[];
+  nextCursor: string | null;
+}
+
+export interface ObservationArchiveRecord {
+  execution: RepositoryMutationExecution;
+  analysis: EvidenceAnalysis;
+  evidence: EvidencePack;
+}
+
+export interface ObservationArchivePage {
+  archives: ObservationArchiveRecord[];
+  nextCursor: string | null;
+}
+
 export interface TelemetryRepository {
   insertEvents(
     events: StudyTelemetryEvent[],
@@ -87,6 +108,15 @@ export interface TelemetryRepository {
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
   listRepositoryExecutions(): Promise<RepositoryMutationExecution[]>;
+  listRepositoryExecutionPage(
+    options: CursorPageOptions,
+  ): Promise<RepositoryExecutionPage>;
+  getObservationArchive(
+    executionId: string,
+  ): Promise<ObservationArchiveRecord | null>;
+  listObservationArchivePage(
+    options: CursorPageOptions,
+  ): Promise<ObservationArchivePage>;
   saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ): Promise<void>;
@@ -126,6 +156,70 @@ const defaultEvolutionCycle = (): EvolutionCycle => ({
   genomeEvolutionCount: 0,
 });
 let evolutionCycleStore = defaultEvolutionCycle();
+
+interface ExecutionCursor {
+  updatedAt: string;
+  executionId: string;
+}
+
+const encodeExecutionCursor = (execution: RepositoryMutationExecution) =>
+  btoa(`${execution.updatedAt}\n${execution.executionId}`)
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
+
+const decodeExecutionCursor = (
+  cursor?: string | null,
+): ExecutionCursor | null => {
+  if (!cursor) return null;
+  try {
+    const normalized = cursor.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      '=',
+    );
+    const [updatedAt, executionId, ...extra] = atob(padded).split('\n');
+    if (
+      !updatedAt ||
+      !executionId ||
+      extra.length > 0 ||
+      Number.isNaN(Date.parse(updatedAt))
+    ) {
+      throw new Error('invalid_cursor');
+    }
+    return { updatedAt, executionId };
+  } catch {
+    throw new Error('invalid_cursor');
+  }
+};
+
+const executionPrecedesCursor = (
+  execution: RepositoryMutationExecution,
+  cursor: ExecutionCursor,
+) =>
+  execution.updatedAt < cursor.updatedAt ||
+  (execution.updatedAt === cursor.updatedAt &&
+    execution.executionId < cursor.executionId);
+
+const paginateExecutions = (
+  executions: RepositoryMutationExecution[],
+  options: CursorPageOptions,
+): RepositoryExecutionPage => {
+  const cursor = decodeExecutionCursor(options.cursor);
+  const eligible = cursor
+    ? executions.filter((execution) =>
+        executionPrecedesCursor(execution, cursor),
+      )
+    : executions;
+  const page = eligible.slice(0, options.limit);
+  return {
+    executions: page,
+    nextCursor:
+      eligible.length > options.limit && page.length
+        ? encodeExecutionCursor(page.at(-1)!)
+        : null,
+  };
+};
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -298,8 +392,46 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
 
   async listRepositoryExecutions() {
     return [...repositoryExecutionStore.values()].sort((left, right) =>
-      right.createdAt.localeCompare(left.createdAt),
+      right.updatedAt === left.updatedAt
+        ? right.executionId.localeCompare(left.executionId)
+        : right.updatedAt.localeCompare(left.updatedAt),
     );
+  }
+
+  async listRepositoryExecutionPage(options: CursorPageOptions) {
+    return paginateExecutions(await this.listRepositoryExecutions(), options);
+  }
+
+  async getObservationArchive(executionId: string) {
+    const execution = await this.getRepositoryExecution(executionId);
+    if (!execution || !['released', 'failed'].includes(execution.status)) {
+      return null;
+    }
+    const analysis = await this.getEvidenceAnalysis(execution.analysisId);
+    if (!analysis) return null;
+    const evidence = await this.getEvidence(analysis.evidenceId);
+    return evidence ? { execution, analysis, evidence } : null;
+  }
+
+  async listObservationArchivePage(options: CursorPageOptions) {
+    const completed = (await this.listRepositoryExecutions()).filter(
+      (execution) => ['released', 'failed'].includes(execution.status),
+    );
+    const page = paginateExecutions(completed, options);
+    const analysisById = new Map(
+      [...evidenceAnalysisStore.values()].map(({ analysis }) => [
+        analysis.analysisId,
+        analysis,
+      ]),
+    );
+    const archives = page.executions.flatMap((execution) => {
+      const analysis = analysisById.get(execution.analysisId);
+      const evidence = analysis
+        ? evidenceByIdStore.get(analysis.evidenceId)
+        : undefined;
+      return analysis && evidence ? [{ execution, analysis, evidence }] : [];
+    });
+    return { archives, nextCursor: page.nextCursor };
   }
 
   async saveExecutionCallbackCredential(
@@ -732,6 +864,109 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return result.results.map(
       (row) => JSON.parse(row.execution_json) as RepositoryMutationExecution,
     );
+  }
+
+  async listRepositoryExecutionPage(options: CursorPageOptions) {
+    const cursor = decodeExecutionCursor(options.cursor);
+    const cursorClause = cursor
+      ? `WHERE updated_at < ? OR (updated_at = ? AND execution_id < ?)`
+      : '';
+    const statement = this.database.prepare(
+      `SELECT execution_json
+       FROM repository_executions
+       ${cursorClause}
+       ORDER BY updated_at DESC, execution_id DESC
+       LIMIT ?`,
+    );
+    const bound = cursor
+      ? statement.bind(
+          cursor.updatedAt,
+          cursor.updatedAt,
+          cursor.executionId,
+          options.limit + 1,
+        )
+      : statement.bind(options.limit + 1);
+    const result = await bound.all<{ execution_json: string }>();
+    const executions = result.results.map(
+      (row) => JSON.parse(row.execution_json) as RepositoryMutationExecution,
+    );
+    const page = executions.slice(0, options.limit);
+    return {
+      executions: page,
+      nextCursor:
+        executions.length > options.limit && page.length
+          ? encodeExecutionCursor(page.at(-1)!)
+          : null,
+    };
+  }
+
+  async getObservationArchive(executionId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT r.execution_json, a.analysis_json, e.evidence_pack_json
+         FROM repository_executions r
+         JOIN evidence_analyses a ON a.analysis_id = r.analysis_id
+         JOIN analysis_runs e ON e.evidence_id = a.evidence_id
+         WHERE r.execution_id = ? AND r.status IN ('released', 'failed')
+         LIMIT 1`,
+      )
+      .bind(executionId)
+      .first<{
+        execution_json: string;
+        analysis_json: string;
+        evidence_pack_json: string;
+      }>();
+    return row
+      ? {
+          execution: JSON.parse(
+            row.execution_json,
+          ) as RepositoryMutationExecution,
+          analysis: JSON.parse(row.analysis_json) as EvidenceAnalysis,
+          evidence: JSON.parse(row.evidence_pack_json) as EvidencePack,
+        }
+      : null;
+  }
+
+  async listObservationArchivePage(options: CursorPageOptions) {
+    const cursor = decodeExecutionCursor(options.cursor);
+    const cursorClause = cursor
+      ? `AND (r.updated_at < ? OR (r.updated_at = ? AND r.execution_id < ?))`
+      : '';
+    const statement = this.database.prepare(
+      `SELECT r.execution_json, a.analysis_json, e.evidence_pack_json
+       FROM repository_executions r
+       JOIN evidence_analyses a ON a.analysis_id = r.analysis_id
+       JOIN analysis_runs e ON e.evidence_id = a.evidence_id
+       WHERE r.status IN ('released', 'failed') ${cursorClause}
+       ORDER BY r.updated_at DESC, r.execution_id DESC
+       LIMIT ?`,
+    );
+    const bound = cursor
+      ? statement.bind(
+          cursor.updatedAt,
+          cursor.updatedAt,
+          cursor.executionId,
+          options.limit + 1,
+        )
+      : statement.bind(options.limit + 1);
+    const result = await bound.all<{
+      execution_json: string;
+      analysis_json: string;
+      evidence_pack_json: string;
+    }>();
+    const records = result.results.map((row) => ({
+      execution: JSON.parse(row.execution_json) as RepositoryMutationExecution,
+      analysis: JSON.parse(row.analysis_json) as EvidenceAnalysis,
+      evidence: JSON.parse(row.evidence_pack_json) as EvidencePack,
+    }));
+    const archives = records.slice(0, options.limit);
+    return {
+      archives,
+      nextCursor:
+        records.length > options.limit && archives.length
+          ? encodeExecutionCursor(archives.at(-1)!.execution)
+          : null,
+    };
   }
 
   async saveExecutionCallbackCredential(

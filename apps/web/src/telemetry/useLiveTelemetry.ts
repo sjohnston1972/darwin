@@ -2,7 +2,9 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
+  ObservationArchiveDetailResponseSchema,
   ObservationArchivesResponseSchema,
   RepositoryMutationExecutionSchema,
   StudyEventsResponseSchema,
@@ -10,7 +12,9 @@ import {
   type EvidenceAnalysis,
   type EvidencePack,
   type ObservationArchive,
+  type ObservationArchiveSummary,
   type RepositoryMutationExecution,
+  type RepositoryExecutionSummary,
   type StoredTelemetryEvent,
 } from '@darwin/shared';
 import { apiFetch } from '../api';
@@ -19,6 +23,17 @@ import { useEffect, useRef, useState } from 'react';
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const studyId = 'projectflow-baseline-study';
 const eventWindowLimit = 200;
+
+const artifactDeepLink = (kind: 'fossil' | 'observation') => {
+  if (typeof window === 'undefined') return null;
+  const prefix = `#${kind}-`;
+  if (!window.location.hash.startsWith(prefix)) return null;
+  try {
+    return decodeURIComponent(window.location.hash.slice(prefix.length));
+  } catch {
+    return null;
+  }
+};
 
 export interface LiveTelemetryState {
   behaviorSignalCount: number;
@@ -31,11 +46,19 @@ export interface LiveTelemetryState {
   error: string | null;
   events: StoredTelemetryEvent[];
   genomeEvolutionCount: number;
-  genomeExecutions: RepositoryMutationExecution[];
+  genomeExecutions: RepositoryExecutionSummary[];
+  genomeNextCursor: string | null;
+  loadGenomeExecution: (
+    executionId: string,
+  ) => Promise<RepositoryMutationExecution>;
+  loadMoreGenome: () => Promise<void>;
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
-  observationArchives: ObservationArchive[];
+  observationArchives: ObservationArchiveSummary[];
+  observationArchivesNextCursor: string | null;
+  loadObservationArchive: (archiveId: string) => Promise<ObservationArchive>;
+  loadMoreObservationArchives: () => Promise<void>;
   execution: RepositoryMutationExecution | null;
   implementing: boolean;
   preparingManifest: boolean;
@@ -76,11 +99,32 @@ export function useLiveTelemetry(): LiveTelemetryState {
     useState<RepositoryMutationExecution | null>(null);
   const [genomeEvolutionCount, setGenomeEvolutionCount] = useState(0);
   const [genomeExecutions, setGenomeExecutions] = useState<
-    RepositoryMutationExecution[]
+    RepositoryExecutionSummary[]
   >([]);
   const [observationArchives, setObservationArchives] = useState<
-    ObservationArchive[]
+    ObservationArchiveSummary[]
   >([]);
+  const [genomeNextCursor, setGenomeNextCursor] = useState<string | null>(null);
+  const [observationArchivesNextCursor, setObservationArchivesNextCursor] =
+    useState<string | null>(null);
+  const genomeDetailCache = useRef(
+    new Map<string, RepositoryMutationExecution>(),
+  );
+  const genomeDetailSummaryCache = useRef(
+    new Map<string, RepositoryExecutionSummary>(),
+  );
+  const observationArchiveDetailCache = useRef(
+    new Map<string, ObservationArchive>(),
+  );
+  const observationArchiveDetailSummaryCache = useRef(
+    new Map<string, ObservationArchiveSummary>(),
+  );
+  const pendingGenomeDetails = useRef(
+    new Map<string, Promise<RepositoryMutationExecution>>(),
+  );
+  const pendingObservationArchiveDetails = useRef(
+    new Map<string, Promise<ObservationArchive>>(),
+  );
   const [implementing, setImplementing] = useState(false);
   const [releasingExecution, setReleasingExecution] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
@@ -90,20 +134,151 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const resetGeneration = useRef(0);
 
   const refreshGenome = async () => {
-    const response = await apiFetch(`${apiBaseUrl}/api/genome`);
+    const response = await apiFetch(`${apiBaseUrl}/api/genome?limit=10`);
     if (!response.ok) return;
     const history = GenomeHistoryResponseSchema.parse(await response.json());
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
     setGenomeExecutions(history.executions);
+    setGenomeNextCursor(history.page.nextCursor);
+    const deepLinkedId = artifactDeepLink('fossil');
+    if (
+      deepLinkedId &&
+      !history.executions.some(
+        (execution) => execution.executionId === deepLinkedId,
+      )
+    ) {
+      await loadGenomeExecution(deepLinkedId);
+    }
   };
 
   const refreshObservationArchives = async () => {
-    const response = await apiFetch(`${apiBaseUrl}/api/observations/archives`);
+    const response = await apiFetch(
+      `${apiBaseUrl}/api/observations/archives?limit=10`,
+    );
     if (!response.ok) return;
     const result = ObservationArchivesResponseSchema.parse(
       await response.json(),
     );
     setObservationArchives(result.archives);
+    setObservationArchivesNextCursor(result.page.nextCursor);
+    const deepLinkedId = artifactDeepLink('observation');
+    if (
+      deepLinkedId &&
+      !result.archives.some((archive) => archive.archiveId === deepLinkedId)
+    ) {
+      await loadObservationArchive(deepLinkedId);
+    }
+  };
+
+  const loadMoreGenome = async () => {
+    if (!genomeNextCursor) return;
+    const response = await apiFetch(
+      `${apiBaseUrl}/api/genome?limit=10&cursor=${encodeURIComponent(genomeNextCursor)}`,
+    );
+    if (!response.ok) throw new Error('Genome page request failed.');
+    const history = GenomeHistoryResponseSchema.parse(await response.json());
+    setGenomeExecutions((current) => {
+      const known = new Set(current.map((item) => item.executionId));
+      return [
+        ...current,
+        ...history.executions.filter((item) => !known.has(item.executionId)),
+      ];
+    });
+    setGenomeNextCursor(history.page.nextCursor);
+  };
+
+  const loadMoreObservationArchives = async () => {
+    if (!observationArchivesNextCursor) return;
+    const response = await apiFetch(
+      `${apiBaseUrl}/api/observations/archives?limit=10&cursor=${encodeURIComponent(observationArchivesNextCursor)}`,
+    );
+    if (!response.ok)
+      throw new Error('Observation archive page request failed.');
+    const result = ObservationArchivesResponseSchema.parse(
+      await response.json(),
+    );
+    setObservationArchives((current) => {
+      const known = new Set(current.map((item) => item.archiveId));
+      return [
+        ...current,
+        ...result.archives.filter((item) => !known.has(item.archiveId)),
+      ];
+    });
+    setObservationArchivesNextCursor(result.page.nextCursor);
+  };
+
+  const loadGenomeExecution = async (executionId: string) => {
+    const cached = genomeDetailCache.current.get(executionId);
+    const cachedSummary = genomeDetailSummaryCache.current.get(executionId);
+    if (cached && cachedSummary) {
+      setGenomeExecutions((current) =>
+        current.some((item) => item.executionId === executionId)
+          ? current
+          : [cachedSummary, ...current],
+      );
+      return cached;
+    }
+    const pending = pendingGenomeDetails.current.get(executionId);
+    if (pending) return pending;
+    const request = (async () => {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/genome/${encodeURIComponent(executionId)}`,
+      );
+      if (!response.ok) throw new Error('Genome artifact request failed.');
+      const result = GenomeExecutionDetailResponseSchema.parse(
+        await response.json(),
+      );
+      genomeDetailCache.current.set(executionId, result.execution);
+      genomeDetailSummaryCache.current.set(executionId, result.summary);
+      setGenomeExecutions((current) =>
+        current.some((item) => item.executionId === executionId)
+          ? current
+          : [result.summary, ...current],
+      );
+      return result.execution;
+    })().finally(() => pendingGenomeDetails.current.delete(executionId));
+    pendingGenomeDetails.current.set(executionId, request);
+    return request;
+  };
+
+  const loadObservationArchive = async (archiveId: string) => {
+    const cached = observationArchiveDetailCache.current.get(archiveId);
+    const cachedSummary =
+      observationArchiveDetailSummaryCache.current.get(archiveId);
+    if (cached && cachedSummary) {
+      setObservationArchives((current) =>
+        current.some((item) => item.archiveId === archiveId)
+          ? current
+          : [cachedSummary, ...current],
+      );
+      return cached;
+    }
+    const pending = pendingObservationArchiveDetails.current.get(archiveId);
+    if (pending) return pending;
+    const request = (async () => {
+      const response = await apiFetch(
+        `${apiBaseUrl}/api/observations/archives/${encodeURIComponent(archiveId)}`,
+      );
+      if (!response.ok) throw new Error('Observation archive request failed.');
+      const result = ObservationArchiveDetailResponseSchema.parse(
+        await response.json(),
+      );
+      observationArchiveDetailCache.current.set(archiveId, result.archive);
+      observationArchiveDetailSummaryCache.current.set(
+        archiveId,
+        result.summary,
+      );
+      setObservationArchives((current) =>
+        current.some((item) => item.archiveId === archiveId)
+          ? current
+          : [result.summary, ...current],
+      );
+      return result.archive;
+    })().finally(() =>
+      pendingObservationArchiveDetails.current.delete(archiveId),
+    );
+    pendingObservationArchiveDetails.current.set(archiveId, request);
+    return request;
   };
 
   const resetCurrentCycleMeasurements = () => {
@@ -378,22 +553,23 @@ export function useLiveTelemetry(): LiveTelemetryState {
   };
 
   const releaseExecution = async (executionId?: string) => {
-    const targetExecution =
-      (executionId
-        ? genomeExecutions.find((item) => item.executionId === executionId)
-        : execution) ?? execution;
-    if (!targetExecution) return;
+    const targetExecutionId = executionId ?? execution?.executionId;
+    if (!targetExecutionId) return;
     setReleasingExecution(true);
     setError(null);
     try {
       const response = await apiFetch(
-        `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/release`,
+        `${apiBaseUrl}/api/repository-executions/${targetExecutionId}/release`,
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
       if (parsedExecution.success) {
+        genomeDetailCache.current.set(
+          parsedExecution.data.executionId,
+          parsedExecution.data,
+        );
         setExecution(parsedExecution.data);
         if (parsedExecution.data.status === 'released') {
           resetCurrentCycleMeasurements();
@@ -419,22 +595,23 @@ export function useLiveTelemetry(): LiveTelemetryState {
   };
 
   const startRollback = async (executionId?: string) => {
-    const targetExecution =
-      (executionId
-        ? genomeExecutions.find((item) => item.executionId === executionId)
-        : execution) ?? execution;
-    if (!targetExecution) return;
+    const targetExecutionId = executionId ?? execution?.executionId;
+    if (!targetExecutionId) return;
     setRollingBack(true);
     setError(null);
     try {
       const response = await apiFetch(
-        `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/rollback`,
+        `${apiBaseUrl}/api/repository-executions/${targetExecutionId}/rollback`,
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
       if (parsedExecution.success) {
+        genomeDetailCache.current.set(
+          parsedExecution.data.executionId,
+          parsedExecution.data,
+        );
         setExecution(parsedExecution.data);
         await refreshGenome();
       }
@@ -456,22 +633,23 @@ export function useLiveTelemetry(): LiveTelemetryState {
   };
 
   const releaseRollback = async (executionId?: string) => {
-    const targetExecution =
-      (executionId
-        ? genomeExecutions.find((item) => item.executionId === executionId)
-        : execution) ?? execution;
-    if (!targetExecution?.rollback) return;
+    const targetExecutionId = executionId ?? execution?.executionId;
+    if (!targetExecutionId) return;
     setReleasingRollback(true);
     setError(null);
     try {
       const response = await apiFetch(
-        `${apiBaseUrl}/api/repository-executions/${targetExecution.executionId}/rollback/release`,
+        `${apiBaseUrl}/api/repository-executions/${targetExecutionId}/rollback/release`,
         { method: 'POST' },
       );
       const payload = (await response.json()) as { message?: string };
       const parsedExecution =
         RepositoryMutationExecutionSchema.safeParse(payload);
       if (parsedExecution.success) {
+        genomeDetailCache.current.set(
+          parsedExecution.data.executionId,
+          parsedExecution.data,
+        );
         setExecution(parsedExecution.data);
         await refreshGenome();
       }
@@ -506,6 +684,14 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setGenomeEvolutionCount(0);
     setGenomeExecutions([]);
     setObservationArchives([]);
+    setGenomeNextCursor(null);
+    setObservationArchivesNextCursor(null);
+    genomeDetailCache.current.clear();
+    genomeDetailSummaryCache.current.clear();
+    observationArchiveDetailCache.current.clear();
+    observationArchiveDetailSummaryCache.current.clear();
+    pendingGenomeDetails.current.clear();
+    pendingObservationArchiveDetails.current.clear();
     setError(null);
     setGenerating(false);
     setAnalysing(false);
@@ -552,9 +738,15 @@ export function useLiveTelemetry(): LiveTelemetryState {
     generating,
     genomeEvolutionCount,
     genomeExecutions,
+    genomeNextCursor,
     implementing,
     manifest,
+    loadGenomeExecution,
+    loadMoreGenome,
+    loadMoreObservationArchives,
+    loadObservationArchive,
     observationArchives,
+    observationArchivesNextCursor,
     participantCount,
     preparingManifest,
     releaseExecution,

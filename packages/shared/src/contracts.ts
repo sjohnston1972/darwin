@@ -882,9 +882,71 @@ export const EvolutionCycleSchema = z.object({
   genomeEvolutionCount: z.number().int().nonnegative(),
 });
 
+export const CursorPageSchema = z.object({
+  limit: z.number().int().min(1).max(25),
+  nextCursor: z.string().min(1).max(500).nullable(),
+});
+
+export const RepositoryRollbackSummarySchema = RepositoryRollbackSchema.pick({
+  rollbackId: true,
+  status: true,
+  revertedSha: true,
+  headSha: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+}).extend({
+  changedFileCount: z.number().int().nonnegative(),
+  checkSummary: z.object({
+    total: z.number().int().nonnegative(),
+    passed: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  hasPatch: z.boolean(),
+  hasError: z.boolean(),
+});
+
+export const RepositoryExecutionSummarySchema =
+  RepositoryMutationExecutionSchema.pick({
+    executionId: true,
+    manifestId: true,
+    analysisId: true,
+    status: true,
+    branch: true,
+    baseSha: true,
+    headSha: true,
+    createdAt: true,
+    updatedAt: true,
+    completedAt: true,
+  }).extend({
+    repository: RepositoryContextSchema.pick({
+      fullName: true,
+      url: true,
+      branch: true,
+      baseSha: true,
+      sourceHash: true,
+    }),
+    changedFileCount: z.number().int().nonnegative(),
+    checkSummary: z.object({
+      total: z.number().int().nonnegative(),
+      passed: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+    }),
+    hasPatch: z.boolean(),
+    hasCodexOutput: z.boolean(),
+    hasError: z.boolean(),
+    rollback: RepositoryRollbackSummarySchema.nullable(),
+  });
+
 export const GenomeHistoryResponseSchema = z.object({
   evolutionCycle: EvolutionCycleSchema,
-  executions: z.array(RepositoryMutationExecutionSchema),
+  executions: z.array(RepositoryExecutionSummarySchema).max(25),
+  page: CursorPageSchema,
+});
+
+export const GenomeExecutionDetailResponseSchema = z.object({
+  execution: RepositoryMutationExecutionSchema,
+  summary: RepositoryExecutionSummarySchema,
 });
 
 export const ObservationArchiveSchema = z.object({
@@ -900,8 +962,50 @@ export const ObservationArchiveSchema = z.object({
   }),
 });
 
+export const ObservationArchiveSummarySchema = z.object({
+  archiveId: StudyIdentifierSchema,
+  evidence: EvidencePackSchema.pick({
+    evidenceId: true,
+    evidenceHash: true,
+    generatedAt: true,
+    evidenceClass: true,
+    study: true,
+  }).extend({
+    quality: EvidenceQualitySchema.pick({ strength: true, score: true }),
+    signalCount: z.number().int().nonnegative(),
+    fitness: z.object({
+      terminalAttemptCount: z.number().int().nonnegative(),
+      completedAttemptCount: z.number().int().nonnegative(),
+      medianInteractions: z.number().nonnegative().nullable(),
+    }),
+  }),
+  analysis: EvidenceAnalysisSchema.pick({
+    analysisId: true,
+    model: true,
+    createdAt: true,
+  }).extend({
+    selectedMutation: EvidenceMutationCandidateSchema.pick({
+      id: true,
+      title: true,
+    }),
+  }),
+  execution: RepositoryMutationExecutionSchema.pick({
+    executionId: true,
+    manifestId: true,
+    status: true,
+    createdAt: true,
+    completedAt: true,
+  }),
+});
+
 export const ObservationArchivesResponseSchema = z.object({
-  archives: z.array(ObservationArchiveSchema),
+  archives: z.array(ObservationArchiveSummarySchema).max(25),
+  page: CursorPageSchema,
+});
+
+export const ObservationArchiveDetailResponseSchema = z.object({
+  archive: ObservationArchiveSchema,
+  summary: ObservationArchiveSummarySchema,
 });
 
 export const RepositoryExecutionCallbackSchema =
@@ -996,6 +1100,9 @@ export type CodexManifestRequest = z.infer<typeof CodexManifestRequestSchema>;
 export type EvolutionCycle = z.infer<typeof EvolutionCycleSchema>;
 export type GenomeHistoryResponse = z.infer<typeof GenomeHistoryResponseSchema>;
 export type ObservationArchive = z.infer<typeof ObservationArchiveSchema>;
+export type ObservationArchiveSummary = z.infer<
+  typeof ObservationArchiveSummarySchema
+>;
 export type ObservationArchivesResponse = z.infer<
   typeof ObservationArchivesResponseSchema
 >;
@@ -1017,6 +1124,9 @@ export type RepositoryExecutionCheck = z.infer<
 >;
 export type RepositoryMutationExecution = z.infer<
   typeof RepositoryMutationExecutionSchema
+>;
+export type RepositoryExecutionSummary = z.infer<
+  typeof RepositoryExecutionSummarySchema
 >;
 export type RepositoryExecutionCallback = z.infer<
   typeof RepositoryExecutionCallbackSchema

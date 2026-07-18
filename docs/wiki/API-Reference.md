@@ -16,8 +16,12 @@ All JSON request/response contracts are defined in `packages/shared/src/contract
 | Method | Route                        | Purpose                                             |
 | ------ | ---------------------------- | --------------------------------------------------- |
 | GET    | `/api/health`                | service version, model, and live-model availability |
-| GET    | `/api/genome`                | evolution cycle and repository execution history    |
-| GET    | `/api/observations/archives` | evidence/analysis retained by completed executions  |
+| GET    | `/api/genome`                | cursor-paged compact repository execution summaries |
+| GET    | `/api/genome/:executionId`   | full patch, checks, Codex output, and rollback record |
+| GET    | `/api/observations/archives` | cursor-paged compact completed-cycle summaries      |
+| GET    | `/api/observations/archives/:archiveId` | full evidence journeys, traces, and analysis |
+
+The two collection routes accept an opaque `cursor` and a `limit` from 1 to 25 (default 10). Collection responses expose the next opaque cursor under `page.nextCursor`; full artifact data is returned only by the identifier routes.
 
 ## Target connection
 

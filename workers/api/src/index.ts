@@ -4,7 +4,9 @@ import {
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
+  ObservationArchiveDetailResponseSchema,
   ObservationArchivesResponseSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
@@ -19,6 +21,9 @@ import {
   TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
   type HealthResponse,
+  type EvidenceAnalysis,
+  type EvidencePack,
+  type RepositoryMutationExecution,
   type SimulationResult,
 } from '@darwin/shared';
 
@@ -89,6 +94,134 @@ const defaultCorsHeaders = {
 const openAIKey = (env?: Partial<Env>) =>
   env?.OPENAI_API_KEY || env?.OPENAI_API;
 
+const defaultArchivePageSize = 10;
+const maximumArchivePageSize = 25;
+
+const archivePageOptions = (url: URL) => {
+  const rawLimit = url.searchParams.get('limit');
+  const limit = rawLimit === null ? defaultArchivePageSize : Number(rawLimit);
+  const cursor = url.searchParams.get('cursor');
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > maximumArchivePageSize ||
+    (cursor !== null &&
+      (cursor.length > 500 || !/^[A-Za-z0-9_-]+$/.test(cursor)))
+  ) {
+    throw new Error('invalid_archive_page');
+  }
+  return { limit, cursor };
+};
+
+const checkSummary = (checks: RepositoryMutationExecution['checks']) => ({
+  total: checks.length,
+  passed: checks.filter((check) => check.status === 'passed').length,
+  failed: checks.filter((check) => check.status === 'failed').length,
+});
+
+const summarizeExecution = (execution: RepositoryMutationExecution) => ({
+  executionId: execution.executionId,
+  manifestId: execution.manifestId,
+  analysisId: execution.analysisId,
+  repository: {
+    fullName: execution.repository.fullName,
+    url: execution.repository.url,
+    branch: execution.repository.branch,
+    baseSha: execution.repository.baseSha,
+    sourceHash: execution.repository.sourceHash,
+  },
+  status: execution.status,
+  branch: execution.branch,
+  baseSha: execution.baseSha,
+  headSha: execution.headSha,
+  changedFileCount: execution.changedFiles.length,
+  checkSummary: checkSummary(execution.checks),
+  hasPatch: execution.patch !== null,
+  hasCodexOutput: execution.codex.finalMessage !== null,
+  hasError: execution.error !== null,
+  rollback: execution.rollback
+    ? {
+        rollbackId: execution.rollback.rollbackId,
+        status: execution.rollback.status,
+        revertedSha: execution.rollback.revertedSha,
+        headSha: execution.rollback.headSha,
+        changedFileCount: execution.rollback.changedFiles.length,
+        checkSummary: checkSummary(execution.rollback.checks),
+        hasPatch: execution.rollback.patch !== null,
+        hasError: execution.rollback.error !== null,
+        createdAt: execution.rollback.createdAt,
+        updatedAt: execution.rollback.updatedAt,
+        completedAt: execution.rollback.completedAt,
+      }
+    : null,
+  createdAt: execution.createdAt,
+  updatedAt: execution.updatedAt,
+  completedAt: execution.completedAt,
+});
+
+const median = (values: number[]) => {
+  if (!values.length) return null;
+  const ordered = [...values].sort((left, right) => left - right);
+  const midpoint = Math.floor(ordered.length / 2);
+  return ordered.length % 2
+    ? ordered[midpoint]!
+    : (ordered[midpoint - 1]! + ordered[midpoint]!) / 2;
+};
+
+const summarizeObservationArchive = ({
+  execution,
+  analysis,
+  evidence,
+}: {
+  execution: RepositoryMutationExecution;
+  analysis: EvidenceAnalysis;
+  evidence: EvidencePack;
+}) => {
+  const terminalAttempts = evidence.taskAttempts.filter(
+    (attempt) => attempt.outcome !== 'open',
+  );
+  return {
+    archiveId: execution.executionId,
+    evidence: {
+      evidenceId: evidence.evidenceId,
+      evidenceHash: evidence.evidenceHash,
+      generatedAt: evidence.generatedAt,
+      evidenceClass: evidence.evidenceClass,
+      study: evidence.study,
+      quality: {
+        strength: evidence.quality.strength,
+        score: evidence.quality.score,
+      },
+      signalCount: evidence.frictionSignals.length,
+      fitness: {
+        terminalAttemptCount: terminalAttempts.length,
+        completedAttemptCount: terminalAttempts.filter(
+          (attempt) => attempt.outcome === 'success',
+        ).length,
+        medianInteractions: median(
+          terminalAttempts.map((attempt) => attempt.interactionCount),
+        ),
+      },
+    },
+    analysis: {
+      analysisId: analysis.analysisId,
+      model: analysis.model,
+      createdAt: analysis.createdAt,
+      selectedMutation: {
+        id: analysis.selectedMutation.id,
+        title: analysis.selectedMutation.title,
+      },
+    },
+    execution: {
+      executionId: execution.executionId,
+      manifestId: execution.manifestId,
+      status: execution.status,
+      createdAt: execution.createdAt,
+      completedAt: execution.completedAt,
+    },
+  };
+};
+
 const jsonResponse = (
   body: unknown,
   init: ResponseInit = {},
@@ -129,8 +262,8 @@ const requiredOperatorCapability = (
     return 'execute';
   }
   if (
-    pathname === '/api/genome' ||
-    pathname === '/api/observations/archives' ||
+    pathname.startsWith('/api/genome') ||
+    pathname.startsWith('/api/observations/archives') ||
     pathname.includes('/events') ||
     pathname.includes('/sessions/') ||
     pathname.includes('/evidence') ||
@@ -349,45 +482,112 @@ export const handleRequest = async (
   }
 
   if (request.method === 'GET' && pathname === '/api/genome') {
-    return json(
-      GenomeHistoryResponseSchema.parse({
-        evolutionCycle: await telemetryRepository.getEvolutionCycle(),
-        executions: await telemetryRepository.listRepositoryExecutions(),
-      }),
-    );
+    try {
+      const options = archivePageOptions(url);
+      const page =
+        await telemetryRepository.listRepositoryExecutionPage(options);
+      return json(
+        GenomeHistoryResponseSchema.parse({
+          evolutionCycle: await telemetryRepository.getEvolutionCycle(),
+          executions: page.executions.map(summarizeExecution),
+          page: { limit: options.limit, nextCursor: page.nextCursor },
+        }),
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === 'invalid_archive_page') {
+        return json(
+          {
+            error: 'invalid_pagination',
+            message: 'Limit or cursor is invalid.',
+          },
+          { status: 400 },
+        );
+      }
+      if (error instanceof Error && error.message === 'invalid_cursor') {
+        return json(
+          { error: 'invalid_pagination', message: 'Cursor is invalid.' },
+          { status: 400 },
+        );
+      }
+      throw error;
+    }
   }
 
   if (request.method === 'GET' && pathname === '/api/observations/archives') {
-    const executions = (
-      await telemetryRepository.listRepositoryExecutions()
-    ).filter((execution) => ['released', 'failed'].includes(execution.status));
-    const archives = (
-      await Promise.all(
-        executions.map(async (execution) => {
-          const analysis = await telemetryRepository.getEvidenceAnalysis(
-            execution.analysisId,
-          );
-          if (!analysis) return null;
-          const evidence = await telemetryRepository.getEvidence(
-            analysis.evidenceId,
-          );
-          if (!evidence) return null;
-          return {
-            archiveId: execution.executionId,
-            evidence,
-            analysis,
-            execution: {
-              executionId: execution.executionId,
-              manifestId: execution.manifestId,
-              status: execution.status,
-              createdAt: execution.createdAt,
-              completedAt: execution.completedAt,
-            },
-          };
+    try {
+      const options = archivePageOptions(url);
+      const page =
+        await telemetryRepository.listObservationArchivePage(options);
+      return json(
+        ObservationArchivesResponseSchema.parse({
+          archives: page.archives.map(summarizeObservationArchive),
+          page: { limit: options.limit, nextCursor: page.nextCursor },
         }),
-      )
-    ).filter((archive) => archive !== null);
-    return json(ObservationArchivesResponseSchema.parse({ archives }));
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        ['invalid_archive_page', 'invalid_cursor'].includes(error.message)
+      ) {
+        return json(
+          {
+            error: 'invalid_pagination',
+            message: 'Limit or cursor is invalid.',
+          },
+          { status: 400 },
+        );
+      }
+      throw error;
+    }
+  }
+
+  const genomeDetailMatch = pathname.match(/^\/api\/genome\/([^/]+)$/);
+  if (request.method === 'GET' && genomeDetailMatch) {
+    const execution = await telemetryRepository.getRepositoryExecution(
+      decodeURIComponent(genomeDetailMatch[1]!),
+    );
+    return execution
+      ? json(
+          GenomeExecutionDetailResponseSchema.parse({
+            execution,
+            summary: summarizeExecution(execution),
+          }),
+        )
+      : json(
+          { error: 'execution_not_found', message: 'Execution was not found.' },
+          { status: 404 },
+        );
+  }
+
+  const observationArchiveDetailMatch = pathname.match(
+    /^\/api\/observations\/archives\/([^/]+)$/,
+  );
+  if (request.method === 'GET' && observationArchiveDetailMatch) {
+    const record = await telemetryRepository.getObservationArchive(
+      decodeURIComponent(observationArchiveDetailMatch[1]!),
+    );
+    return record
+      ? json(
+          ObservationArchiveDetailResponseSchema.parse({
+            archive: {
+              archiveId: record.execution.executionId,
+              evidence: record.evidence,
+              analysis: record.analysis,
+              execution: {
+                executionId: record.execution.executionId,
+                manifestId: record.execution.manifestId,
+                status: record.execution.status,
+                createdAt: record.execution.createdAt,
+                completedAt: record.execution.completedAt,
+              },
+            },
+            summary: summarizeObservationArchive(record),
+          }),
+        )
+      : json(
+          { error: 'archive_not_found', message: 'Archive was not found.' },
+          { status: 404 },
+        );
   }
 
   if (request.method === 'GET' && pathname === '/api/target-connection') {

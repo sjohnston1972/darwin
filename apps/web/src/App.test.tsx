@@ -302,6 +302,91 @@ const manifest = {
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
+const executionSummary = (execution: Record<string, unknown>) => ({
+  executionId: execution.executionId,
+  manifestId: execution.manifestId,
+  analysisId: execution.analysisId,
+  repository: {
+    fullName: repository.fullName,
+    url: repository.url,
+    branch: repository.branch,
+    baseSha: repository.baseSha,
+    sourceHash: repository.sourceHash,
+  },
+  status: execution.status,
+  branch: execution.branch,
+  baseSha: execution.baseSha,
+  headSha: execution.headSha,
+  changedFileCount: Array.isArray(execution.changedFiles)
+    ? execution.changedFiles.length
+    : 0,
+  checkSummary: {
+    total: Array.isArray(execution.checks) ? execution.checks.length : 0,
+    passed: Array.isArray(execution.checks)
+      ? execution.checks.filter(
+          (check) =>
+            typeof check === 'object' &&
+            check !== null &&
+            'status' in check &&
+            check.status === 'passed',
+        ).length
+      : 0,
+    failed: Array.isArray(execution.checks)
+      ? execution.checks.filter(
+          (check) =>
+            typeof check === 'object' &&
+            check !== null &&
+            'status' in check &&
+            check.status === 'failed',
+        ).length
+      : 0,
+  },
+  hasPatch: typeof execution.patch === 'string',
+  hasCodexOutput: execution.codex !== null && execution.codex !== undefined,
+  hasError: execution.error !== null && execution.error !== undefined,
+  rollback: null,
+  createdAt: execution.createdAt,
+  updatedAt: execution.updatedAt,
+  completedAt: execution.completedAt,
+});
+
+const observationArchiveSummary = () => ({
+  archiveId: 'execution-measured-test',
+  evidence: {
+    evidenceId: evidence.evidenceId,
+    evidenceHash: evidence.evidenceHash,
+    generatedAt: evidence.generatedAt,
+    evidenceClass: evidence.evidenceClass,
+    study: evidence.study,
+    quality: {
+      strength: evidence.quality.strength,
+      score: evidence.quality.score,
+    },
+    signalCount: evidence.frictionSignals.length,
+    fitness: {
+      terminalAttemptCount: 0,
+      completedAttemptCount: 0,
+      medianInteractions: null,
+    },
+  },
+  analysis: {
+    analysisId: analysis.analysisId,
+    model: analysis.model,
+    createdAt: analysis.createdAt,
+    selectedMutation: {
+      id: analysis.selectedMutation.id,
+      title: analysis.selectedMutation.title,
+    },
+  },
+  execution: {
+    executionId: 'execution-measured-test',
+    manifestId: manifest.manifestId,
+    status: 'released',
+    createdAt: timestamp,
+    completedAt: timestamp,
+  },
+});
+
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
@@ -321,7 +406,7 @@ const installApi = (
           behaviorSignalCount: 8,
         });
       }
-      if (url.endsWith('/api/genome')) {
+      if (url.includes('/api/genome?')) {
         const released = liveExecution?.status === 'released';
         return response({
           evolutionCycle: {
@@ -329,28 +414,38 @@ const installApi = (
             startedAt: released ? timestamp : null,
             genomeEvolutionCount: released ? 1 : 0,
           },
-          executions: liveExecution ? [liveExecution] : [],
+          executions: liveExecution ? [executionSummary(liveExecution)] : [],
+          page: { limit: 10, nextCursor: null },
         });
       }
-      if (url.endsWith('/api/observations/archives')) {
+      if (url.includes('/api/observations/archives?')) {
         const released = liveExecution?.status === 'released';
         return response({
-          archives: released
-            ? [
-                {
-                  archiveId: 'execution-measured-test',
-                  evidence,
-                  analysis,
-                  execution: {
-                    executionId: 'execution-measured-test',
-                    manifestId: manifest.manifestId,
-                    status: 'released',
-                    createdAt: timestamp,
-                    completedAt: timestamp,
-                  },
-                },
-              ]
-            : [],
+          archives: released ? [observationArchiveSummary()] : [],
+          page: { limit: 10, nextCursor: null },
+        });
+      }
+      if (url.endsWith('/api/observations/archives/execution-measured-test')) {
+        return response({
+          archive: {
+            archiveId: 'execution-measured-test',
+            evidence,
+            analysis,
+            execution: {
+              executionId: 'execution-measured-test',
+              manifestId: manifest.manifestId,
+              status: 'released',
+              createdAt: timestamp,
+              completedAt: timestamp,
+            },
+          },
+          summary: observationArchiveSummary(),
+        });
+      }
+      if (url.endsWith('/api/genome/execution-measured-test')) {
+        return response({
+          execution: liveExecution,
+          summary: executionSummary(liveExecution!),
         });
       }
       if (url.includes('/evidence/latest')) return response(evidence);
@@ -546,6 +641,31 @@ afterEach(() => {
 });
 
 describe('Darwin control room', () => {
+  it('hydrates a deep-linked observation outside the first archive page', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/?view=observations#observation-execution-measured-test',
+    );
+    const fetchMock = installApi();
+
+    render(<App />);
+
+    expect(await screen.findByText('Evidence assessment')).toBeVisible();
+    expect(
+      document.querySelector<HTMLDetailsElement>(
+        '#observation-execution-measured-test',
+      )?.open,
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith(
+          '/api/observations/archives/execution-measured-test',
+        ),
+      ),
+    ).toHaveLength(1);
+  });
+
   it('keeps the control room as a concise operational overview', async () => {
     const fetchMock = installApi();
     render(<App />);
@@ -706,10 +826,24 @@ describe('Darwin control room', () => {
       '#observation-execution-measured-test',
     );
     expect(observationArtifact?.open).toBe(false);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith(
+          '/api/observations/archives/execution-measured-test',
+        ),
+      ),
+    ).toHaveLength(0);
     fireEvent.click(
       observationArtifact!.querySelector(':scope > summary') as HTMLElement,
     );
     expect(await screen.findByText('Evidence assessment')).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith(
+          '/api/observations/archives/execution-measured-test',
+        ),
+      ),
+    ).toHaveLength(1);
     expect(
       screen.getAllByText('Reveal capacity context', { exact: false }).length,
     ).toBeGreaterThanOrEqual(2);
@@ -726,12 +860,22 @@ describe('Darwin control room', () => {
     expect(
       within(executionArtifact).getByText('Reveal capacity context'),
     ).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith('/api/genome/execution-measured-test'),
+      ),
+    ).toHaveLength(0);
     fireEvent.click(
       executionArtifact!.querySelector(':scope > summary') as HTMLElement,
     );
     expect(
       await screen.findByRole('heading', { name: 'Codex execution record' }),
     ).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith('/api/genome/execution-measured-test'),
+      ),
+    ).toHaveLength(1);
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/analyse-evidence'),
