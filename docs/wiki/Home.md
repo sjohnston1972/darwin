@@ -8,13 +8,13 @@ The current proof target is ProjectFlow, a separately deployed task-management a
 
 ## Live system
 
-| Component | Location |
-| --- | --- |
-| Darwin control room | https://darwin-control-room.pages.dev |
-| Darwin API | https://darwin-api.stevie-johnston.workers.dev |
-| ProjectFlow study | https://darwin-projectflow.pages.dev/?study=true |
-| Darwin repository | https://github.com/sjohnston1972/darwin |
-| ProjectFlow repository | https://github.com/sjohnston1972/projectflow |
+| Component              | Location                                         |
+| ---------------------- | ------------------------------------------------ |
+| Darwin control room    | https://darwin-control-room.pages.dev            |
+| Darwin API             | https://darwin-api.stevie-johnston.workers.dev   |
+| ProjectFlow study      | https://darwin-projectflow.pages.dev/?study=true |
+| Darwin repository      | https://github.com/sjohnston1972/darwin          |
+| ProjectFlow repository | https://github.com/sjohnston1972/projectflow     |
 
 ## Proof loop
 
@@ -36,6 +36,7 @@ measured interaction
 - [Getting Started](Getting-Started.md): local installation and first run.
 - [Architecture](Architecture.md): components, data flow, persistence, and trust boundaries.
 - [Telemetry and Evidence](Telemetry-and-Evidence.md): captured signals, privacy boundary, parsing, and evidence quality.
+- [Darwin Lab](Darwin-Lab.md): bounded synthetic populations, isolation, evidence, and safety boundaries.
 - [AI and Mutation Workflow](AI-and-Mutation-Workflow.md): GPT context, structured validation, Codex manifest, release, and rollback.
 - [Demo Runbook](Demo-Runbook.md): reliable three-minute presentation flow.
 - [Operations and Deployment](Operations-and-Deployment.md): Cloudflare, D1, secrets, deployment, and smoke tests.
@@ -57,15 +58,15 @@ measured interaction
 
 Darwin uses these terms consistently:
 
-| Product concept | Darwin term |
-| --- | --- |
-| target source and configuration | genome |
-| measured friction | selection pressure |
-| bounded code change | mutation |
-| measured product outcome | fitness |
-| accepted change | survived selection |
-| rejected change | failed selection |
-| retained version and evidence history | Genome |
+| Product concept                       | Darwin term        |
+| ------------------------------------- | ------------------ |
+| target source and configuration       | genome             |
+| measured friction                     | selection pressure |
+| bounded code change                   | mutation           |
+| measured product outcome              | fitness            |
+| accepted change                       | survived selection |
+| rejected change                       | failed selection   |
+| retained version and evidence history | Genome             |
 
 Predicted impact is always a hypothesis. A passing repository build proves implementation validity, not user fitness. User fitness requires a compatible post-release evidence cohort.
 
