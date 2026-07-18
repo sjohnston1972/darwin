@@ -21,6 +21,7 @@ import {
   type HealthResponse,
   type SimulationResult,
 } from '@darwin/shared';
+import rootPackage from '../../../package.json';
 
 import { simulate } from './simulation';
 import { getTelemetryRepository } from './persistence/telemetry-repository';
@@ -64,6 +65,8 @@ export interface Env {
   DARWIN_AI_MODE: string;
   DARWIN_DEMO_SEED: string;
   DARWIN_EVENT_COUNT: string;
+  DARWIN_RELEASE?: string;
+  DARWIN_COMMIT_SHA?: string;
   OPENAI_API_KEY?: string;
   OPENAI_API?: string;
   OPENAI_MODEL: string;
@@ -332,10 +335,14 @@ export const handleRequest = async (
   };
 
   if (request.method === 'GET' && pathname === '/api/health') {
+    const version = env?.DARWIN_RELEASE || rootPackage.version;
+    const commitSha = env?.DARWIN_COMMIT_SHA || 'local';
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.23.0',
+      version,
+      commitSha,
+      buildId: `v${version}@${commitSha.slice(0, 7)}`,
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',

@@ -48,20 +48,9 @@ Migrations are append-only SQL files under `workers/api/migrations`. Test new mi
 
 ## Build and deploy
 
-```powershell
-npm ci
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-npm run deploy:api
-npm run deploy:web
-npm run smoke:production
-```
+Create a semantic tag such as `v0.1.0` on a commit with successful CI, then manually dispatch `.github/workflows/deploy.yml` using that tag. The workflow rejects branch dispatches and generates one build identity from the tag plus its 40-character commit SHA.
 
-`npm run deploy` combines build, migration, API deploy, and Pages deploy.
-
-The checked workflow at `.github/workflows/deploy.yml` is manually dispatched. Automated pull-request CI is tracked in issue [#22](https://github.com/sjohnston1972/darwin/issues/22).
+`npm run deploy` combines build, migration, API deploy, and Pages deploy. For an operator-run deployment, provide `DARWIN_RELEASE` and `DARWIN_COMMIT_SHA` in the environment so the same metadata is injected into Wrangler and Vite.
 
 ## ProjectFlow deployment
 
@@ -73,13 +62,13 @@ Release merges the reviewed pull request. Rollback creates and validates a separ
 
 `npm run smoke:production` verifies:
 
-- Worker health/version;
+- Worker semantic release and exact workflow commit;
 - target connection and repository identity;
 - Darwin and ProjectFlow HTML availability;
 - authenticated D1 telemetry insertion and aggregate readback;
 - deterministic 10,000-event simulation response.
 
-Set `DARWIN_OPERATOR_TOKEN` and `PROJECTFLOW_INGESTION_SECRET` in the smoke-test environment. The smoke test does not merge code, invoke GPT, or run a live Codex mutation. Smoke-data retention is tracked in issue [#18](https://github.com/sjohnston1972/darwin/issues/18).
+Set `DARWIN_OPERATOR_TOKEN`, `DARWIN_RELEASE`, and `DARWIN_COMMIT_SHA` in the smoke-test environment. The smoke test rejects a deployment whose health metadata differs from that expected workflow commit. It does not merge code, invoke GPT, or run a live Codex mutation. Smoke-data retention is tracked in issue [#18](https://github.com/sjohnston1972/darwin/issues/18).
 
 ## Operational checks
 

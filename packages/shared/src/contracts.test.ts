@@ -14,6 +14,8 @@ describe('shared contracts', () => {
         status: 'ok',
         service: 'darwin-api',
         version: '0.1.0',
+        commitSha: 'a'.repeat(40),
+        buildId: 'v0.1.0@aaaaaaa',
         analysis: {
           mode: 'live',
           model: 'gpt-5.6',
