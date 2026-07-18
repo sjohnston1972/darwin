@@ -1,0 +1,41 @@
+name: Generate Linux observation snapshots
+
+on:
+  push:
+    branches:
+      - fix/linux-observation-snapshots
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Check out the tagged ProjectFlow baseline
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: sjohnston1972/projectflow
+          ref: demo-baseline-v2
+          path: .artifacts/projectflow-target
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix .artifacts/projectflow-target
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:prepare
+      - name: Generate Linux snapshots
+        env:
+          PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target
+        run: >-
+          npx playwright test apps/web/e2e/observations.spec.ts
+          --update-snapshots
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-observation-snapshots
+          path: apps/web/e2e/screenshots/*-linux.png
+          if-no-files-found: error
+          retention-days: 1
