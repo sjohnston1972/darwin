@@ -67,6 +67,26 @@ import { apiFetch, getOperatorToken, setOperatorToken } from './api';
 
 type HealthState = 'checking' | 'online' | 'offline';
 type Theme = 'dark' | 'light';
+type DashboardCapability =
+  | 'observe'
+  | 'inspect_evidence'
+  | 'reason'
+  | 'execute'
+  | 'release'
+  | 'reset'
+  | 'connect'
+  | 'simulate';
+
+const operatorCapabilities: DashboardCapability[] = [
+  'observe',
+  'inspect_evidence',
+  'reason',
+  'execute',
+  'release',
+  'reset',
+  'connect',
+  'simulate',
+];
 
 interface ApiHealthState {
   status: HealthState;
@@ -197,7 +217,11 @@ function signedNumber(value: number): string {
   return `${value > 0 ? '+' : ''}${value}`;
 }
 
-function DarwinDashboard() {
+function DarwinDashboard({
+  capabilities,
+}: {
+  capabilities: DashboardCapability[];
+}) {
   const [theme, setTheme] = useState<Theme>(() =>
     document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
   );
@@ -209,7 +233,9 @@ function DarwinDashboard() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const activeView = getDashboardView();
   const targetConnection = useTargetConnection();
-  const liveTelemetry = useLiveTelemetry();
+  const liveTelemetry = useLiveTelemetry(
+    capabilities.includes('inspect_evidence'),
+  );
   const repository =
     targetConnection.connection?.repository ??
     liveTelemetry.execution?.repository ??
@@ -276,12 +302,8 @@ function DarwinDashboard() {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', theme === 'light' ? '#f4f7fb' : '#101211');
   }, [theme]);
-  const recentSessions = new Set(
-    liveTelemetry.events.map((event) => event.sessionId),
-  ).size;
-  const recentParticipants = new Set(
-    liveTelemetry.events.map((event) => event.participantId),
-  ).size;
+  const recentSessions = liveTelemetry.sessionCount;
+  const recentParticipants = liveTelemetry.participantCount;
   const latestReleasedExecution = liveTelemetry.genomeExecutions.find(
     (execution) => execution.status === 'released',
   );
@@ -1692,14 +1714,18 @@ function LiveTelemetryPanel({
             <InfoTip
               text={
                 isObservations
-                  ? 'Real semantic events ingested from the standalone ProjectFlow application. The view shows ordered behavior, sessions, participants, and detector-ready signals without recording typed values.'
+                  ? telemetry.canInspectEvidence
+                    ? 'Real semantic events ingested from the standalone ProjectFlow application. Evidence-inspector access shows ordered pseudonymous traces without recording typed values.'
+                    : 'Aggregate study counts omit event records and participant or session identifiers. Ordered traces require evidence-inspector access.'
                   : 'GPT reasons only over the verified evidence pack and connected ProjectFlow source snapshot. Candidate changes stay reviewable until an approved manifest is executed.'
               }
             />
           </div>
           <p className="mt-2 text-sm text-mist">
             {isObservations
-              ? 'Ordered semantic events from standalone ProjectFlow.'
+              ? telemetry.canInspectEvidence
+                ? 'Ordered semantic events from standalone ProjectFlow.'
+                : 'Aggregate behavior counts with raw identities omitted.'
               : 'Compare real pressure clusters, choose a bounded mutation bundle, and supervise the implementation.'}
           </p>
         </div>
@@ -1718,7 +1744,7 @@ function LiveTelemetryPanel({
               size={12}
             />
           </button>
-          {isObservations && (
+          {isObservations && telemetry.canInspectEvidence && (
             <button
               className="primary-action evidence-action"
               type="button"
@@ -1756,13 +1782,13 @@ function LiveTelemetryPanel({
           <div className="evidence-stats" aria-label="Real study counts">
             <div data-explain="Every persisted semantic event in this study, counted across the full database rather than only the recent trace window.">
               <Database size={16} />
-              <span>Raw events</span>
+              <span>Measured events</span>
               <strong>{telemetry.count}</strong>
             </div>
             <div data-explain="Distinct ordered browser sessions across the full persisted study.">
               <Network size={16} />
               <span>Sessions</span>
-              <strong>{Object.keys(telemetry.sessionCounts).length}</strong>
+              <strong>{telemetry.sessionCount}</strong>
             </div>
             <div data-explain="Anonymous participant identifiers represented across the full persisted study.">
               <Users size={16} />
@@ -1806,6 +1832,17 @@ function LiveTelemetryPanel({
                 {visibleEvents.slice(-12).map((event) => (
                   <EventTraceRow event={event} key={event.eventId} />
                 ))}
+              </div>
+            </div>
+          ) : telemetry.count && !telemetry.canInspectEvidence ? (
+            <div className="empty-evidence">
+              <ShieldCheck size={18} />
+              <div>
+                <strong>Aggregate telemetry view</strong>
+                <span>
+                  Raw sessions and ordered traces require the evidence-inspector
+                  capability.
+                </span>
               </div>
             </div>
           ) : (
@@ -3334,19 +3371,32 @@ function OperatorBoundary() {
   );
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<DashboardCapability[]>([]);
 
   const verify = async (candidate?: string) => {
     if (candidate !== undefined) setOperatorToken(candidate);
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/auth/session`);
-      const payload = (await response.json()) as { message?: string };
+      const payload = (await response.json()) as {
+        capabilities?: string[];
+        message?: string;
+      };
       if (!response.ok) {
         throw new Error(payload.message ?? 'Operator authorization failed.');
       }
+      const authorizedCapabilities = (payload.capabilities ?? []).filter(
+        (capability): capability is DashboardCapability =>
+          operatorCapabilities.includes(capability as DashboardCapability),
+      );
+      if (!authorizedCapabilities.includes('observe')) {
+        throw new Error('The access token has no observation capability.');
+      }
+      setCapabilities(authorizedCapabilities);
       setError(null);
       setState('unlocked');
     } catch (reason) {
       setOperatorToken(null);
+      setCapabilities([]);
       setError(
         reason instanceof Error
           ? reason.message
@@ -3360,6 +3410,7 @@ function OperatorBoundary() {
     void verify(getOperatorToken() ?? undefined);
     const lock = () => {
       setOperatorToken(null);
+      setCapabilities([]);
       setState('locked');
       setError('Your operator session is no longer authorized.');
     };
@@ -3368,7 +3419,9 @@ function OperatorBoundary() {
       window.removeEventListener('darwin:operator-unauthorized', lock);
   }, []);
 
-  if (state === 'unlocked') return <DarwinDashboard />;
+  if (state === 'unlocked') {
+    return <DarwinDashboard capabilities={capabilities} />;
+  }
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -3437,7 +3490,7 @@ function OperatorBoundary() {
 
 function App() {
   return import.meta.env.MODE === 'test' ? (
-    <DarwinDashboard />
+    <DarwinDashboard capabilities={operatorCapabilities} />
   ) : (
     <OperatorBoundary />
   );

@@ -170,6 +170,7 @@ DARWIN_AI_MODE=live
 GITHUB_TOKEN=your_fine_grained_github_token
 DARWIN_CALLBACK_TOKEN=a_long_random_shared_secret
 DARWIN_OPERATOR_TOKEN=a_separate_high_entropy_operator_token
+DARWIN_VIEWER_TOKEN=an_optional_read_only_viewer_token
 PROJECTFLOW_INGESTION_SECRET=a_separate_target_gateway_secret
 PROJECTFLOW_REPOSITORY=sjohnston1972/projectflow
 PROJECTFLOW_BRANCH=main
@@ -177,7 +178,7 @@ PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
 PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
 ```
 
-The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. The operator token is entered into Darwin's unlock view and retained only in browser session storage.
+The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. Access tokens are entered into Darwin's unlock view and retained only in browser session storage. The optional viewer token receives aggregate telemetry and connection status only; raw traces, evidence, repository artifacts, and mutation controls require the operator's evidence-inspector or stronger capabilities.
 
 ## Quality checks
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   HealthResponseSchema,
   EvidenceMutationCandidateSchema,
+  StudyTelemetrySummarySchema,
   StudyTelemetryEventSchema,
   TelemetryBatchSchema,
 } from './contracts';
@@ -59,6 +60,24 @@ describe('shared contracts', () => {
     };
 
     expect(() => EvidenceMutationCandidateSchema.parse(proposal)).toThrow();
+  });
+
+  it('keeps the default telemetry summary aggregate-only', () => {
+    const summary = {
+      studyId: 'projectflow-baseline-study',
+      count: 24,
+      sessionCount: 3,
+      participantCount: 2,
+      behaviorSignalCount: 6,
+    };
+    expect(StudyTelemetrySummarySchema.parse(summary)).toEqual(summary);
+    expect(() =>
+      StudyTelemetrySummarySchema.parse({
+        ...summary,
+        events: [],
+        sessionCounts: { 'session-sensitive': 12 },
+      }),
+    ).toThrow();
   });
 
   it('accepts an attempt-scoped real study event with provenance', () => {

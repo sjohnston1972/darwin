@@ -14,6 +14,7 @@ import {
   SimulationRequestSchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
+  StudyTelemetrySummarySchema,
   StudyTelemetryEventSchema,
   TargetApplicationConnectionSchema,
   TargetConnectionRequestSchema,
@@ -129,9 +130,9 @@ const requiredOperatorCapability = (
     return 'execute';
   }
   if (
+    (method === 'GET' && /\/events\/raw$/.test(pathname)) ||
     pathname === '/api/genome' ||
     pathname === '/api/observations/archives' ||
-    pathname.includes('/events') ||
     pathname.includes('/sessions/') ||
     pathname.includes('/evidence') ||
     pathname.includes('/repository-executions') ||
@@ -677,20 +678,36 @@ export const handleRequest = async (
   const studyEventsMatch = pathname.match(/^\/api\/studies\/([^/]+)\/events$/);
   if (request.method === 'GET' && studyEventsMatch) {
     const studyId = decodeURIComponent(studyEventsMatch[1]!);
+    const receivedAfter = await currentCycleStart(studyId);
+    const summary = await telemetryRepository.summarizeEvents(
+      studyId,
+      receivedAfter,
+    );
+    return json(
+      StudyTelemetrySummarySchema.parse({
+        studyId,
+        count: summary.count,
+        sessionCount: Object.keys(summary.sessionCounts).length,
+        participantCount: summary.participantCount,
+        behaviorSignalCount: summary.behaviorSignalCount,
+      }),
+    );
+  }
+
+  const rawStudyEventsMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/events\/raw$/,
+  );
+  if (request.method === 'GET' && rawStudyEventsMatch) {
+    const studyId = decodeURIComponent(rawStudyEventsMatch[1]!);
     const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
       : 50;
     const receivedAfter = await currentCycleStart(studyId);
-    const events = await telemetryRepository.listEvents(
-      studyId,
-      limit,
-      receivedAfter,
-    );
-    const summary = await telemetryRepository.summarizeEvents(
-      studyId,
-      receivedAfter,
-    );
+    const [events, summary] = await Promise.all([
+      telemetryRepository.listEvents(studyId, limit, receivedAfter),
+      telemetryRepository.summarizeEvents(studyId, receivedAfter),
+    ]);
     return json(
       StudyEventsResponseSchema.parse({
         studyId,

@@ -311,12 +311,21 @@ const installApi = (
   const fetchMock = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('/events?limit=200')) {
+      if (url.includes('/events/raw?limit=200')) {
         return response({
           studyId: 'projectflow-baseline-study',
           events: [],
           count: 14,
           sessionCounts: { 'session-test': 14 },
+          participantCount: 1,
+          behaviorSignalCount: 8,
+        });
+      }
+      if (url.endsWith('/events')) {
+        return response({
+          studyId: 'projectflow-baseline-study',
+          count: 14,
+          sessionCount: 1,
           participantCount: 1,
           behaviorSignalCount: 8,
         });
@@ -609,7 +618,7 @@ describe('Darwin control room', () => {
       });
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/events?limit=200'),
+        expect.stringContaining('/events/raw?limit=200'),
       ),
     );
   });
@@ -893,7 +902,7 @@ describe('Darwin control room', () => {
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.filter(([input]) =>
-          String(input).includes('/events?limit=200'),
+          String(input).includes('/events/raw?limit=200'),
         ).length,
       ).toBeGreaterThanOrEqual(2),
     );

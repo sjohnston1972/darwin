@@ -360,6 +360,16 @@ export const StudyEventsResponseSchema = z.object({
   behaviorSignalCount: z.number().int().nonnegative(),
 });
 
+export const StudyTelemetrySummarySchema = z
+  .object({
+    studyId: StudyIdentifierSchema,
+    count: z.number().int().nonnegative(),
+    sessionCount: z.number().int().nonnegative(),
+    participantCount: z.number().int().nonnegative(),
+    behaviorSignalCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const StudySessionResponseSchema = z.object({
   studyId: StudyIdentifierSchema,
   sessionId: StudyIdentifierSchema,
@@ -964,6 +974,7 @@ export type TelemetryBatch = z.infer<typeof TelemetryBatchSchema>;
 export type TelemetryReceipt = z.infer<typeof TelemetryReceiptSchema>;
 export type StoredTelemetryEvent = z.infer<typeof StoredTelemetryEventSchema>;
 export type StudyEventsResponse = z.infer<typeof StudyEventsResponseSchema>;
+export type StudyTelemetrySummary = z.infer<typeof StudyTelemetrySummarySchema>;
 export type StudySessionResponse = z.infer<typeof StudySessionResponseSchema>;
 export type ProjectFlowProject = z.infer<typeof ProjectFlowProjectSchema>;
 export type ProjectFlowTask = z.infer<typeof ProjectFlowTaskSchema>;

@@ -11,6 +11,7 @@ import {
   SimulationSummarySchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
+  StudyTelemetrySummarySchema,
   TargetApplicationConnectionSchema,
   TelemetryReceiptSchema,
 } from '@darwin/shared';
@@ -261,6 +262,9 @@ describe('Darwin API', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
     expect(body.version).toBe('0.23.0');
+    expect(JSON.stringify(body)).not.toMatch(
+      /participant|sessionId|repository|execution|patch|eventId/,
+    );
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -288,6 +292,7 @@ describe('Darwin API', () => {
       ['GET', '/api/genome'],
       ['GET', '/api/observations/archives'],
       ['GET', '/api/studies/projectflow-baseline-study/events'],
+      ['GET', '/api/studies/projectflow-baseline-study/events/raw'],
       ['POST', '/api/studies/projectflow-baseline-study/evidence'],
       ['GET', '/api/studies/projectflow-baseline-study/evidence/latest'],
       ['POST', '/api/studies/projectflow-baseline-study/analyse-evidence'],
@@ -315,17 +320,47 @@ describe('Darwin API', () => {
       expect(response.headers.get('Cache-Control')).toBe('no-store');
     }
 
-    const viewerDenied = await handleRequest(
+    const viewerEnvironment = {
+      DARWIN_OPERATOR_TOKEN: 'operator-test-token',
+      DARWIN_VIEWER_TOKEN: 'viewer-test-token',
+    };
+    const viewerHeaders = { Authorization: 'Bearer viewer-test-token' };
+    const viewerSummary = await handleRequest(
       new Request(
         'https://darwin-api.example/api/studies/projectflow-baseline-study/events',
-        { headers: { Authorization: 'Bearer viewer-test-token' } },
+        { headers: viewerHeaders },
       ),
-      {
-        DARWIN_OPERATOR_TOKEN: 'operator-test-token',
-        DARWIN_VIEWER_TOKEN: 'viewer-test-token',
-      },
+      viewerEnvironment,
     );
-    expect(viewerDenied.status).toBe(403);
+    expect(viewerSummary.status).toBe(200);
+    expect(
+      StudyTelemetrySummarySchema.parse(await viewerSummary.json()),
+    ).toEqual({
+      studyId: 'projectflow-baseline-study',
+      count: 0,
+      sessionCount: 0,
+      participantCount: 0,
+      behaviorSignalCount: 0,
+    });
+
+    const inspectorRoutes = [
+      '/api/genome',
+      '/api/observations/archives',
+      '/api/studies/projectflow-baseline-study/events/raw',
+      '/api/studies/projectflow-baseline-study/sessions/session-test',
+      '/api/studies/projectflow-baseline-study/evidence/latest',
+      '/api/repository-executions/execution-test',
+    ];
+    for (const path of inspectorRoutes) {
+      const viewerDenied = await handleRequest(
+        new Request(`https://darwin-api.example${path}`, {
+          headers: viewerHeaders,
+        }),
+        viewerEnvironment,
+      );
+      expect(viewerDenied.status, path).toBe(403);
+      expect(viewerDenied.headers.get('Cache-Control')).toBe('no-store');
+    }
 
     const operatorSession = await handleRequest(
       new Request('https://darwin-api.example/api/auth/session', {
@@ -601,7 +636,7 @@ describe('Darwin API', () => {
 
     const eventsResponse = await handleRequest(
       new Request(
-        'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
+        'http://localhost/api/studies/projectflow-baseline-study/events/raw?limit=20',
       ),
     );
     const events = StudyEventsResponseSchema.parse(await eventsResponse.json());
@@ -613,6 +648,24 @@ describe('Darwin API', () => {
     expect(events.count).toBe(1);
     expect(events.sessionCounts).toEqual({ 'session-api-test': 1 });
     expect(events.participantCount).toBe(1);
+
+    const summaryResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/events',
+      ),
+    );
+    const summaryPayload = await summaryResponse.json();
+    expect(JSON.stringify(summaryPayload)).not.toContain('session-api-test');
+    expect(JSON.stringify(summaryPayload)).not.toContain(
+      'participant-api-test',
+    );
+    expect(StudyTelemetrySummarySchema.parse(summaryPayload)).toEqual({
+      studyId: 'projectflow-baseline-study',
+      count: 1,
+      sessionCount: 1,
+      participantCount: 1,
+      behaviorSignalCount: 0,
+    });
 
     const sessionResponse = await handleRequest(
       new Request(
@@ -720,7 +773,7 @@ describe('Darwin API', () => {
     );
     const resetEvents = await handleRequest(
       new Request(
-        'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
+        'http://localhost/api/studies/projectflow-baseline-study/events/raw?limit=20',
       ),
     );
     expect(resetEvidence.status).toBe(204);
@@ -1099,7 +1152,7 @@ describe('Darwin API', () => {
 
     const nextCycleEventsResponse = await handleRequest(
       new Request(
-        'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
+        'http://localhost/api/studies/projectflow-baseline-study/events/raw?limit=20',
       ),
     );
     expect(
