@@ -5,7 +5,9 @@ Base URLs:
 - local: `http://localhost:8787`
 - production: `https://darwin-api.stevie-johnston.workers.dev`
 
-All JSON request/response contracts are defined in `packages/shared/src/contracts.ts` and parsed with Zod.
+Measured-flow JSON contracts are defined in `packages/shared/src/contracts.ts`.
+Darwin Lab contracts are kept separately in
+`packages/shared/src/lab-contracts.ts`. Both are parsed with Zod.
 
 `GET /api/health` is deliberately public. All other control-plane routes require `Authorization: Bearer <DARWIN_OPERATOR_TOKEN>` and enforce a route capability such as observe, inspect evidence, reason, execute, release, reset, connect, or simulate. Protected responses use `Cache-Control: no-store`.
 
@@ -101,6 +103,33 @@ Manifest selection body:
   "mutationIds": ["mutation-one", "mutation-two"]
 }
 ```
+
+## Darwin Lab
+
+Darwin Lab accepts only configured local, test, preview, or staging target
+origins. All experiment records and evidence have synthetic provenance and are
+excluded from measured study cohorts and fitness.
+
+| Method | Route                                                    | Purpose                                         |
+| ------ | -------------------------------------------------------- | ----------------------------------------------- |
+| GET    | `/api/lab/experiments`                                   | list Lab experiments and current runs           |
+| POST   | `/api/lab/experiments`                                   | create one bounded ProjectFlow experiment       |
+| GET    | `/api/lab/experiments/:experimentId`                     | inspect population, replay, evidence, and state |
+| POST   | `/api/lab/experiments/:experimentId/start`               | queue a draft experiment for a browser runner   |
+| POST   | `/api/lab/experiments/:experimentId/claim`               | claim queued work for one runner                |
+| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated synthetic agent run          |
+| POST   | `/api/lab/experiments/:experimentId/runs/:runId/actions` | append one bounded semantic action              |
+| POST   | `/api/lab/experiments/:experimentId/runs/:runId/finish`  | close a run and finalize population evidence    |
+| POST   | `/api/lab/agent-decision`                                | ask the cheap model for one UI action           |
+| POST   | `/api/lab/experiments/:experimentId/analyse`             | run one GPT-5.6 population analysis call        |
+| POST   | `/api/lab/experiments/:experimentId/mutations/select`    | record the human-approved implementation brief  |
+
+The agent-decision endpoint receives an accessibility snapshot, current URL,
+persona, compact action history, and remaining budget. It never receives the
+hidden answer oracle and returns no chain-of-thought. Typed values are used by
+the runner but only their length is persisted. A mutation selection does not
+create a diff or release: Codex execution, repository checks, PR review, and
+release remain separate controlled stages.
 
 ## Repository workflow callbacks
 

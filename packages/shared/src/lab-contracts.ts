@@ -1,0 +1,373 @@
+import { z } from 'zod';
+
+const LabIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9._:-]+$/);
+
+export const LabPersonaSchema = z.enum([
+  'novice',
+  'experienced_pm',
+  'executive',
+  'keyboard_first',
+  'mobile',
+  'cautious',
+  'impatient',
+  'search_first',
+]);
+
+export const LabExperimentStatusSchema = z.enum([
+  'draft',
+  'awaiting_runner',
+  'running',
+  'completed',
+  'analysing',
+  'analysed',
+  'failed',
+]);
+
+export const LabAgentRunStatusSchema = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'abandoned',
+  'blocked',
+]);
+
+export const LabAgentActionTypeSchema = z.enum([
+  'navigate',
+  'click',
+  'hover',
+  'type',
+  'clear',
+  'key',
+  'select',
+  'scroll',
+  'back',
+  'forward',
+  'submit',
+  'abandon',
+]);
+
+export const LabFrictionLabelSchema = z.enum([
+  'dead_click',
+  'rage_click',
+  'navigation_loop',
+  'pogo_navigation',
+  'excess_path_length',
+  'search_failure',
+  'false_affordance',
+  'information_architecture_confusion',
+  'accessibility_block',
+  'abandonment',
+]);
+
+export const LabTaskSchema = z
+  .object({
+    taskId: z.literal('find-apollo-assignees'),
+    name: z.literal('Find Project Apollo assignees'),
+    instruction: z.literal('Find everyone assigned to Project Apollo.'),
+    successDescription: z.literal(
+      'The agent identifies the complete Project Apollo assignment set.',
+    ),
+  })
+  .strict();
+
+export const LabExperimentCreateRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).default('Apollo discovery study'),
+    targetUrl: z.string().url().max(512),
+    populationSize: z.number().int().min(8).max(20).default(8),
+    maxActions: z.number().int().min(4).max(30).default(12),
+    maxDurationMs: z.number().int().min(30_000).max(600_000).default(180_000),
+    seed: z.number().int().min(1).max(2_147_483_647).default(1859),
+  })
+  .strict();
+
+export const LabActionTargetSchema = z
+  .object({
+    semanticId: z.string().min(1).max(96).optional(),
+    role: z.string().min(1).max(48).optional(),
+    name: z.string().min(1).max(160).optional(),
+  })
+  .strict()
+  .refine((target) => Boolean(target.semanticId || target.role), {
+    message: 'A semantic ID or accessibility role is required.',
+  });
+
+const LabDecisionHistoryItemSchema = z
+  .object({
+    ordinal: z.number().int().positive(),
+    action: LabAgentActionTypeSchema,
+    targetId: z.string().max(96).nullable(),
+    route: z.string().min(1).max(512),
+    outcome: z.enum(['changed', 'unchanged', 'error']),
+  })
+  .strict();
+
+export const LabAgentDecisionRequestSchema = z
+  .object({
+    experimentId: LabIdentifierSchema,
+    runId: LabIdentifierSchema,
+    persona: LabPersonaSchema,
+    taskInstruction: z.string().min(1).max(300),
+    currentUrl: z.string().url().max(512),
+    pageTitle: z.string().max(160),
+    accessibilitySnapshot: z.string().min(1).max(40_000),
+    history: z.array(LabDecisionHistoryItemSchema).max(30),
+    remainingActions: z.number().int().min(1).max(30),
+    elapsedMs: z.number().int().nonnegative().max(600_000),
+    viewport: z.enum(['desktop', 'mobile']),
+  })
+  .strict();
+
+export const LabAgentDecisionSchema = z
+  .object({
+    action: LabAgentActionTypeSchema,
+    target: LabActionTargetSchema.nullable(),
+    value: z.string().max(256).nullable(),
+    key: z.string().max(32).nullable(),
+    destination: z.string().max(512).nullable(),
+    expectation: z.string().min(1).max(240),
+  })
+  .strict();
+
+export const LabAgentDecisionResponseSchema = z
+  .object({
+    model: z.string().min(1),
+    decision: LabAgentDecisionSchema,
+  })
+  .strict();
+
+export const LabAgentActionRecordSchema = z
+  .object({
+    actionId: LabIdentifierSchema,
+    ordinal: z.number().int().positive(),
+    occurredAt: z.string().datetime(),
+    action: LabAgentActionTypeSchema,
+    targetId: z.string().min(1).max(96).nullable(),
+    targetRole: z.string().min(1).max(48).nullable(),
+    inputLength: z.number().int().nonnegative().max(256).nullable(),
+    key: z.string().min(1).max(32).nullable(),
+    expectation: z.string().min(1).max(240),
+    fromUrl: z.string().url().max(512),
+    toUrl: z.string().url().max(512),
+    durationMs: z.number().int().nonnegative().max(120_000),
+    outcome: z.enum(['changed', 'unchanged', 'error']),
+    accessibilityNodeCount: z.number().int().nonnegative().max(10_000),
+    telemetryEventIds: z.array(z.string().uuid()).max(100),
+    error: z.string().min(1).max(500).nullable(),
+  })
+  .strict();
+
+export const LabAgentRunStartRequestSchema = z
+  .object({
+    runId: LabIdentifierSchema,
+    participantId: LabIdentifierSchema,
+    sessionId: LabIdentifierSchema,
+    persona: LabPersonaSchema,
+    viewport: z
+      .object({
+        class: z.enum(['desktop', 'mobile']),
+        width: z.number().int().min(320).max(3840),
+        height: z.number().int().min(480).max(2160),
+      })
+      .strict(),
+    agentModel: z.string().min(1).max(80),
+    startedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const LabAgentActionAppendRequestSchema = z
+  .object({ action: LabAgentActionRecordSchema })
+  .strict();
+
+export const LabAgentRunFinishRequestSchema = z
+  .object({
+    status: z.enum(['succeeded', 'failed', 'abandoned', 'blocked']),
+    finishedAt: z.string().datetime(),
+    durationMs: z.number().int().nonnegative().max(600_000),
+    taskOutcome: z.enum(['success', 'failed', 'abandoned']),
+    frictionLabels: z.array(LabFrictionLabelSchema).max(10),
+    telemetryEventIds: z.array(z.string().uuid()).max(1_000),
+    error: z.string().min(1).max(1_000).nullable(),
+  })
+  .strict();
+
+export const LabAgentRunSchema = z
+  .object({
+    runId: LabIdentifierSchema,
+    experimentId: LabIdentifierSchema,
+    participantId: LabIdentifierSchema,
+    sessionId: LabIdentifierSchema,
+    persona: LabPersonaSchema,
+    viewport: z
+      .object({
+        class: z.enum(['desktop', 'mobile']),
+        width: z.number().int(),
+        height: z.number().int(),
+      })
+      .strict(),
+    agentModel: z.string().min(1),
+    status: LabAgentRunStatusSchema,
+    startedAt: z.string().datetime(),
+    finishedAt: z.string().datetime().nullable(),
+    durationMs: z.number().int().nonnegative().nullable(),
+    taskOutcome: z.enum(['success', 'failed', 'abandoned', 'open']),
+    frictionLabels: z.array(LabFrictionLabelSchema),
+    telemetryEventIds: z.array(z.string().uuid()),
+    actions: z.array(LabAgentActionRecordSchema),
+    error: z.string().nullable(),
+  })
+  .strict();
+
+export const LabEvidenceSignalSchema = z
+  .object({
+    evidenceId: z.string().regex(/^L-EV-\d{3}$/),
+    detector: LabFrictionLabelSchema,
+    severity: z.enum(['low', 'medium', 'high']),
+    summary: z.string().min(1),
+    supportingRunIds: z.array(LabIdentifierSchema).min(1),
+    supportingActionIds: z.array(LabIdentifierSchema),
+    supportingTelemetryEventIds: z.array(z.string().uuid()),
+    support: z
+      .object({
+        runs: z.number().int().positive(),
+        actions: z.number().int().nonnegative(),
+        telemetryEvents: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const LabEvidencePackSchema = z
+  .object({
+    evidencePackId: LabIdentifierSchema,
+    experimentId: LabIdentifierSchema,
+    evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+    parserVersion: z.literal('1.0.0'),
+    evidenceClass: z.literal('synthetic'),
+    generatedAt: z.string().datetime(),
+    population: z
+      .object({
+        planned: z.number().int().min(8).max(20),
+        completed: z.number().int().nonnegative(),
+        successful: z.number().int().nonnegative(),
+        abandoned: z.number().int().nonnegative(),
+      })
+      .strict(),
+    metrics: z
+      .object({
+        completionRate: z.number().min(0).max(1),
+        medianActions: z.number().nonnegative().nullable(),
+        medianDurationMs: z.number().nonnegative().nullable(),
+        repeatedRouteRate: z.number().min(0).max(1),
+        searchFailureRate: z.number().min(0).max(1),
+      })
+      .strict(),
+    signals: z.array(LabEvidenceSignalSchema),
+    runIds: z.array(LabIdentifierSchema),
+    limitations: z.array(z.string().min(1)),
+  })
+  .strict();
+
+export const LabMutationCandidateSchema = z
+  .object({
+    mutationId: LabIdentifierSchema,
+    title: z.string().min(1).max(120),
+    problem: z.string().min(1).max(600),
+    evidenceIds: z.array(z.string().regex(/^L-EV-\d{3}$/)).min(1),
+    hypothesis: z.string().min(1).max(600),
+    implementationBrief: z.string().min(1).max(2_000),
+    tradeoffs: z.array(z.string().min(1).max(300)).min(1).max(5),
+    validationPlan: z.string().min(1).max(1_000),
+    confidence: z.number().min(0).max(1),
+  })
+  .strict();
+
+export const LabAnalysisSchema = z
+  .object({
+    analysisId: LabIdentifierSchema,
+    experimentId: LabIdentifierSchema,
+    evidencePackId: LabIdentifierSchema,
+    evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+    model: z.string().min(1),
+    promptVersion: z.literal('1.0.0'),
+    createdAt: z.string().datetime(),
+    summary: z.string().min(1).max(1_000),
+    selectedMutationId: LabIdentifierSchema,
+    mutations: z.array(LabMutationCandidateSchema).min(1).max(3),
+  })
+  .strict();
+
+export const LabSelectionSchema = z
+  .object({
+    selectionId: LabIdentifierSchema,
+    experimentId: LabIdentifierSchema,
+    mutationId: LabIdentifierSchema,
+    selectedAt: z.string().datetime(),
+    selectedBy: z.enum(['operator', 'local-development']),
+    status: z.literal('approved_for_controlled_implementation'),
+  })
+  .strict();
+
+export const LabExperimentSchema = z
+  .object({
+    experimentId: LabIdentifierSchema,
+    studyId: LabIdentifierSchema,
+    name: z.string().min(1).max(100),
+    targetUrl: z.string().url().max(512),
+    task: LabTaskSchema,
+    populationSize: z.number().int().min(8).max(20),
+    maxActions: z.number().int().min(4).max(30),
+    maxDurationMs: z.number().int().min(30_000).max(600_000),
+    seed: z.number().int().positive(),
+    status: LabExperimentStatusSchema,
+    runnerId: LabIdentifierSchema.nullable(),
+    createdAt: z.string().datetime(),
+    startedAt: z.string().datetime().nullable(),
+    completedAt: z.string().datetime().nullable(),
+    runs: z.array(LabAgentRunSchema),
+    evidence: LabEvidencePackSchema.nullable(),
+    analysis: LabAnalysisSchema.nullable(),
+    selection: LabSelectionSchema.nullable(),
+    error: z.string().nullable(),
+  })
+  .strict();
+
+export const LabExperimentsResponseSchema = z
+  .object({ experiments: z.array(LabExperimentSchema) })
+  .strict();
+
+export const LabRunnerClaimRequestSchema = z
+  .object({ runnerId: LabIdentifierSchema })
+  .strict();
+
+export const LabMutationSelectionRequestSchema = z
+  .object({ mutationId: LabIdentifierSchema })
+  .strict();
+
+export type LabPersona = z.infer<typeof LabPersonaSchema>;
+export type LabExperimentStatus = z.infer<typeof LabExperimentStatusSchema>;
+export type LabAgentActionType = z.infer<typeof LabAgentActionTypeSchema>;
+export type LabFrictionLabel = z.infer<typeof LabFrictionLabelSchema>;
+export type LabExperimentCreateRequest = z.infer<
+  typeof LabExperimentCreateRequestSchema
+>;
+export type LabAgentDecisionRequest = z.infer<
+  typeof LabAgentDecisionRequestSchema
+>;
+export type LabAgentDecision = z.infer<typeof LabAgentDecisionSchema>;
+export type LabAgentDecisionResponse = z.infer<
+  typeof LabAgentDecisionResponseSchema
+>;
+export type LabAgentActionRecord = z.infer<typeof LabAgentActionRecordSchema>;
+export type LabAgentRun = z.infer<typeof LabAgentRunSchema>;
+export type LabEvidencePack = z.infer<typeof LabEvidencePackSchema>;
+export type LabEvidenceSignal = z.infer<typeof LabEvidenceSignalSchema>;
+export type LabMutationCandidate = z.infer<typeof LabMutationCandidateSchema>;
+export type LabAnalysis = z.infer<typeof LabAnalysisSchema>;
+export type LabSelection = z.infer<typeof LabSelectionSchema>;
+export type LabExperiment = z.infer<typeof LabExperimentSchema>;

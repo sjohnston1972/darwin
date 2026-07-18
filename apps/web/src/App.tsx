@@ -64,6 +64,7 @@ import {
   type LiveTelemetryState,
 } from './telemetry/useLiveTelemetry';
 import { apiFetch, getOperatorToken, setOperatorToken } from './api';
+import { DarwinLabView } from './LabView';
 
 type HealthState = 'checking' | 'online' | 'offline';
 type Theme = 'dark' | 'light';
@@ -92,6 +93,10 @@ const navItems = [
     icon: Radar,
   },
   {
+    label: 'Darwin Lab',
+    icon: Users,
+  },
+  {
     label: 'Mutations',
     icon: FlaskConical,
   },
@@ -107,6 +112,7 @@ const dashboardRoutes: Record<DashboardView, string> = {
   'Control room': '/',
   'Target application': '/?view=target',
   Observations: '/?view=observations',
+  'Darwin Lab': '/?view=lab',
   Mutations: '/?view=mutations',
   'System status': '/?view=status',
   Genome: '/?view=genome',
@@ -118,6 +124,8 @@ function getDashboardView(): DashboardView {
       return 'Target application';
     case 'observations':
       return 'Observations';
+    case 'lab':
+      return 'Darwin Lab';
     case 'mutations':
       return 'Mutations';
     case 'status':
@@ -697,6 +705,16 @@ function DarwinDashboard() {
             </>
           )}
 
+          {activeView === 'Darwin Lab' && (
+            <DarwinLabView
+              apiBaseUrl={apiBaseUrl}
+              defaultTargetUrl={`${projectFlowBaseUrl}/`}
+              liveReasoningAvailable={
+                health.analysis?.liveModelAvailable ?? false
+              }
+            />
+          )}
+
           {activeView === 'Mutations' &&
             (mutationArchived && liveTelemetry.execution ? (
               <MutationWorkspaceReset execution={liveTelemetry.execution} />
@@ -1060,8 +1078,12 @@ function useTargetConnection() {
 }
 
 function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
+  if (activeView === 'Darwin Lab') return null;
   const content: Record<
-    Exclude<DashboardView, 'Control room' | 'Target application'>,
+    Exclude<
+      DashboardView,
+      'Control room' | 'Target application' | 'Darwin Lab'
+    >,
     { eyebrow: string; title: string; description: string }
   > = {
     Observations: {

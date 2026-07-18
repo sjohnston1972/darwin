@@ -55,6 +55,8 @@ import {
   issueExecutionCallbackCredential,
   verifyExecutionCallback,
 } from './security/callback';
+import { handleLabRequest } from './lab/handler';
+import { getLabRepository } from './lab/lab-repository';
 
 export interface Env {
   DB?: D1Database;
@@ -67,6 +69,7 @@ export interface Env {
   OPENAI_API_KEY?: string;
   OPENAI_API?: string;
   OPENAI_MODEL: string;
+  OPENAI_LAB_AGENT_MODEL?: string;
   OPENAI_TIMEOUT_MS: string;
   PROJECTFLOW_REPOSITORY: string;
   PROJECTFLOW_BRANCH: string;
@@ -74,6 +77,8 @@ export interface Env {
   PROJECTFLOW_STUDY_URL: string;
   PROJECTFLOW_STUDY_ID?: string;
   PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
+  PROJECTFLOW_LAB_STUDY_ID?: string;
+  DARWIN_LAB_ALLOWED_ORIGINS?: string;
   GITHUB_TOKEN?: string;
   DARWIN_CALLBACK_TOKEN?: string;
   DARWIN_OPERATOR_TOKEN?: string;
@@ -111,6 +116,14 @@ const requiredOperatorCapability = (
   method: string,
   pathname: string,
 ): OperatorCapability => {
+  if (pathname.startsWith('/api/lab/')) {
+    if (method === 'GET') return 'inspect_evidence';
+    if (pathname.endsWith('/agent-decision') || pathname.endsWith('/analyse')) {
+      return 'reason';
+    }
+    if (pathname.endsWith('/mutations/select')) return 'execute';
+    return 'simulate';
+  }
   if (pathname === '/api/demo/reset') return 'reset';
   if (pathname.startsWith('/api/target-connection')) {
     return method === 'GET' ? 'observe' : 'connect';
@@ -229,7 +242,20 @@ const allowedTargetStudies = (env?: Partial<Env>) =>
     env?.PROJECTFLOW_STUDY_ID || 'projectflow-baseline-study',
     env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
       'projectflow-baseline-automated-study',
+    env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab',
   ]);
+
+const targetStudyAllowed = (studyId: string, env?: Partial<Env>) => {
+  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
+  return (
+    allowedTargetStudies(env).has(studyId) || studyId.startsWith(`${labStudy}-`)
+  );
+};
+
+const isLabStudy = (studyId: string, env?: Partial<Env>) => {
+  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
+  return studyId === labStudy || studyId.startsWith(`${labStudy}-`);
+};
 
 const targetProvenanceAllowed = (
   event: { studyId: string; source: string },
@@ -240,9 +266,11 @@ const targetProvenanceAllowed = (
   const automatedStudy =
     env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
     'projectflow-baseline-automated-study';
+  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
   return (
     (event.studyId === measuredStudy && event.source === 'real_user') ||
-    (event.studyId === automatedStudy && event.source === 'automated')
+    (event.studyId === automatedStudy && event.source === 'automated') ||
+    (event.studyId.startsWith(`${labStudy}-`) && event.source === 'synthetic')
   );
 };
 
@@ -335,7 +363,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.23.0',
+      version: '0.25.0',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -347,6 +375,14 @@ export const handleRequest = async (
 
     return json(response);
   }
+
+  const labResponse = await handleLabRequest(
+    request,
+    env,
+    json,
+    operatorIdentity,
+  );
+  if (labResponse) return labResponse;
 
   if (request.method === 'GET' && pathname === '/api/genome') {
     return json(
@@ -539,6 +575,7 @@ export const handleRequest = async (
     }
     resetSimulationStore();
     await telemetryRepository.reset();
+    await getLabRepository(env?.DB).reset();
     return json(
       DemoResetResponseSchema.parse({
         status: 'reset',
@@ -633,7 +670,7 @@ export const handleRequest = async (
     const events = parsedEvents.filter(
       (event) =>
         targetProvenanceAllowed(event, env) &&
-        allowedTargetStudies(env).has(event.studyId) &&
+        targetStudyAllowed(event.studyId, env) &&
         isAllowedTargetVersion(event.appVersion),
     );
     if (events.length !== parsedEvents.length) {
@@ -705,6 +742,16 @@ export const handleRequest = async (
   );
   if (request.method === 'POST' && studyEvidenceMatch) {
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
+    if (isLabStudy(studyId, env)) {
+      return json(
+        {
+          error: 'synthetic_evidence_boundary',
+          message:
+            'Darwin Lab telemetry can be analysed only through its synthetic evidence pack.',
+        },
+        { status: 409 },
+      );
+    }
     const source = url.searchParams.get('source') ?? 'real_user';
     if (source !== 'real_user' && source !== 'automated') {
       return json(
@@ -783,6 +830,16 @@ export const handleRequest = async (
   );
   if (request.method === 'POST' && analyseEvidenceMatch) {
     const studyId = decodeURIComponent(analyseEvidenceMatch[1]!);
+    if (isLabStudy(studyId, env)) {
+      return json(
+        {
+          error: 'synthetic_evidence_boundary',
+          message:
+            'Darwin Lab telemetry cannot enter the measured reasoning workflow.',
+        },
+        { status: 409 },
+      );
+    }
     const cycleStart = await currentCycleStart(studyId);
     const storedPack = await telemetryRepository.getLatestEvidence(studyId);
     const pack =
@@ -1562,7 +1619,7 @@ export const handleRequest = async (
         { status: targetAuthorization.status },
       );
     }
-    if (!allowedTargetStudies(env).has(studyId)) {
+    if (!targetStudyAllowed(studyId, env)) {
       return json(
         { error: 'study_forbidden', message: 'The study is not configured.' },
         { status: 403 },
