@@ -500,6 +500,42 @@ const installApi = (
           201,
         );
       }
+      if (url.includes('/api/diagnostics')) {
+        return response({
+          requestId: 'diagnostics-test',
+          generatedAt: timestamp,
+          retentionDays: 30,
+          events: [
+            {
+              eventId: 'd7bfb4f3-0984-4af4-88a9-998c341a7785',
+              kind: 'audit',
+              requestId: 'mutation-request-test',
+              occurredAt: timestamp,
+              actor: 'operator',
+              action: 'mutation.release',
+              target:
+                '/api/repository-executions/execution-measured-test/release',
+              outcome: 'success',
+              beforeState: 'preview_ready',
+              afterState: 'released',
+              provider: null,
+              operation: null,
+              durationMs: 245,
+              errorCode: null,
+            },
+          ],
+          metrics: [
+            {
+              provider: 'github',
+              operation: 'merge_evolution_pull_request',
+              count: 2,
+              failureCount: 0,
+              averageDurationMs: 210,
+              maximumDurationMs: 245,
+            },
+          ],
+        });
+      }
       if (url.endsWith('/api/health')) {
         return response({
           status: 'ok',
@@ -612,6 +648,22 @@ describe('Darwin control room', () => {
         expect.stringContaining('/events?limit=200'),
       ),
     );
+  });
+
+  it('shows redacted operational diagnostics in System status', async () => {
+    window.history.replaceState({}, '', '/?view=status');
+    installApi();
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Operational diagnostics' }),
+    ).toBeVisible();
+    expect(screen.getByText('Provider latency')).toBeVisible();
+    expect(screen.getByText('github')).toBeVisible();
+    expect(screen.getByText(/merge_evolution_pull_request/)).toBeVisible();
+    expect(screen.getByText('Privileged transitions')).toBeVisible();
+    expect(screen.getByText('mutation.release')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Export JSON' })).toBeEnabled();
   });
 
   it('shows live GPT pressure clusters, ranked mutations, and Codex handoff', async () => {

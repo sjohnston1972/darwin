@@ -25,12 +25,22 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - The 10,000-event simulation is operator-only, rate/concurrency limited, fixed to the configured seed, and retained as metadata in a four-entry TTL/LRU cache.
 - Repository workflow requests sign the execution, repository, manifest hash, timestamp, nonce, and payload digest; D1 rejects replayed signatures and terminal state rewrites.
 - Callback bodies, patches, output, checks, and changed-file arrays have explicit size limits.
+- Every Worker response carries a bounded request ID; structured authorization,
+  request, provider-latency, and privileged-transition records use redacted
+  fields only.
+- Privileged audit events and aggregate provider metrics have a 30-day rolling
+  retention window and are visible only through the protected diagnostics API.
 
 ## Privacy boundary
 
 The telemetry contract excludes typed values, search text, feedback text, keystrokes, arbitrary page text, DOM paths, raw cursor trails, and absolute screen coordinates.
 
 Participant and session IDs are pseudonymous. They still require access control and retention because behavioral traces can be linkable.
+
+Operational diagnostics deliberately exclude request/callback bodies, raw
+telemetry, prompts and model output, patches, arbitrary provider messages,
+headers, and credentials. Error diagnostics use bounded codes rather than raw
+exception messages. Exports from System status preserve that same boundary.
 
 ## Open security work
 

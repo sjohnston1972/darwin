@@ -2,6 +2,7 @@ import {
   CodexImplementationManifestSchema,
   CodexManifestRequestSchema,
   DemoResetResponseSchema,
+  DiagnosticsResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
   GenomeHistoryResponseSchema,
@@ -19,6 +20,9 @@ import {
   TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
   type HealthResponse,
+  type OperationalEvent,
+  type OperationalProvider,
+  type RepositoryMutationExecution,
   type SimulationResult,
 } from '@darwin/shared';
 
@@ -82,7 +86,8 @@ export interface Env {
 }
 
 const defaultCorsHeaders = {
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+  'Access-Control-Expose-Headers': 'X-Request-ID',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
 };
 
@@ -112,6 +117,7 @@ const requiredOperatorCapability = (
   pathname: string,
 ): OperatorCapability => {
   if (pathname === '/api/demo/reset') return 'reset';
+  if (pathname === '/api/diagnostics') return 'inspect_evidence';
   if (pathname.startsWith('/api/target-connection')) {
     return method === 'GET' ? 'observe' : 'connect';
   }
@@ -251,6 +257,153 @@ const isAllowedTargetVersion = (appVersion: string) =>
   /^\d+\.\d+\.\d+$/.test(appVersion) ||
   /^[a-f0-9]{7,40}(?:-candidate)?$/.test(appVersion);
 
+type OperationalActor = OperationalEvent['actor'];
+
+interface ProviderTrace {
+  provider: OperationalProvider;
+  operation: string;
+  durationMs: number;
+  outcome: 'success' | 'failure';
+  errorCode: string | null;
+}
+
+interface RequestTrace {
+  requestId: string;
+  startedAt: number;
+  actor: OperationalActor;
+  action: string;
+  target: string;
+  beforeState: string | null;
+  afterState: string | null;
+  metrics: ProviderTrace[];
+}
+
+const requestIdPattern = /^[A-Za-z0-9._:-]{1,80}$/;
+
+const createRequestTrace = (request: Request): RequestTrace => {
+  const supplied = request.headers.get('X-Request-ID');
+  const pathname = new URL(request.url).pathname;
+  return {
+    requestId:
+      supplied && requestIdPattern.test(supplied)
+        ? supplied
+        : crypto.randomUUID(),
+    startedAt: performance.now(),
+    actor: isCallbackRoute(pathname)
+      ? 'repository-callback'
+      : isTargetRoute(pathname)
+        ? 'projectflow'
+        : 'anonymous',
+    action: `${request.method} ${pathname}`.slice(0, 120),
+    target: pathname.slice(0, 240),
+    beforeState: null,
+    afterState: null,
+    metrics: [],
+  };
+};
+
+const providerErrorCode = (error: unknown) =>
+  error instanceof Error ? error.name : 'UnknownError';
+
+const logAuthorizationDecision = (
+  trace: RequestTrace,
+  boundary: 'operator' | 'target' | 'repository_callback',
+  allowed: boolean,
+  errorCode: string | null = null,
+) => {
+  const payload = JSON.stringify({
+    event: `${boundary}_request_${allowed ? 'authorized' : 'rejected'}`,
+    requestId: trace.requestId,
+    actor: trace.actor,
+    action: trace.action,
+    target: trace.target,
+    outcome: allowed ? 'success' : 'failure',
+    errorCode,
+  });
+  if (allowed) console.info('[darwin:audit]', payload);
+  else console.warn('[darwin:audit]', payload);
+};
+
+const observeProvider = async <Result>(
+  trace: RequestTrace,
+  provider: OperationalProvider,
+  operation: string,
+  perform: () => Promise<Result>,
+): Promise<Result> => {
+  const startedAt = performance.now();
+  try {
+    const result = await perform();
+    trace.metrics.push({
+      provider,
+      operation,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      outcome: 'success',
+      errorCode: null,
+    });
+    return result;
+  } catch (error) {
+    trace.metrics.push({
+      provider,
+      operation,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      outcome: 'failure',
+      errorCode: providerErrorCode(error),
+    });
+    throw error;
+  }
+};
+
+const auditedAction = (method: string, pathname: string) => {
+  if (method !== 'POST') return null;
+  if (pathname === '/api/target-connection') return 'target.connect';
+  if (pathname === '/api/target-connection/disconnect') {
+    return 'target.disconnect';
+  }
+  if (pathname === '/api/demo/reset') return 'demo.reset';
+  if (/^\/api\/studies\/[^/]+\/evidence$/.test(pathname)) {
+    return 'evidence.generate';
+  }
+  if (/^\/api\/studies\/[^/]+\/analyse-evidence$/.test(pathname)) {
+    return 'gpt.analyse';
+  }
+  if (/^\/api\/evidence-analyses\/[^/]+\/codex-manifest$/.test(pathname)) {
+    return 'manifest.create';
+  }
+  if (
+    /^\/api\/evidence-analyses\/[^/]+\/codex-manifest\/execution$/.test(
+      pathname,
+    )
+  ) {
+    return 'workflow.dispatch';
+  }
+  if (/^\/api\/repository-executions\/[^/]+\/rollback$/.test(pathname)) {
+    return 'rollback.dispatch';
+  }
+  if (/\/rollback\/callback$/.test(pathname)) return 'rollback.callback';
+  if (/\/callback$/.test(pathname)) return 'repository.callback';
+  if (/\/rollback\/release$/.test(pathname)) return 'rollback.release';
+  if (/\/release$/.test(pathname)) return 'mutation.release';
+  return null;
+};
+
+const responseState = async (response: Response) => {
+  if (response.status === 204) return 'no_content';
+  try {
+    const payload = (await response.clone().json()) as Record<string, unknown>;
+    if (typeof payload.status === 'string') return payload.status.slice(0, 120);
+    if (payload.rollback && typeof payload.rollback === 'object') {
+      const status = (payload.rollback as { status?: unknown }).status;
+      if (typeof status === 'string') return `rollback:${status}`.slice(0, 120);
+    }
+    if (typeof payload.error === 'string') {
+      return `error:${payload.error}`.slice(0, 120);
+    }
+  } catch {
+    // Responses without JSON are represented only by their HTTP status.
+  }
+  return response.ok ? 'completed' : `http_${response.status}`;
+};
+
 export const resetSimulationStore = () => {
   simulationStore.clear();
 };
@@ -258,10 +411,17 @@ export const resetSimulationStore = () => {
 export const handleRequest = async (
   request: Request,
   env?: Partial<Env>,
+  suppliedTrace?: RequestTrace,
 ): Promise<Response> => {
+  const trace = suppliedTrace ?? createRequestTrace(request);
   const url = new URL(request.url);
   const { pathname } = url;
-  const { corsHeaders, originAllowed } = corsForRequest(request, env);
+  const requestCors = corsForRequest(request, env);
+  const corsHeaders = {
+    ...requestCors.corsHeaders,
+    'X-Request-ID': trace.requestId,
+  };
+  const { originAllowed } = requestCors;
   const json = (body: unknown, init: ResponseInit = {}) =>
     jsonResponse(body, init, corsHeaders);
 
@@ -281,6 +441,13 @@ export const handleRequest = async (
 
   if (request.method === 'GET' && pathname === '/api/auth/session') {
     const authorization = await authorizeOperator(request, env, 'observe');
+    trace.actor = authorization.ok ? authorization.identity.actor : 'anonymous';
+    logAuthorizationDecision(
+      trace,
+      'operator',
+      authorization.ok,
+      authorization.ok ? null : authorization.error,
+    );
     return authorization.ok
       ? json({
           authenticated: true,
@@ -308,24 +475,20 @@ export const handleRequest = async (
       requiredOperatorCapability(request.method, pathname),
     );
     if (!authorization.ok) {
+      logAuthorizationDecision(trace, 'operator', false, authorization.error);
       return json(
         { error: authorization.error, message: authorization.message },
         { status: authorization.status },
       );
     }
     operatorIdentity = authorization.identity;
-    console.info(
-      '[darwin:audit]',
-      JSON.stringify({
-        event: 'operator_request_authorized',
-        actor: operatorIdentity.actor,
-        action: `${request.method} ${pathname}`,
-        target: pathname,
-      }),
-    );
+    trace.actor = operatorIdentity.actor;
+    logAuthorizationDecision(trace, 'operator', true);
   }
 
-  const telemetryRepository = getTelemetryRepository(env?.DB);
+  const telemetryRepository = getTelemetryRepository(env?.DB, (metric) => {
+    trace.metrics.push({ provider: 'd1', ...metric });
+  });
   const currentCycleStart = async (studyId: string) => {
     const cycle = await telemetryRepository.getEvolutionCycle();
     return cycle.studyId === studyId ? cycle.startedAt : null;
@@ -335,7 +498,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.23.0',
+      version: '0.24.0',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -346,6 +509,26 @@ export const handleRequest = async (
     };
 
     return json(response);
+  }
+
+  if (request.method === 'GET' && pathname === '/api/diagnostics') {
+    const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(100, Math.max(1, Math.round(requestedLimit)))
+      : 50;
+    const [events, metrics] = await Promise.all([
+      telemetryRepository.listOperationalAuditEvents(limit),
+      telemetryRepository.summarizeOperationalMetrics(100),
+    ]);
+    return json(
+      DiagnosticsResponseSchema.parse({
+        requestId: trace.requestId,
+        generatedAt: new Date().toISOString(),
+        retentionDays: 30,
+        events,
+        metrics,
+      }),
+    );
   }
 
   if (request.method === 'GET' && pathname === '/api/genome') {
@@ -398,6 +581,7 @@ export const handleRequest = async (
   }
 
   if (request.method === 'POST' && pathname === '/api/target-connection') {
+    trace.beforeState = 'disconnected';
     let input: unknown;
     try {
       input = await request.json();
@@ -437,22 +621,42 @@ export const handleRequest = async (
     }
 
     try {
-      const snapshot = await captureRepositorySnapshot({
-        ...requested,
-        githubToken: env?.GITHUB_TOKEN,
-      });
-      const runtimeResponse = await fetch(requested.studyUrl, {
-        headers: { Accept: 'text/html' },
-      });
-      if (!runtimeResponse.ok) {
-        throw new Error(
-          `Target deployment returned ${runtimeResponse.status}.`,
-        );
-      }
-      const runtimeHtml = await runtimeResponse.text();
-      if (!runtimeHtml.includes('<title>ProjectFlow</title>')) {
-        throw new Error('Target deployment identity could not be verified.');
-      }
+      const snapshot = await observeProvider(
+        trace,
+        'github',
+        'capture_repository_snapshot',
+        () =>
+          captureRepositorySnapshot({
+            ...requested,
+            githubToken: env?.GITHUB_TOKEN,
+          }),
+      );
+      const runtimeResponse = await observeProvider(
+        trace,
+        'target',
+        'verify_study_runtime',
+        async () => {
+          const response = await fetch(requested.studyUrl, {
+            headers: { Accept: 'text/html' },
+          });
+          if (!response.ok) {
+            const error = new Error(
+              `Target deployment returned ${response.status}.`,
+            );
+            error.name = `TargetHttp${response.status}`;
+            throw error;
+          }
+          const runtimeHtml = await response.text();
+          if (!runtimeHtml.includes('<title>ProjectFlow</title>')) {
+            const error = new Error(
+              'Target deployment identity could not be verified.',
+            );
+            error.name = 'TargetIdentityError';
+            throw error;
+          }
+          return response;
+        },
+      );
       const timestamp = new Date().toISOString();
       const connection = TargetApplicationConnectionSchema.parse({
         connectionId: `target-${snapshot.context.baseSha.slice(0, 12)}`,
@@ -508,22 +712,28 @@ export const handleRequest = async (
     request.method === 'POST' &&
     pathname === '/api/target-connection/disconnect'
   ) {
+    trace.beforeState = 'connected';
     await telemetryRepository.deleteTargetConnection();
+    trace.afterState = 'disconnected';
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
+    trace.beforeState = 'active_cycle';
     const targetConnection = await telemetryRepository.getTargetConnection();
     if (env?.GITHUB_TOKEN) {
       try {
-        await dispatchResetWorkflow({
-          token: env.GITHUB_TOKEN,
-          fullName:
-            targetConnection?.repository.fullName ||
-            configuredTarget(env).fullName,
-          branch:
-            targetConnection?.repository.branch || configuredTarget(env).branch,
-        });
+        await observeProvider(trace, 'github', 'dispatch_reset_workflow', () =>
+          dispatchResetWorkflow({
+            token: env.GITHUB_TOKEN!,
+            fullName:
+              targetConnection?.repository.fullName ||
+              configuredTarget(env).fullName,
+            branch:
+              targetConnection?.repository.branch ||
+              configuredTarget(env).branch,
+          }),
+        );
       } catch (error) {
         return json(
           {
@@ -589,13 +799,11 @@ export const handleRequest = async (
       env,
     );
     if (!targetAuthorization.ok) {
-      console.warn(
-        '[darwin:security]',
-        JSON.stringify({
-          event: 'telemetry_authentication_rejected',
-          reason: targetAuthorization.error,
-          path: pathname,
-        }),
+      logAuthorizationDecision(
+        trace,
+        'target',
+        false,
+        targetAuthorization.error,
       );
       return json(
         {
@@ -605,6 +813,7 @@ export const handleRequest = async (
         { status: targetAuthorization.status },
       );
     }
+    logAuthorizationDecision(trace, 'target', true);
 
     if (
       !input ||
@@ -704,6 +913,7 @@ export const handleRequest = async (
     /^\/api\/studies\/([^/]+)\/evidence$/,
   );
   if (request.method === 'POST' && studyEvidenceMatch) {
+    trace.beforeState = 'telemetry_ready';
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
     const source = url.searchParams.get('source') ?? 'real_user';
     if (source !== 'real_user' && source !== 'automated') {
@@ -731,6 +941,7 @@ export const handleRequest = async (
     try {
       const pack = await buildEvidencePack(studyId, events);
       await telemetryRepository.saveEvidence(pack);
+      trace.afterState = 'evidence_ready';
       return json(EvidencePackSchema.parse(pack), { status: 201 });
     } catch (error) {
       if (
@@ -782,6 +993,7 @@ export const handleRequest = async (
     /^\/api\/studies\/([^/]+)\/analyse-evidence$/,
   );
   if (request.method === 'POST' && analyseEvidenceMatch) {
+    trace.beforeState = 'evidence_ready';
     const studyId = decodeURIComponent(analyseEvidenceMatch[1]!);
     const cycleStart = await currentCycleStart(studyId);
     const storedPack = await telemetryRepository.getLatestEvidence(studyId);
@@ -804,20 +1016,27 @@ export const handleRequest = async (
       ReturnType<typeof captureRepositorySnapshot>
     >;
     try {
-      repositorySnapshot = await captureRepositorySnapshot({
-        fullName:
-          targetConnection?.repository.fullName ||
-          configuredTarget(env).fullName,
-        branch:
-          targetConnection?.repository.branch || configuredTarget(env).branch,
-        githubToken: env?.GITHUB_TOKEN,
-        productionUrl:
-          targetConnection?.repository.productionUrl ||
-          configuredTarget(env).productionUrl,
-        studyUrl:
-          targetConnection?.repository.studyUrl ||
-          configuredTarget(env).studyUrl,
-      });
+      repositorySnapshot = await observeProvider(
+        trace,
+        'github',
+        'capture_reasoning_snapshot',
+        () =>
+          captureRepositorySnapshot({
+            fullName:
+              targetConnection?.repository.fullName ||
+              configuredTarget(env).fullName,
+            branch:
+              targetConnection?.repository.branch ||
+              configuredTarget(env).branch,
+            githubToken: env?.GITHUB_TOKEN,
+            productionUrl:
+              targetConnection?.repository.productionUrl ||
+              configuredTarget(env).productionUrl,
+            studyUrl:
+              targetConnection?.repository.studyUrl ||
+              configuredTarget(env).studyUrl,
+          }),
+      );
     } catch {
       return json(
         {
@@ -836,22 +1055,66 @@ export const handleRequest = async (
     );
     const cached =
       await telemetryRepository.getEvidenceAnalysisByCacheKey(cacheKey);
-    if (cached) return json(EvidenceAnalysisSchema.parse(cached));
+    console.info(
+      '[darwin:reasoning]',
+      JSON.stringify({
+        event: cached ? 'gpt_cache_hit' : 'gpt_cache_miss',
+        requestId: trace.requestId,
+        actor: trace.actor,
+        action: 'gpt.analyse',
+        target: studyId,
+        outcome: 'success',
+      }),
+    );
+    if (cached) {
+      trace.afterState = 'analysis_cached';
+      return json(EvidenceAnalysisSchema.parse(cached));
+    }
 
     try {
       const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
-      const analysis = await analyseEvidence(pack, {
-        requestedMode: env?.DARWIN_AI_MODE,
-        apiKey: openAIKey(env),
-        model,
-        timeoutMs: Number.isFinite(configuredTimeout)
-          ? Math.min(90_000, Math.max(1_000, configuredTimeout))
-          : 12_000,
-        repositorySnapshot,
-      });
+      const analysis = await observeProvider(
+        trace,
+        'openai',
+        'analyse_evidence',
+        () =>
+          analyseEvidence(pack, {
+            requestedMode: env?.DARWIN_AI_MODE,
+            apiKey: openAIKey(env),
+            model,
+            timeoutMs: Number.isFinite(configuredTimeout)
+              ? Math.min(90_000, Math.max(1_000, configuredTimeout))
+              : 12_000,
+            repositorySnapshot,
+          }),
+      );
+      console.info(
+        '[darwin:reasoning]',
+        JSON.stringify({
+          event: 'gpt_call_completed',
+          requestId: trace.requestId,
+          actor: trace.actor,
+          action: 'gpt.analyse',
+          target: studyId,
+          outcome: 'success',
+        }),
+      );
       await telemetryRepository.saveEvidenceAnalysis(studyId, analysis);
+      trace.afterState = 'analysis_ready';
       return json(EvidenceAnalysisSchema.parse(analysis), { status: 201 });
     } catch (error) {
+      console.warn(
+        '[darwin:reasoning]',
+        JSON.stringify({
+          event: 'gpt_call_completed',
+          requestId: trace.requestId,
+          actor: trace.actor,
+          action: 'gpt.analyse',
+          target: studyId,
+          outcome: 'failure',
+          errorCode: providerErrorCode(error),
+        }),
+      );
       if (error instanceof EvidenceReasoningError) {
         return json(
           { error: 'analysis_failed', message: error.message },
@@ -902,6 +1165,7 @@ export const handleRequest = async (
       return json(CodexImplementationManifestSchema.parse(existing));
     }
     if (request.method === 'POST') {
+      trace.beforeState = 'analysis_ready';
       const analysis =
         await telemetryRepository.getEvidenceAnalysis(analysisId);
       if (!analysis) {
@@ -964,6 +1228,7 @@ export const handleRequest = async (
         mutations,
       );
       await telemetryRepository.saveCodexManifest(manifest);
+      trace.afterState = 'manifest_created';
       return json(CodexImplementationManifestSchema.parse(manifest), {
         status: 201,
       });
@@ -999,6 +1264,7 @@ export const handleRequest = async (
     if (existing && existing.status !== 'failed') {
       return json(RepositoryMutationExecutionSchema.parse(existing));
     }
+    trace.beforeState = existing?.status ?? 'not_started';
     if (!env?.GITHUB_TOKEN || !env.DARWIN_CALLBACK_TOKEN) {
       return json(
         {
@@ -1009,7 +1275,7 @@ export const handleRequest = async (
         { status: 503 },
       );
     }
-    let execution;
+    let execution: RepositoryMutationExecution;
     try {
       execution = createRepositoryExecution(manifest);
     } catch (error) {
@@ -1032,13 +1298,20 @@ export const handleRequest = async (
       await telemetryRepository.saveExecutionCallbackCredential(
         callbackCredential.credential,
       );
-      await dispatchEvolutionWorkflow({
-        token: env.GITHUB_TOKEN,
-        execution,
-        callbackNonce: callbackCredential.nonce,
-        manifestHash: manifest.manifestHash,
-        callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/callback`,
-      });
+      const dispatchExecution = execution;
+      await observeProvider(
+        trace,
+        'github',
+        'dispatch_evolution_workflow',
+        () =>
+          dispatchEvolutionWorkflow({
+            token: env.GITHUB_TOKEN!,
+            execution: dispatchExecution,
+            callbackNonce: callbackCredential.nonce,
+            manifestHash: manifest.manifestHash,
+            callbackUrl: `${url.origin}/api/repository-executions/${dispatchExecution.executionId}/callback`,
+          }),
+      );
       execution = updateRepositoryExecution(execution, { status: 'queued' });
       await telemetryRepository.saveRepositoryExecution(execution);
       return json(RepositoryMutationExecutionSchema.parse(execution), {
@@ -1072,6 +1345,7 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.rollback?.status ?? execution.status;
     if (execution.rollback && execution.rollback.status !== 'failed') {
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
@@ -1113,16 +1387,20 @@ export const handleRequest = async (
       await telemetryRepository.saveExecutionCallbackCredential(
         callbackCredential.credential,
       );
-      await dispatchRollbackWorkflow({
-        token: env.GITHUB_TOKEN,
-        execution,
-        rollback,
-        callbackNonce: callbackCredential.nonce,
-        manifestHash: manifest.manifestHash,
-        callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/rollback/callback`,
-      });
+      const dispatchExecution = execution;
+      await observeProvider(trace, 'github', 'dispatch_rollback_workflow', () =>
+        dispatchRollbackWorkflow({
+          token: env.GITHUB_TOKEN!,
+          execution: dispatchExecution,
+          rollback,
+          callbackNonce: callbackCredential.nonce,
+          manifestHash: manifest.manifestHash,
+          callbackUrl: `${url.origin}/api/repository-executions/${dispatchExecution.executionId}/rollback/callback`,
+        }),
+      );
       execution = updateRepositoryRollback(execution, { status: 'queued' });
       await telemetryRepository.saveRepositoryExecution(execution);
+      trace.afterState = 'rollback:queued';
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 201,
       });
@@ -1136,6 +1414,7 @@ export const handleRequest = async (
               : 'GitHub rollback workflow dispatch failed.',
         });
         await telemetryRepository.saveRepositoryExecution(execution);
+        trace.afterState = 'rollback:failed';
       }
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 502,
@@ -1185,11 +1464,18 @@ export const handleRequest = async (
       manifestHash: manifest.manifestHash,
     });
     if (!verification.ok) {
+      logAuthorizationDecision(
+        trace,
+        'repository_callback',
+        false,
+        verification.error,
+      );
       return json(
         { error: verification.error, message: verification.message },
         { status: verification.status },
       );
     }
+    logAuthorizationDecision(trace, 'repository_callback', true);
     return json({ execution, manifest });
   }
 
@@ -1206,6 +1492,7 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.rollback?.status ?? execution.status;
     const contentLength = Number(request.headers.get('Content-Length') ?? 0);
     if (contentLength > 750_000) {
       return json(
@@ -1240,11 +1527,18 @@ export const handleRequest = async (
       manifestHash: manifest.manifestHash,
     });
     if (!verification.ok) {
+      logAuthorizationDecision(
+        trace,
+        'repository_callback',
+        false,
+        verification.error,
+      );
       return json(
         { error: verification.error, message: verification.message },
         { status: verification.status },
       );
     }
+    logAuthorizationDecision(trace, 'repository_callback', true);
     let callback;
     try {
       callback = RepositoryRollbackCallbackSchema.parse(JSON.parse(body));
@@ -1269,6 +1563,7 @@ export const handleRequest = async (
       }
       const updated = updateRepositoryRollback(execution, callback);
       await telemetryRepository.saveRepositoryExecution(updated);
+      trace.afterState = `rollback:${updated.rollback?.status ?? 'unknown'}`;
       return json(RepositoryMutationExecutionSchema.parse(updated));
     } catch (error) {
       return json(
@@ -1297,6 +1592,7 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.status;
     const contentLength = Number(request.headers.get('Content-Length') ?? 0);
     if (contentLength > 750_000) {
       return json(
@@ -1331,11 +1627,18 @@ export const handleRequest = async (
       manifestHash: manifest.manifestHash,
     });
     if (!verification.ok) {
+      logAuthorizationDecision(
+        trace,
+        'repository_callback',
+        false,
+        verification.error,
+      );
       return json(
         { error: verification.error, message: verification.message },
         { status: verification.status },
       );
     }
+    logAuthorizationDecision(trace, 'repository_callback', true);
     let callback;
     try {
       callback = RepositoryExecutionCallbackSchema.parse(JSON.parse(body));
@@ -1360,6 +1663,7 @@ export const handleRequest = async (
       }
       const updated = updateRepositoryExecution(execution, callback);
       await telemetryRepository.saveRepositoryExecution(updated);
+      trace.afterState = updated.status;
       return json(RepositoryMutationExecutionSchema.parse(updated));
     } catch (error) {
       return json(
@@ -1388,7 +1692,9 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.rollback?.status ?? execution.status;
     if (execution.rollback?.status === 'released') {
+      trace.afterState = 'rollback:released';
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
     if (execution.rollback?.status !== 'preview_ready') {
@@ -1412,17 +1718,25 @@ export const handleRequest = async (
     execution = updateRepositoryRollback(execution, { status: 'releasing' });
     await telemetryRepository.saveRepositoryExecution(execution);
     try {
-      const releasedSha = await mergeRollbackPullRequest({
-        token: env.GITHUB_TOKEN,
-        execution,
-        rollback: execution.rollback!,
-      });
+      const releasingExecution = execution;
+      const releasedSha = await observeProvider(
+        trace,
+        'github',
+        'merge_rollback_pull_request',
+        () =>
+          mergeRollbackPullRequest({
+            token: env.GITHUB_TOKEN!,
+            execution: releasingExecution,
+            rollback: releasingExecution.rollback!,
+          }),
+      );
       execution = updateRepositoryRollback(execution, {
         status: 'released',
         headSha: releasedSha,
         previewUrl: execution.repository.studyUrl,
       });
       await telemetryRepository.saveRepositoryExecution(execution);
+      trace.afterState = 'rollback:released';
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
       execution = updateRepositoryRollback(execution, {
@@ -1433,6 +1747,7 @@ export const handleRequest = async (
             : 'GitHub rollback pull request release failed.',
       });
       await telemetryRepository.saveRepositoryExecution(execution);
+      trace.afterState = 'rollback:failed';
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 502,
       });
@@ -1452,6 +1767,7 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.status;
     if (execution.status === 'released') {
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
@@ -1476,10 +1792,17 @@ export const handleRequest = async (
     execution = updateRepositoryExecution(execution, { status: 'releasing' });
     await telemetryRepository.saveRepositoryExecution(execution);
     try {
-      const releasedSha = await mergeEvolutionPullRequest({
-        token: env.GITHUB_TOKEN,
-        execution,
-      });
+      const releasingExecution = execution;
+      const releasedSha = await observeProvider(
+        trace,
+        'github',
+        'merge_evolution_pull_request',
+        () =>
+          mergeEvolutionPullRequest({
+            token: env.GITHUB_TOKEN!,
+            execution: releasingExecution,
+          }),
+      );
       execution = updateRepositoryExecution(execution, {
         status: 'released',
         headSha: releasedSha,
@@ -1554,6 +1877,12 @@ export const handleRequest = async (
       env,
     );
     if (!targetAuthorization.ok) {
+      logAuthorizationDecision(
+        trace,
+        'target',
+        false,
+        targetAuthorization.error,
+      );
       return json(
         {
           error: targetAuthorization.error,
@@ -1562,6 +1891,7 @@ export const handleRequest = async (
         { status: targetAuthorization.status },
       );
     }
+    logAuthorizationDecision(trace, 'target', true);
     if (!allowedTargetStudies(env).has(studyId)) {
       return json(
         { error: 'study_forbidden', message: 'The study is not configured.' },
@@ -1737,31 +2067,151 @@ export const handleRequest = async (
   );
 };
 
+const recordOperationalTrace = async (
+  request: Request,
+  env: Partial<Env>,
+  trace: RequestTrace,
+  response: Response,
+) => {
+  trace.afterState = trace.afterState ?? (await responseState(response));
+  const outcome = response.ok ? 'success' : 'failure';
+  const errorCode = trace.afterState.startsWith('error:')
+    ? trace.afterState.slice('error:'.length)
+    : response.ok
+      ? null
+      : `http_${response.status}`;
+  const durationMs = Math.max(
+    0,
+    Math.round(performance.now() - trace.startedAt),
+  );
+  const action = auditedAction(request.method, new URL(request.url).pathname);
+
+  console.info(
+    '[darwin:request]',
+    JSON.stringify({
+      event: 'request_completed',
+      requestId: trace.requestId,
+      actor: trace.actor,
+      action: action ?? trace.action,
+      target: trace.target,
+      outcome,
+      status: response.status,
+      durationMs,
+      beforeState: trace.beforeState,
+      afterState: trace.afterState,
+      errorCode,
+    }),
+  );
+  for (const metric of trace.metrics) {
+    console.info(
+      '[darwin:metric]',
+      JSON.stringify({
+        event: 'provider_operation',
+        requestId: trace.requestId,
+        actor: trace.actor,
+        action: `${metric.provider}.${metric.operation}`,
+        target: trace.target,
+        outcome: metric.outcome,
+        provider: metric.provider,
+        operation: metric.operation,
+        durationMs: metric.durationMs,
+        errorCode: metric.errorCode,
+      }),
+    );
+  }
+
+  if (!action && trace.metrics.length === 0) return;
+  try {
+    const repository = getTelemetryRepository(env.DB);
+    const occurredAt = new Date().toISOString();
+    const events: OperationalEvent[] = trace.metrics.map((metric) => ({
+      eventId: crypto.randomUUID(),
+      kind: 'metric',
+      requestId: trace.requestId,
+      occurredAt,
+      actor: trace.actor,
+      action: `${metric.provider}.${metric.operation}`,
+      target: trace.target,
+      outcome: metric.outcome,
+      beforeState: null,
+      afterState: null,
+      provider: metric.provider,
+      operation: metric.operation,
+      durationMs: metric.durationMs,
+      errorCode: metric.errorCode,
+    }));
+    if (action) {
+      events.unshift({
+        eventId: crypto.randomUUID(),
+        kind: 'audit',
+        requestId: trace.requestId,
+        occurredAt,
+        actor: trace.actor,
+        action,
+        target: trace.target,
+        outcome,
+        beforeState: trace.beforeState ?? 'requested',
+        afterState: trace.afterState,
+        provider: null,
+        operation: null,
+        durationMs,
+        errorCode,
+      });
+    }
+    await repository.saveOperationalEvents(events);
+  } catch (error) {
+    console.error(
+      '[darwin:audit]',
+      JSON.stringify({
+        event: 'operational_trace_persistence_failed',
+        requestId: trace.requestId,
+        actor: 'system',
+        action: 'audit.persist',
+        target: 'operational_events',
+        outcome: 'failure',
+        errorCode: providerErrorCode(error),
+      }),
+    );
+  }
+};
+
 export const handleWorkerRequest = async (
   request: Request,
   env: Partial<Env>,
 ) => {
+  const trace = createRequestTrace(request);
+  let response: Response;
   try {
-    return await handleRequest(request, env);
+    response = await handleRequest(request, env, trace);
   } catch (error) {
     console.error(
       '[darwin:api]',
       JSON.stringify({
         event: 'unhandled_request_error',
+        requestId: trace.requestId,
+        actor: trace.actor,
+        action: trace.action,
+        target: trace.target,
+        outcome: 'failure',
         method: request.method,
         path: new URL(request.url).pathname,
-        error: error instanceof Error ? error.name : 'UnknownError',
+        errorCode: providerErrorCode(error),
       }),
     );
-    return jsonResponse(
+    response = jsonResponse(
       {
         error: 'internal_error',
         message: 'Darwin API could not complete the request.',
       },
-      { status: 500 },
+      {
+        status: 500,
+        headers: { 'X-Request-ID': trace.requestId },
+      },
       corsForRequest(request, env).corsHeaders,
     );
   }
+  await recordOperationalTrace(request, env, trace, response);
+  return response;
 };
 
 const worker: ExportedHandler<Env> = {
