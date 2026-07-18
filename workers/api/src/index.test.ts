@@ -1527,6 +1527,8 @@ describe('Darwin API', () => {
 
     expect(createResponse.status).toBe(201);
     expect(created.run.eventCount).toBe(10_000);
+    expect(created).not.toHaveProperty('events');
+    expect(JSON.stringify(created).length).toBeLessThan(100_000);
 
     const summaryResponse = await handleRequest(
       new Request(`http://localhost/api/simulations/${created.run.id}/summary`),
@@ -1536,6 +1538,134 @@ describe('Darwin API', () => {
     expect(summaryResponse.status).toBe(200);
     expect(summary.run.eventCount).toBe(10_000);
     expect(summary.metrics.sessions).toBeGreaterThan(500);
+  });
+
+  it('rate limits simulations on the authenticated operator identity', async () => {
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const response = await handleRequest(
+      new Request('http://localhost/api/simulations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+      }),
+      { SIMULATION_RATE_LIMITER: { limit } },
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('60');
+    expect(limit).toHaveBeenCalledWith({ key: 'local-development' });
+  });
+
+  it('rejects unconfigured simulation seeds and evolved variants', async () => {
+    for (const input of [
+      { seed: 2026, variant: 'baseline' },
+      { seed: 1859, variant: 'evolved' },
+    ]) {
+      const response = await handleRequest(
+        new Request('http://localhost/api/simulations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        }),
+      );
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: 'simulation_not_allowed',
+      });
+    }
+  });
+
+  it('admits only one simulation request at a time', async () => {
+    let releaseBody: ((value: string) => void) | undefined;
+    const firstRequest = new Request('http://localhost/api/simulations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+    });
+    vi.spyOn(firstRequest, 'text').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseBody = resolve;
+        }),
+    );
+    const firstResponsePromise = handleRequest(firstRequest);
+    await vi.waitFor(() => expect(releaseBody).toBeTypeOf('function'));
+
+    const busyResponse = await handleRequest(
+      new Request('http://localhost/api/simulations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+      }),
+    );
+    expect(busyResponse.status).toBe(503);
+    expect(busyResponse.headers.get('Retry-After')).toBe('5');
+    await expect(busyResponse.json()).resolves.toMatchObject({
+      error: 'simulation_busy',
+    });
+
+    releaseBody!(JSON.stringify({ seed: 1859, variant: 'baseline' }));
+    expect((await firstResponsePromise).status).toBe(201);
+  });
+
+  it('rejects oversized simulation requests before parsing', async () => {
+    const response = await handleRequest(
+      new Request('http://localhost/api/simulations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': '5000',
+        },
+        body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'payload_too_large',
+    });
+  });
+
+  it('expires simulation metadata and evicts the least-recently-used run', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T09:00:00.000Z'));
+    const runIds: string[] = [];
+    for (const seed of [1859, 1860, 1861, 1862, 1863]) {
+      const response = await handleRequest(
+        new Request('http://localhost/api/simulations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seed, variant: 'baseline' }),
+        }),
+        { DARWIN_DEMO_SEED: String(seed) },
+      );
+      const payload = (await response.json()) as { run: { id: string } };
+      runIds.push(payload.run.id);
+    }
+
+    expect(
+      (
+        await handleRequest(
+          new Request(`http://localhost/api/simulations/${runIds[0]}`),
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await handleRequest(
+          new Request(`http://localhost/api/simulations/${runIds[4]}`),
+        )
+      ).status,
+    ).toBe(200);
+
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1_000 + 1);
+    expect(
+      (
+        await handleRequest(
+          new Request(`http://localhost/api/simulations/${runIds[4]}`),
+        )
+      ).status,
+    ).toBe(404);
   });
 
   it('rejects malformed simulation input safely', async () => {
