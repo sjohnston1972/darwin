@@ -82,6 +82,14 @@ Access labels distinguish public health, operator-session verification, capabili
 | POST | `/api/repository-executions/:executionId/callback` | signed callback | Apply a signed mutation execution transition. |
 | POST | `/api/repository-executions/:executionId/rollback/callback` | signed callback | Apply a signed rollback execution transition. |
 
+## Behavioural CI
+
+| Method | Route | Access | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/behavioural-evals` | operator: inspect_evidence | List retained outcome-based behavioural acceptance tests. |
+| POST | `/api/lab/experiments/:experimentId/promote-eval` | operator: execute | Promote synthetic failure evidence into a retained behavioural eval. |
+| POST | `/api/lab/experiments/:experimentId/rerun-eval` | operator: simulate | Rerun a retained behavioural eval through the bounded browser runner. |
+
 ## Darwin Lab
 
 | Method | Route | Access | Purpose |
@@ -106,4 +114,4 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/simulations/:runId` | operator: inspect_evidence | Return synthetic replay metadata. |
 | GET | `/api/simulations/:runId/summary` | operator: inspect_evidence | Return deterministic synthetic aggregates. |
 
-**Contract total:** 55 method/path entries.
+**Contract total:** 58 method/path entries.

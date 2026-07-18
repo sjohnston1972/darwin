@@ -4,6 +4,7 @@ import {
   LabAgentRunFinishRequestSchema,
   LabAgentRunSchema,
   LabAgentRunStartRequestSchema,
+  BehaviouralEvalSchema,
   LabExperimentCreateRequestSchema,
   LabExperimentSchema,
   LabExperimentsResponseSchema,
@@ -117,8 +118,23 @@ export async function handleLabRequest(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   const { pathname } = url;
-  if (!pathname.startsWith('/api/lab/')) return null;
+  if (
+    !pathname.startsWith('/api/lab/') &&
+    pathname !== '/api/behavioural-evals'
+  )
+    return null;
   const repository = getLabRepository(env?.DB);
+
+  if (request.method === 'GET' && pathname === '/api/behavioural-evals') {
+    const experiments = await repository.listExperiments();
+    return json({
+      evals: experiments
+        .map((experiment) => experiment.behaviouralEval)
+        .filter((evaluation): evaluation is NonNullable<typeof evaluation> =>
+          Boolean(evaluation),
+        ),
+    });
+  }
 
   if (request.method === 'GET' && pathname === '/api/lab/experiments') {
     const status = url.searchParams.get('status') ?? undefined;
@@ -169,6 +185,7 @@ export async function handleLabRequest(
         evidence: null,
         analysis: null,
         selection: null,
+        behaviouralEval: null,
         error: null,
       });
       await repository.saveExperiment(experiment);
@@ -430,9 +447,33 @@ export async function handleLabRequest(
         completedAt: complete ? new Date().toISOString() : null,
       });
       const evidence = complete ? await buildLabEvidence(intermediate) : null;
+      const completedEvidence = evidence ?? intermediate.evidence;
+      const behaviouralEval =
+        complete && intermediate.behaviouralEval && completedEvidence
+          ? {
+              ...intermediate.behaviouralEval,
+              status:
+                completedEvidence.metrics.completionRate >=
+                  intermediate.behaviouralEval.baseline.completionRate &&
+                completedEvidence.metrics.medianActions !== null &&
+                completedEvidence.metrics.medianActions <=
+                  intermediate.behaviouralEval.maxActions &&
+                completedEvidence.population.successful ===
+                  completedEvidence.population.completed
+                  ? 'passed'
+                  : 'failed',
+              lastRun: {
+                completionRate: completedEvidence.metrics.completionRate,
+                medianActions: completedEvidence.metrics.medianActions,
+                population: completedEvidence.population.completed,
+                completedAt: new Date().toISOString(),
+              },
+            }
+          : intermediate.behaviouralEval;
       const updated = LabExperimentSchema.parse({
         ...intermediate,
-        evidence: evidence ?? intermediate.evidence,
+        evidence: completedEvidence,
+        behaviouralEval,
       });
       await repository.saveExperiment(updated);
       return json(updatedRun);
@@ -544,6 +585,110 @@ export async function handleLabRequest(
     } catch (error) {
       return errorResponse(json, error, 'Lab mutation selection failed.');
     }
+  }
+
+  const promoteMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/promote-eval$/,
+  );
+  if (request.method === 'POST' && promoteMatch) {
+    const experiment = await repository.getExperiment(
+      decodeURIComponent(promoteMatch[1]!),
+    );
+    if (!experiment) return missingExperiment(json);
+    if (
+      !experiment.evidence ||
+      !['completed', 'analysed'].includes(experiment.status) ||
+      experiment.evidence.signals.length === 0
+    ) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message:
+            'A completed synthetic evidence pack is required to create an eval.',
+        },
+        { status: 409 },
+      );
+    }
+    if (experiment.behaviouralEval) return json(experiment);
+    const selectedMutation = experiment.analysis?.mutations.find(
+      (mutation) => mutation.mutationId === experiment.selection?.mutationId,
+    );
+    const existingEvals = (await repository.listExperiments()).filter(
+      (candidate) => candidate.behaviouralEval,
+    ).length;
+    const evaluation = BehaviouralEvalSchema.parse({
+      evalId: `BE-${String(existingEvals + 1).padStart(3, '0')}`,
+      goal: experiment.task.instruction,
+      passCriteria: [
+        'The agent identifies the complete Project Apollo assignment set.',
+        'The task completes within the behavioural action budget.',
+        'No navigation loop or abandonment occurs.',
+      ],
+      forbiddenOutcomes: ['navigation loop', 'incorrect result', 'abandonment'],
+      maxActions: Math.min(experiment.maxActions, 5),
+      sourceExperimentId: experiment.experimentId,
+      evidencePackId: experiment.evidence.evidencePackId,
+      evidenceIds: experiment.evidence.signals.map(
+        (signal) => signal.evidenceId,
+      ),
+      evidenceHash: experiment.evidence.evidenceHash,
+      seed: experiment.seed,
+      targetUrl: experiment.targetUrl,
+      baseline: {
+        completionRate: experiment.evidence.metrics.completionRate,
+        medianActions: experiment.evidence.metrics.medianActions,
+        population: experiment.evidence.population.completed,
+      },
+      status: 'active',
+      codexBrief: [
+        `Make behavioural eval pass: ${experiment.task.instruction}`,
+        'Do not change the oracle, seed, thresholds, telemetry provenance, or protected paths.',
+        selectedMutation
+          ? `Use the selected evidence-led hypothesis as context: ${selectedMutation.implementationBrief}`
+          : 'Choose the implementation; Darwin does not prescribe a UI click path.',
+      ].join('\n'),
+      createdAt: new Date().toISOString(),
+    });
+    const updated = LabExperimentSchema.parse({
+      ...experiment,
+      behaviouralEval: evaluation,
+    });
+    await repository.saveExperiment(updated);
+    return json(updated, { status: 201 });
+  }
+
+  const rerunMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/rerun-eval$/,
+  );
+  if (request.method === 'POST' && rerunMatch) {
+    const experiment = await repository.getExperiment(
+      decodeURIComponent(rerunMatch[1]!),
+    );
+    if (!experiment) return missingExperiment(json);
+    if (!experiment.behaviouralEval) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message: 'Promote an eval before rerunning it.',
+        },
+        { status: 409 },
+      );
+    }
+    const updated = LabExperimentSchema.parse({
+      ...experiment,
+      status: 'awaiting_runner',
+      runnerId: null,
+      startedAt: null,
+      completedAt: null,
+      runs: [],
+      evidence: null,
+      analysis: null,
+      selection: null,
+      error: null,
+      behaviouralEval: { ...experiment.behaviouralEval, status: 'active' },
+    });
+    await repository.saveExperiment(updated);
+    return json(updated);
   }
 
   return null;

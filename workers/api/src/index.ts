@@ -644,6 +644,12 @@ const auditedAction = (method: string, pathname: string) => {
   if (/^\/api\/evidence-analyses\/[^/]+\/codex-manifest$/.test(pathname)) {
     return 'manifest.create';
   }
+  if (/^\/api\/lab\/experiments\/[^/]+\/promote-eval$/.test(pathname)) {
+    return 'behavioural_eval.create';
+  }
+  if (/^\/api\/lab\/experiments\/[^/]+\/rerun-eval$/.test(pathname)) {
+    return 'behavioural_eval.run';
+  }
   if (
     /^\/api\/evidence-analyses\/[^/]+\/codex-manifest\/execution$/.test(
       pathname,

@@ -25,6 +25,22 @@
 4. Select one or more mutation candidates. Explain score, confidence,
    alternatives, validation plan and tradeoffs.
 
+## Behavioural CI alternative
+
+If presenting the Codex-quality thesis, use the synthetic path instead:
+
+1. Open **Darwin Lab** and run the bounded Project Apollo population against an
+   approved preview target.
+2. Show independent browser attempts, hidden-oracle outcomes, and `L-EV-*`
+   friction evidence. State explicitly that it is synthetic.
+3. Click **Promote to behavioural eval**. Show the generated `BE-###` goal,
+   pass criteria, action threshold, seed, and cited evidence IDs.
+4. Expand the **Codex acceptance brief**. Explain that Codex must make the
+   outcome pass without receiving a prescribed click path or changing the
+   oracle.
+5. Rerun the same population after the controlled mutation and retain the eval
+   as a regression gate in the Lab record.
+
 ## Evolve
 
 1. Create the manifest and show its immutable ProjectFlow SHA and source hash.
@@ -47,3 +63,8 @@ Closing line:
 
 > Darwin observed real behavior, reasoned over the exact source, and evolved the
 > application through a controlled repository change.
+
+Behavioural CI closing line:
+
+> Codex checks whether software builds. Darwin checks whether users can use it,
+> then keeps the failure as a test.

@@ -75,6 +75,12 @@ Agent traces, deterministic `L-EV-*` friction records, evidence hashes, GPT-5.6
 population analysis, and operator selection live in a separate Lab section.
 They never enter measured human cohorts or measured fitness.
 
+When a recurring Lab failure is worth retaining, the operator can promote it
+to a behavioural eval (`BE-###`). The eval preserves the goal, hidden oracle
+boundary, action threshold, seed, evidence IDs, and a Codex acceptance brief.
+It remains attached to the Lab record as a durable regression contract rather
+than becoming another one-off optimisation recommendation.
+
 ### Genome
 
 Genome preserves the repository mutation, evidence provenance, validation output, release state, pull request, preview, Codex report, measured fitness outcome, and rollback history.
