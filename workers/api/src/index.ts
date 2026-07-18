@@ -6,6 +6,7 @@ import {
   EvidencePackSchema,
   GenomeHistoryResponseSchema,
   ObservationArchivesResponseSchema,
+  OperationalTelemetryMetricsSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
@@ -19,7 +20,9 @@ import {
   TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
   type HealthResponse,
+  type RepositoryMutationExecution,
   type SimulationResult,
+  type TargetApplicationConnection,
 } from '@darwin/shared';
 
 import { simulate } from './simulation';
@@ -77,6 +80,7 @@ export interface Env {
   PROJECTFLOW_STUDY_URL: string;
   PROJECTFLOW_STUDY_ID?: string;
   PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
+  PROJECTFLOW_ALLOWED_APP_VERSIONS?: string;
   GITHUB_TOKEN?: string;
   DARWIN_CALLBACK_TOKEN?: string;
   DARWIN_OPERATOR_TOKEN?: string;
@@ -280,10 +284,58 @@ const targetProvenanceAllowed = (
   );
 };
 
-const isAllowedTargetVersion = (appVersion: string) =>
-  appVersion === 'baseline' ||
-  /^\d+\.\d+\.\d+$/.test(appVersion) ||
-  /^[a-f0-9]{7,40}(?:-candidate)?$/.test(appVersion);
+const isAllowedTargetVersion = (
+  appVersion: string,
+  env: Partial<Env> | undefined,
+  connection: TargetApplicationConnection | null,
+  executions: RepositoryMutationExecution[],
+) => {
+  const configuredVersions = new Set(
+    (env?.PROJECTFLOW_ALLOWED_APP_VERSIONS || 'baseline,1.0.0')
+      .split(',')
+      .map((version) => version.trim())
+      .filter(Boolean),
+  );
+  if (configuredVersions.has(appVersion)) return true;
+
+  const match = appVersion.match(
+    /^([a-f0-9]{7,40})(?:-(candidate|rollback))?$/,
+  );
+  if (!match) return false;
+  const [, prefix, variant] = match;
+  const matches = (sha: string | null | undefined) =>
+    Boolean(sha?.startsWith(prefix!));
+
+  if (variant === 'candidate') {
+    return executions.some((execution) => matches(execution.headSha));
+  }
+  if (variant === 'rollback') {
+    return executions.some((execution) => matches(execution.rollback?.headSha));
+  }
+  return (
+    matches(connection?.repository.baseSha) ||
+    executions.some(
+      (execution) =>
+        matches(execution.baseSha) ||
+        (execution.status === 'released' && matches(execution.headSha)),
+    )
+  );
+};
+
+const targetOriginInScope = (
+  sourceOrigin: string,
+  allowedOrigins: string[],
+) => {
+  const source = new URL(sourceOrigin);
+  return allowedOrigins.some((allowedOrigin) => {
+    const allowed = new URL(allowedOrigin);
+    return (
+      source.origin === allowed.origin ||
+      (source.protocol === 'https:' &&
+        source.hostname.endsWith(`.${allowed.hostname}`))
+    );
+  });
+};
 
 export const resetSimulationStore = () => {
   simulationStore.clear();
@@ -440,6 +492,16 @@ export const handleRequest = async (
     return json(response);
   }
 
+  if (request.method === 'GET' && pathname === '/api/operations/metrics') {
+    const metrics = await telemetryRepository.getOperationalMetrics();
+    return json(
+      OperationalTelemetryMetricsSchema.parse({
+        updatedAt: metrics.updatedAt,
+        ...metrics.counts,
+      }),
+    );
+  }
+
   if (request.method === 'GET' && pathname === '/api/genome') {
     return json(
       GenomeHistoryResponseSchema.parse({
@@ -553,6 +615,20 @@ export const handleRequest = async (
         verifiedAt: timestamp,
         target: snapshot.target,
         repository: snapshot.context,
+        ingestion: {
+          credentialId: `ingestion-${snapshot.context.baseSha.slice(0, 12)}`,
+          targetId: snapshot.target.targetId,
+          studyIds: [...allowedTargetStudies(env)],
+          allowedOrigins: [
+            ...new Set(
+              [requested.productionUrl, requested.studyUrl].map(
+                (deploymentUrl) => new URL(deploymentUrl).origin,
+              ),
+            ),
+          ],
+          signatureAlgorithm: 'hmac-sha256',
+          issuedAt: timestamp,
+        },
         checks: [
           {
             id: 'repository',
@@ -651,7 +727,6 @@ export const handleRequest = async (
       );
     }
 
-    let input: unknown;
     let body: string;
     try {
       body = await request.text();
@@ -664,16 +739,20 @@ export const handleRequest = async (
           { status: 413 },
         );
       }
-      input = JSON.parse(body);
     } catch {
       return json(
         {
-          error: 'invalid_request',
-          message: 'Request body must be valid JSON.',
+          error: 'invalid_request_body',
+          message: 'Telemetry request body could not be read.',
         },
         { status: 400 },
       );
     }
+
+    await telemetryRepository.incrementOperationalMetrics(
+      { telemetryRequests: 1 },
+      new Date().toISOString(),
+    );
 
     const targetAuthorization = await authorizeTargetRequest(
       request,
@@ -681,6 +760,10 @@ export const handleRequest = async (
       env,
     );
     if (!targetAuthorization.ok) {
+      await telemetryRepository.incrementOperationalMetrics(
+        { authenticationRejected: 1 },
+        new Date().toISOString(),
+      );
       console.warn(
         '[darwin:security]',
         JSON.stringify({
@@ -698,6 +781,44 @@ export const handleRequest = async (
       );
     }
 
+    const targetSignature = request.headers.get('X-Darwin-Signature');
+    if (
+      targetSignature &&
+      !(await telemetryRepository.consumeTargetRequestSignature(
+        targetSignature.toLowerCase(),
+        new Date().toISOString(),
+      ))
+    ) {
+      await telemetryRepository.incrementOperationalMetrics(
+        { replayRejected: 1 },
+        new Date().toISOString(),
+      );
+      return json(
+        {
+          error: 'target_request_replayed',
+          message: 'Telemetry request replay rejected.',
+        },
+        { status: 409 },
+      );
+    }
+
+    let input: unknown;
+    try {
+      input = JSON.parse(body);
+    } catch {
+      await telemetryRepository.incrementOperationalMetrics(
+        { rejectedEvents: 1 },
+        new Date().toISOString(),
+      );
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Request body must be valid JSON.',
+        },
+        { status: 400 },
+      );
+    }
+
     if (
       !input ||
       typeof input !== 'object' ||
@@ -707,6 +828,10 @@ export const handleRequest = async (
       (input as { events: unknown[] }).events.length < 1 ||
       (input as { events: unknown[] }).events.length > 50
     ) {
+      await telemetryRepository.incrementOperationalMetrics(
+        { rejectedEvents: 1 },
+        new Date().toISOString(),
+      );
       return json(
         {
           error: 'invalid_request',
@@ -722,13 +847,41 @@ export const handleRequest = async (
       if (!parsed.success) return [];
       return [parsed.data];
     });
+    const [targetConnection, repositoryExecutions] = await Promise.all([
+      telemetryRepository.getTargetConnection(),
+      telemetryRepository.listRepositoryExecutions(),
+    ]);
+    const scopedStudies = new Set(
+      targetConnection?.ingestion?.studyIds ?? [...allowedTargetStudies(env)],
+    );
+    const scopedOriginAllowed =
+      !targetConnection?.ingestion ||
+      (targetConnection.ingestion.targetId ===
+        targetAuthorization.identity.targetId &&
+        targetOriginInScope(
+          targetAuthorization.identity.sourceOrigin,
+          targetConnection.ingestion.allowedOrigins,
+        ));
     const events = parsedEvents.filter(
       (event) =>
+        scopedOriginAllowed &&
         targetProvenanceAllowed(event, env) &&
-        allowedTargetStudies(env).has(event.studyId) &&
-        isAllowedTargetVersion(event.appVersion),
+        scopedStudies.has(event.studyId) &&
+        isAllowedTargetVersion(
+          event.appVersion,
+          env,
+          targetConnection,
+          repositoryExecutions,
+        ),
     );
     if (events.length !== parsedEvents.length) {
+      await telemetryRepository.incrementOperationalMetrics(
+        {
+          contextRejected: 1,
+          rejectedEvents: candidates.length,
+        },
+        new Date().toISOString(),
+      );
       return json(
         {
           error: 'target_context_forbidden',
@@ -743,6 +896,10 @@ export const handleRequest = async (
         key: `${targetAuthorization.identity.targetId}:${targetAuthorization.identity.clientKey}`,
       });
       if (!outcome.success) {
+        await telemetryRepository.incrementOperationalMetrics(
+          { rateLimited: 1 },
+          new Date().toISOString(),
+        );
         return json(
           {
             error: 'rate_limited',
@@ -754,6 +911,14 @@ export const handleRequest = async (
     }
     const stored = await telemetryRepository.insertEvents(
       events,
+      new Date().toISOString(),
+    );
+    await telemetryRepository.incrementOperationalMetrics(
+      {
+        acceptedEvents: stored.accepted,
+        rejectedEvents: candidates.length - events.length,
+        duplicateEvents: stored.duplicates,
+      },
       new Date().toISOString(),
     );
     return json(

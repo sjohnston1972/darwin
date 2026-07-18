@@ -328,6 +328,18 @@ export const TelemetryReceiptSchema = z.object({
   duplicates: z.number().int().nonnegative().default(0),
 });
 
+export const OperationalTelemetryMetricsSchema = z.object({
+  updatedAt: z.string().datetime().nullable(),
+  telemetryRequests: z.number().int().nonnegative(),
+  acceptedEvents: z.number().int().nonnegative(),
+  rejectedEvents: z.number().int().nonnegative(),
+  duplicateEvents: z.number().int().nonnegative(),
+  authenticationRejected: z.number().int().nonnegative(),
+  replayRejected: z.number().int().nonnegative(),
+  contextRejected: z.number().int().nonnegative(),
+  rateLimited: z.number().int().nonnegative(),
+});
+
 const storedAt = { receivedAt: z.string().datetime() };
 export const StoredTelemetryEventSchema = z.discriminatedUnion('eventType', [
   SessionStartedEventSchema.extend(storedAt),
@@ -653,6 +665,16 @@ export const TargetApplicationConnectionSchema = z.object({
     defaultBranch: StudyIdentifierSchema,
   }),
   repository: RepositoryContextSchema,
+  ingestion: z
+    .object({
+      credentialId: StudyIdentifierSchema,
+      targetId: SemanticTargetSchema,
+      studyIds: z.array(StudyIdentifierSchema).min(1),
+      allowedOrigins: z.array(z.string().url()).min(1),
+      signatureAlgorithm: z.literal('hmac-sha256'),
+      issuedAt: z.string().datetime(),
+    })
+    .optional(),
   checks: z.array(TargetConnectionCheckSchema).length(4),
 });
 
@@ -963,6 +985,9 @@ export type ViewportClass = z.infer<typeof ViewportClassSchema>;
 export type StudyTelemetryEvent = z.infer<typeof StudyTelemetryEventSchema>;
 export type TelemetryBatch = z.infer<typeof TelemetryBatchSchema>;
 export type TelemetryReceipt = z.infer<typeof TelemetryReceiptSchema>;
+export type OperationalTelemetryMetrics = z.infer<
+  typeof OperationalTelemetryMetricsSchema
+>;
 export type StoredTelemetryEvent = z.infer<typeof StoredTelemetryEventSchema>;
 export type StudyEventsResponse = z.infer<typeof StudyEventsResponseSchema>;
 export type StudySessionResponse = z.infer<typeof StudySessionResponseSchema>;

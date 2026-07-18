@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   HealthResponseSchema,
   EvidenceMutationCandidateSchema,
+  OperationalTelemetryMetricsSchema,
   StudyTelemetryEventSchema,
   TelemetryBatchSchema,
 } from './contracts';
@@ -22,6 +23,27 @@ describe('shared contracts', () => {
         timestamp: '2026-07-16T12:00:00.000Z',
       }),
     ).toMatchObject({ status: 'ok', service: 'darwin-api' });
+  });
+
+  it('validates non-negative operational telemetry counters', () => {
+    const metrics = {
+      updatedAt: '2026-07-18T08:00:00.000Z',
+      telemetryRequests: 8,
+      acceptedEvents: 3,
+      rejectedEvents: 2,
+      duplicateEvents: 1,
+      authenticationRejected: 1,
+      replayRejected: 1,
+      contextRejected: 1,
+      rateLimited: 0,
+    };
+    expect(OperationalTelemetryMetricsSchema.parse(metrics)).toEqual(metrics);
+    expect(() =>
+      OperationalTelemetryMetricsSchema.parse({
+        ...metrics,
+        authenticationRejected: -1,
+      }),
+    ).toThrow();
   });
 
   it('rejects live mutation confidence outside the supported range', () => {

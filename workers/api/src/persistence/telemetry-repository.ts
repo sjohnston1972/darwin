@@ -23,6 +23,25 @@ export interface TelemetryEventSummary {
   behaviorSignalCount: number;
 }
 
+export const operationalMetricNames = [
+  'telemetryRequests',
+  'acceptedEvents',
+  'rejectedEvents',
+  'duplicateEvents',
+  'authenticationRejected',
+  'replayRejected',
+  'contextRejected',
+  'rateLimited',
+] as const;
+
+export type OperationalMetricName = (typeof operationalMetricNames)[number];
+export type OperationalMetricCounts = Record<OperationalMetricName, number>;
+
+export interface OperationalMetricsSnapshot {
+  updatedAt: string | null;
+  counts: OperationalMetricCounts;
+}
+
 export interface ExecutionCallbackCredential {
   executionId: string;
   nonceHash: string;
@@ -99,6 +118,15 @@ export interface TelemetryRepository {
     signature: string,
     usedAt: string,
   ): Promise<boolean>;
+  consumeTargetRequestSignature(
+    signature: string,
+    usedAt: string,
+  ): Promise<boolean>;
+  incrementOperationalMetrics(
+    increments: Partial<OperationalMetricCounts>,
+    updatedAt: string,
+  ): Promise<void>;
+  getOperationalMetrics(): Promise<OperationalMetricsSnapshot>;
   getEvolutionCycle(): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
   saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
@@ -118,6 +146,9 @@ const manifestStore = new Map<string, CodexImplementationManifest>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
 const callbackCredentialStore = new Map<string, ExecutionCallbackCredential>();
 const callbackSignatureStore = new Set<string>();
+const targetRequestSignatureStore = new Map<string, string>();
+const operationalMetricStore = new Map<OperationalMetricName, number>();
+let operationalMetricsUpdatedAt: string | null = null;
 let targetConnectionStore: TargetApplicationConnection | null = null;
 const baselineStudyId = 'projectflow-baseline-study';
 const defaultEvolutionCycle = (): EvolutionCycle => ({
@@ -125,6 +156,11 @@ const defaultEvolutionCycle = (): EvolutionCycle => ({
   startedAt: null,
   genomeEvolutionCount: 0,
 });
+const emptyOperationalMetricCounts = (): OperationalMetricCounts =>
+  Object.fromEntries(
+    operationalMetricNames.map((name) => [name, 0]),
+  ) as OperationalMetricCounts;
+let evolutionCycleStore = defaultEvolutionCycle();
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -354,6 +390,42 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return true;
   }
 
+  async consumeTargetRequestSignature(signature: string, usedAt: string) {
+    const expiresBefore = Date.parse(usedAt) - 10 * 60 * 1_000;
+    for (const [storedSignature, storedAt] of targetRequestSignatureStore) {
+      if (Date.parse(storedAt) < expiresBefore) {
+        targetRequestSignatureStore.delete(storedSignature);
+      }
+    }
+    if (targetRequestSignatureStore.has(signature)) return false;
+    targetRequestSignatureStore.set(signature, usedAt);
+    return true;
+  }
+
+  async incrementOperationalMetrics(
+    increments: Partial<OperationalMetricCounts>,
+    updatedAt: string,
+  ) {
+    for (const name of operationalMetricNames) {
+      const increment = increments[name] ?? 0;
+      if (increment > 0) {
+        operationalMetricStore.set(
+          name,
+          (operationalMetricStore.get(name) ?? 0) + increment,
+        );
+      }
+    }
+    operationalMetricsUpdatedAt = updatedAt;
+  }
+
+  async getOperationalMetrics(): Promise<OperationalMetricsSnapshot> {
+    const counts = emptyOperationalMetricCounts();
+    for (const name of operationalMetricNames) {
+      counts[name] = operationalMetricStore.get(name) ?? 0;
+    }
+    return { updatedAt: operationalMetricsUpdatedAt, counts };
+  }
+
   async getEvolutionCycle() {
     const retained = [...repositoryExecutionStore.values()].filter(
       (execution) => execution.status === 'released',
@@ -394,6 +466,10 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     repositoryExecutionStore.clear();
     callbackCredentialStore.clear();
     callbackSignatureStore.clear();
+    targetRequestSignatureStore.clear();
+    operationalMetricStore.clear();
+    operationalMetricsUpdatedAt = null;
+    evolutionCycleStore = defaultEvolutionCycle();
   }
 }
 
@@ -870,6 +946,70 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return (result.meta.changes ?? 0) === 1;
   }
 
+  async consumeTargetRequestSignature(signature: string, usedAt: string) {
+    const expiresBefore = new Date(
+      Date.parse(usedAt) - 10 * 60 * 1_000,
+    ).toISOString();
+    const results = await this.database.batch([
+      this.database
+        .prepare(`DELETE FROM target_request_signatures WHERE used_at < ?`)
+        .bind(expiresBefore),
+      this.database
+        .prepare(
+          `INSERT OR IGNORE INTO target_request_signatures (signature, used_at)
+           VALUES (?, ?)`,
+        )
+        .bind(signature, usedAt),
+    ]);
+    return (results[1]?.meta.changes ?? 0) === 1;
+  }
+
+  async incrementOperationalMetrics(
+    increments: Partial<OperationalMetricCounts>,
+    updatedAt: string,
+  ) {
+    const statements = operationalMetricNames.flatMap((name) => {
+      const increment = increments[name] ?? 0;
+      return increment > 0
+        ? [
+            this.database
+              .prepare(
+                `INSERT INTO operational_metrics (
+                   metric_name, metric_value, updated_at
+                 ) VALUES (?, ?, ?)
+                 ON CONFLICT(metric_name) DO UPDATE SET
+                   metric_value = metric_value + excluded.metric_value,
+                   updated_at = excluded.updated_at`,
+              )
+              .bind(name, increment, updatedAt),
+          ]
+        : [];
+    });
+    if (statements.length) await this.database.batch(statements);
+  }
+
+  async getOperationalMetrics(): Promise<OperationalMetricsSnapshot> {
+    const result = await this.database
+      .prepare(
+        `SELECT metric_name, metric_value, updated_at
+         FROM operational_metrics`,
+      )
+      .all<{
+        metric_name: OperationalMetricName;
+        metric_value: number;
+        updated_at: string;
+      }>();
+    const counts = emptyOperationalMetricCounts();
+    let updatedAt: string | null = null;
+    for (const row of result.results) {
+      if (operationalMetricNames.includes(row.metric_name)) {
+        counts[row.metric_name] = row.metric_value;
+      }
+      if (!updatedAt || row.updated_at > updatedAt) updatedAt = row.updated_at;
+    }
+    return { updatedAt, counts };
+  }
+
   async getEvolutionCycle() {
     const retained = (await this.listRepositoryExecutions()).filter(
       (execution) => execution.status === 'released',
@@ -933,6 +1073,8 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM repository_executions'),
       this.database.prepare('DELETE FROM execution_callback_signatures'),
       this.database.prepare('DELETE FROM execution_callback_credentials'),
+      this.database.prepare('DELETE FROM target_request_signatures'),
+      this.database.prepare('DELETE FROM operational_metrics'),
       this.database.prepare('DELETE FROM outcome_validations'),
       this.database.prepare('DELETE FROM demo_state'),
     ]);
