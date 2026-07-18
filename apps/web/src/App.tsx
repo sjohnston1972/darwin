@@ -1936,6 +1936,78 @@ function LiveTelemetryPanel({
                   <strong>{telemetry.evidence.quality.strength}</strong>
                   <code>{telemetry.evidence.quality.score}/100</code>
                 </div>
+                <dl className="evidence-dimensions">
+                  <div>
+                    <dt>Volume</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.volume.score}/100
+                    </dd>
+                    <small>
+                      {
+                        telemetry.evidence.quality.dimensions.volume
+                          .observedEvents
+                      }
+                      /
+                      {
+                        telemetry.evidence.quality.dimensions.volume
+                          .minimumEvents
+                      }{' '}
+                      events
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Diversity</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.diversity.score}
+                      /100
+                    </dd>
+                    <small>
+                      {
+                        telemetry.evidence.quality.dimensions.diversity
+                          .observedParticipants
+                      }{' '}
+                      participants ·{' '}
+                      {
+                        telemetry.evidence.quality.dimensions.diversity
+                          .observedSessions
+                      }{' '}
+                      sessions
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Completion</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.completion.score}
+                      /100
+                    </dd>
+                    <small>
+                      {
+                        telemetry.evidence.quality.dimensions.completion
+                          .terminalAttempts
+                      }
+                      /
+                      {
+                        telemetry.evidence.quality.dimensions.completion
+                          .minimumTerminalAttempts
+                      }{' '}
+                      terminal attempts
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Recency</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.recency.score}/100
+                    </dd>
+                    <small>
+                      ≤
+                      {
+                        telemetry.evidence.quality.dimensions.recency
+                          .maximumAgeDays
+                      }
+                      d gate
+                    </small>
+                  </div>
+                </dl>
                 {telemetry.evidence.quality.limitations.length ? (
                   <ul>
                     {telemetry.evidence.quality.limitations.map(

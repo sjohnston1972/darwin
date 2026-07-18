@@ -115,6 +115,25 @@ const events: StoredTelemetryEvent[] = [
   },
 ];
 
+const coverageBase = (
+  idOffset: number,
+  index: number,
+  sessionIndex: number,
+  participantIndex: number,
+) => ({
+  ...base(0, '/study/dashboard'),
+  eventId: id(idOffset + index),
+  sessionId: `session-coverage-${sessionIndex}`,
+  participantId: `participant-coverage-${participantIndex}`,
+  occurredAt: new Date(
+    Date.parse('2026-07-16T12:00:00.000Z') + index * 1_000,
+  ).toISOString(),
+  receivedAt: new Date(
+    Date.parse('2026-07-16T12:02:00.000Z') + index * 1_000,
+  ).toISOString(),
+  sequence: index,
+});
+
 describe('real telemetry evidence engine', () => {
   it('reconstructs one unambiguous successful task attempt', () => {
     const attempts = reconstructAttempts(events, '2026-07-16T12:02:00.000Z');
@@ -411,5 +430,115 @@ describe('real telemetry evidence engine', () => {
         signal.supportingEventIds.includes(id(200)),
       )?.evidenceId,
     ).toBe(hover?.evidenceId);
+  });
+
+  it('gates substantial quality on independent coverage dimensions', async () => {
+    const oneParticipantEvents: StoredTelemetryEvent[] = [
+      ...Array.from({ length: 100 }, (_, index) => ({
+        ...coverageBase(500, index, 0, 0),
+        eventType: 'page_view' as const,
+      })),
+      {
+        ...coverageBase(500, 100, 0, 0),
+        eventType: 'task_started',
+        taskAttemptId: 'attempt-coverage-one',
+        taskId: 'find-assigned-task',
+      },
+      {
+        ...coverageBase(500, 101, 0, 0),
+        eventType: 'task_completed',
+        taskAttemptId: 'attempt-coverage-one',
+        taskId: 'find-assigned-task',
+        durationMs: 1_000,
+        outcome: 'success',
+      },
+    ];
+    const oneParticipant = await buildEvidencePack(
+      'projectflow-baseline-study',
+      oneParticipantEvents,
+      '2026-07-16T12:05:00.000Z',
+    );
+    expect(oneParticipant.quality).toMatchObject({
+      strength: 'directional',
+      dimensions: {
+        volume: { score: 100 },
+        diversity: { score: 33 },
+        completion: { score: 33 },
+      },
+    });
+    expect(oneParticipant.quality.limitations).toEqual(
+      expect.arrayContaining([
+        'Fewer than three independent sessions were observed.',
+        'Fewer than three anonymous participants were observed.',
+        'Fewer than three terminal task attempts were observed.',
+      ]),
+    );
+
+    const diverseButSparseEvents: StoredTelemetryEvent[] = Array.from(
+      { length: 6 },
+      (_, index) => ({
+        ...coverageBase(700, index, index, index),
+        eventType: 'page_view' as const,
+      }),
+    );
+    const diverseButSparse = await buildEvidencePack(
+      'projectflow-baseline-study',
+      diverseButSparseEvents,
+      '2026-07-16T12:05:00.000Z',
+    );
+    expect(diverseButSparse.quality).toMatchObject({
+      strength: 'directional',
+      dimensions: {
+        volume: { score: 12 },
+        diversity: { score: 100 },
+        completion: { score: 0 },
+      },
+    });
+
+    const fullyCoveredEvents: StoredTelemetryEvent[] = [
+      ...Array.from({ length: 44 }, (_, index) => ({
+        ...coverageBase(800, index, index % 3, index % 3),
+        eventType: 'page_view' as const,
+      })),
+      ...Array.from({ length: 3 }, (_, attemptIndex) => [
+        {
+          ...coverageBase(
+            800,
+            44 + attemptIndex * 2,
+            attemptIndex,
+            attemptIndex,
+          ),
+          eventType: 'task_started' as const,
+          taskAttemptId: `attempt-coverage-${attemptIndex}`,
+          taskId: 'find-assigned-task',
+        },
+        {
+          ...coverageBase(
+            800,
+            45 + attemptIndex * 2,
+            attemptIndex,
+            attemptIndex,
+          ),
+          eventType: 'task_completed' as const,
+          taskAttemptId: `attempt-coverage-${attemptIndex}`,
+          taskId: 'find-assigned-task',
+          durationMs: 1_000,
+          outcome: 'success' as const,
+        },
+      ]).flat(),
+    ];
+    const fullyCovered = await buildEvidencePack(
+      'projectflow-baseline-study',
+      fullyCoveredEvents,
+      '2026-07-16T12:05:00.000Z',
+    );
+    expect(fullyCovered.quality).toMatchObject({
+      strength: 'substantial',
+      dimensions: {
+        volume: { score: 100 },
+        diversity: { score: 100 },
+        completion: { score: 100 },
+      },
+    });
   });
 });

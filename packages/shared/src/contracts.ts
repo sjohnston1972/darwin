@@ -499,6 +499,32 @@ export const EvidenceQualitySchema = z.object({
   sessionCount: z.number().int().nonnegative(),
   participantCount: z.number().int().nonnegative(),
   completedAttemptCount: z.number().int().nonnegative(),
+  terminalAttemptCount: z.number().int().nonnegative(),
+  dimensions: z.object({
+    volume: z.object({
+      score: z.number().int().min(0).max(100),
+      observedEvents: z.number().int().nonnegative(),
+      minimumEvents: z.number().int().positive(),
+    }),
+    diversity: z.object({
+      score: z.number().int().min(0).max(100),
+      observedParticipants: z.number().int().nonnegative(),
+      minimumParticipants: z.number().int().positive(),
+      observedSessions: z.number().int().nonnegative(),
+      minimumSessions: z.number().int().positive(),
+    }),
+    completion: z.object({
+      score: z.number().int().min(0).max(100),
+      terminalAttempts: z.number().int().nonnegative(),
+      minimumTerminalAttempts: z.number().int().positive(),
+    }),
+    recency: z.object({
+      score: z.number().int().min(0).max(100),
+      latestEventAt: z.string().datetime(),
+      maximumAgeDays: z.number().int().positive(),
+    }),
+    weakestScore: z.number().int().min(0).max(100),
+  }),
   limitations: z.array(z.string().min(1)),
 });
 

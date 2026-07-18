@@ -992,6 +992,45 @@ a:focus-visible {
   font-size: 11px;
 }
 
+.evidence-dimensions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.evidence-dimensions > div {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  background: rgb(255 255 255 / 2%);
+  border: 1px solid rgb(231 184 91 / 12%);
+  border-radius: 5px;
+}
+
+.evidence-dimensions dt,
+.evidence-dimensions small {
+  color: #7f8e94;
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.evidence-dimensions dt {
+  text-transform: uppercase;
+}
+
+.evidence-dimensions dd {
+  margin: 0;
+  color: #d4dbd8;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.evidence-quality-band > ul,
+.evidence-quality-band > p {
+  grid-column: 1 / -1;
+}
+
 .evidence-quality-band ul {
   display: flex;
   flex-wrap: wrap;
@@ -4424,6 +4463,10 @@ html[data-theme='light'] .error-band {
   .reasoning-assessment,
   .pressure-clusters dl {
     grid-template-columns: 1fr;
+  }
+
+  .evidence-dimensions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mutation-scorecard {

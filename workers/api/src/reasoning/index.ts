@@ -459,7 +459,11 @@ function normalizeCandidateScore(
         0,
       ) / citedSignals.length
     : 0;
-  const evidenceStrength = Math.min(pack.quality.score, Math.round(recurrence));
+  const evidenceStrength = Math.min(
+    pack.quality.score,
+    pack.quality.dimensions.weakestScore,
+    Math.round(recurrence),
+  );
   const modelDimensions = [
     candidate.scorecard.userImpact,
     candidate.scorecard.feasibility,

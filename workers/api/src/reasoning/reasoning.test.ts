@@ -18,6 +18,28 @@ const quality = {
   sessionCount: 1,
   participantCount: 1,
   completedAttemptCount: 1,
+  terminalAttemptCount: 1,
+  dimensions: {
+    volume: { score: 100, observedEvents: 80, minimumEvents: 50 },
+    diversity: {
+      score: 33,
+      observedParticipants: 1,
+      minimumParticipants: 3,
+      observedSessions: 1,
+      minimumSessions: 3,
+    },
+    completion: {
+      score: 33,
+      terminalAttempts: 1,
+      minimumTerminalAttempts: 3,
+    },
+    recency: {
+      score: 100,
+      latestEventAt: '2026-07-16T12:00:00.000Z',
+      maximumAgeDays: 7,
+    },
+    weakestScore: 33,
+  },
   limitations: [
     'Fewer than three independent sessions were observed.',
     'Fewer than three anonymous participants were observed.',
@@ -380,6 +402,9 @@ describe('evidence-backed reasoning v2', () => {
     expect(
       analysis.selectedMutation.scorecard.evidenceStrength,
     ).toBeLessThanOrEqual(quality.score);
+    expect(
+      analysis.selectedMutation.scorecard.evidenceStrength,
+    ).toBeLessThanOrEqual(quality.dimensions.weakestScore);
     expect(analysis.selectedMutation.confidence).toBe(
       analysis.selectedMutation.scorecard.evidenceStrength / 100,
     );
@@ -429,7 +454,7 @@ describe('evidence-backed reasoning v2', () => {
       feasibility: 100,
       validationClarity: 100,
     });
-    expect(normalized.selectedMutation.scorecard.total).toBeGreaterThan(80);
+    expect(normalized.selectedMutation.scorecard.total).toBe(77);
   });
 
   it('fails closed without live GPT instead of returning a substitute mutation', async () => {
