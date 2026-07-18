@@ -1,5 +1,7 @@
 import {
+  EvolutionCycleSchema,
   RepositoryMutationExecutionSchema,
+  TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
@@ -1037,9 +1039,11 @@ export class D1TelemetryRepository implements TelemetryRepository {
          LIMIT 1`,
       )
       .first<{ connection_json: string }>();
-    return row
-      ? (JSON.parse(row.connection_json) as TargetApplicationConnection)
-      : null;
+    if (!row) return null;
+    const parsed = TargetApplicationConnectionSchema.safeParse(
+      JSON.parse(row.connection_json),
+    );
+    return parsed.success ? parsed.data : null;
   }
 
   async saveTargetConnection(connection: TargetApplicationConnection) {

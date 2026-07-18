@@ -21,8 +21,10 @@ its product source, repository policy, validation commands, mutation workflow
 and deployment. The target is never bundled into the control-room build.
 
 ProjectFlow publishes `darwin.target.json` at every commit. Darwin resolves the
-configured branch to a 40-character SHA, reads that policy plus approved context
-files from the same SHA, hashes the context and stores it with the analysis.
+configured branch to a 40-character SHA, reads that policy and application map
+plus approved context files from the same SHA, hashes the context and stores the
+SHA and source hash with evidence and analysis. Evidence generation accepts one
+commit-derived application version matching that connected snapshot.
 
 ## Trust Boundary
 

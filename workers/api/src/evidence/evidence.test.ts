@@ -1,4 +1,7 @@
-import type { StoredTelemetryEvent } from '@darwin/shared';
+import type {
+  EvidenceApplicationMap,
+  StoredTelemetryEvent,
+} from '@darwin/shared';
 import { describe, expect, it } from 'vitest';
 
 import { buildEvidencePack, reconstructAttempts } from './evidence';
@@ -23,6 +26,34 @@ const base = (sequence: number, route: string) => ({
 
 const attemptId = 'attempt-evidence';
 const taskId = 'find-assigned-task';
+const applicationMap = {
+  source: {
+    repositorySha: 'a'.repeat(40),
+    sourceHash: 'b'.repeat(64),
+  },
+  product: {
+    name: 'ProjectFlow',
+    purpose: 'Project management workspace.',
+    primaryUser: 'Knowledge worker.',
+    domainEntities: ['project', 'task', 'user'],
+    primaryGoals: ['find assigned work'],
+  },
+  activeGenome: {
+    version: 'aaaaaaaaaaaa',
+    navigation: ['Dashboard', 'Projects'],
+    capabilities: ['project-scoped task search'],
+  },
+  interfaceInventory: [
+    {
+      area: 'task-discovery',
+      purpose: 'Find assigned work.',
+      primaryActions: ['open task'],
+    },
+  ],
+  routes: ['/dashboard', '/projects'],
+  mutableAreas: ['navigation', 'search'],
+  protectedAreas: ['telemetry-history'],
+} satisfies EvidenceApplicationMap;
 const events: StoredTelemetryEvent[] = [
   {
     ...base(0, '/study/dashboard'),
@@ -107,11 +138,13 @@ describe('real telemetry evidence engine', () => {
     const first = await buildEvidencePack(
       'projectflow-baseline-study',
       events,
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
     const second = await buildEvidencePack(
       'projectflow-baseline-study',
       events,
+      applicationMap,
       '2026-07-16T13:00:00.000Z',
     );
 
@@ -147,6 +180,7 @@ describe('real telemetry evidence engine', () => {
     const pack = await buildEvidencePack(
       'projectflow-baseline-study',
       [...events, ...secondAttempt],
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
 
@@ -219,6 +253,7 @@ describe('real telemetry evidence engine', () => {
     const pack = await buildEvidencePack(
       'projectflow-baseline-study',
       richEvents,
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
 

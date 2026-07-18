@@ -540,6 +540,37 @@ export const EvidenceTaskSummarySchema = z.object({
   ),
 });
 
+export const EvidenceApplicationMapSchema = z.object({
+  source: z.object({
+    repositorySha: z.string().regex(/^[a-f0-9]{40}$/),
+    sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  product: z.object({
+    name: z.literal('ProjectFlow'),
+    purpose: z.string().min(1),
+    primaryUser: z.string().min(1),
+    domainEntities: z.array(z.string().min(1)).min(1),
+    primaryGoals: z.array(z.string().min(1)).min(1),
+  }),
+  activeGenome: z.object({
+    version: z.string().min(1),
+    navigation: z.array(z.string().min(1)).min(1),
+    capabilities: z.array(z.string().min(1)).min(1),
+  }),
+  interfaceInventory: z
+    .array(
+      z.object({
+        area: z.string().min(1),
+        purpose: z.string().min(1),
+        primaryActions: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1),
+  routes: z.array(StudyRouteSchema).min(1),
+  mutableAreas: z.array(z.string().min(1)),
+  protectedAreas: z.array(z.string().min(1)),
+});
+
 export const EvidencePackSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -559,33 +590,7 @@ export const EvidencePackSchema = z.object({
   quality: EvidenceQualitySchema,
   journeys: z.array(EvidenceJourneySchema).min(1).max(50),
   frictionSignals: z.array(EvidenceSignalSchema),
-  applicationMap: z.object({
-    product: z.object({
-      name: z.literal('ProjectFlow'),
-      purpose: z.string().min(1),
-      primaryUser: z.string().min(1),
-      domainEntities: z.array(z.string().min(1)).min(1),
-      primaryGoals: z.array(z.string().min(1)).min(1),
-    }),
-    activeVariant: z.object({
-      name: OrganismVariantSchema,
-      version: z.string().min(1),
-      navigation: z.array(z.string().min(1)).min(1),
-      capabilities: z.array(z.string().min(1)).min(1),
-    }),
-    interfaceInventory: z
-      .array(
-        z.object({
-          area: z.string().min(1),
-          purpose: z.string().min(1),
-          primaryActions: z.array(z.string().min(1)).min(1),
-        }),
-      )
-      .min(1),
-    routes: z.array(StudyRouteSchema),
-    mutableAreas: z.array(z.string().min(1)),
-    protectedAreas: z.array(z.string().min(1)),
-  }),
+  applicationMap: EvidenceApplicationMapSchema,
 });
 
 export const EvidenceMutationCandidateSchema = z.object({
@@ -689,6 +694,7 @@ export const TargetApplicationConnectionSchema = z.object({
       issuedAt: z.string().datetime(),
     })
     .optional(),
+  applicationMap: EvidenceApplicationMapSchema,
   checks: z.array(TargetConnectionCheckSchema).length(4),
 });
 
@@ -1019,6 +1025,9 @@ export type TaskAttempt = z.infer<typeof TaskAttemptSchema>;
 export type FrictionRule = z.infer<typeof FrictionRuleSchema>;
 export type EvidenceTraceEvent = z.infer<typeof EvidenceTraceEventSchema>;
 export type EvidenceSignal = z.infer<typeof EvidenceSignalSchema>;
+export type EvidenceApplicationMap = z.infer<
+  typeof EvidenceApplicationMapSchema
+>;
 export type EvidenceTaskSummary = z.infer<typeof EvidenceTaskSummarySchema>;
 export type EvidencePack = z.infer<typeof EvidencePackSchema>;
 export type EvidenceMutationCandidate = z.infer<

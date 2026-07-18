@@ -29,6 +29,34 @@ const repository = {
   productionUrl: 'https://darwin-projectflow.pages.dev/',
   studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
 } as const;
+const applicationMap = {
+  source: {
+    repositorySha: 'd'.repeat(40),
+    sourceHash: 'e'.repeat(64),
+  },
+  product: {
+    name: 'ProjectFlow',
+    purpose: 'Project management workspace.',
+    primaryUser: 'Knowledge worker.',
+    domainEntities: ['project', 'task', 'user'],
+    primaryGoals: ['find assigned work'],
+  },
+  activeGenome: {
+    version: 'dddddddddddd',
+    navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
+    capabilities: ['project-scoped task search'],
+  },
+  interfaceInventory: [
+    {
+      area: 'dashboard-capacity',
+      purpose: 'Inspect workload allocation.',
+      primaryActions: ['open capacity report'],
+    },
+  ],
+  routes: ['/study/dashboard'],
+  mutableAreas: ['navigation', 'dashboard-capacity'],
+  protectedAreas: ['telemetry-history'],
+} as const;
 const targetConnection = {
   connectionId: 'target-test',
   status: 'connected',
@@ -42,6 +70,7 @@ const targetConnection = {
     defaultBranch: 'main',
   },
   repository,
+  applicationMap,
   checks: [
     {
       id: 'repository',
@@ -145,6 +174,7 @@ const evidence = {
     },
   ],
   applicationMap: {
+    source: applicationMap.source,
     product: {
       name: 'ProjectFlow',
       purpose: 'Project management workspace.',
@@ -152,9 +182,8 @@ const evidence = {
       domainEntities: ['project', 'task', 'user'],
       primaryGoals: ['find assigned work'],
     },
-    activeVariant: {
-      name: 'baseline',
-      version: '1.0.0',
+    activeGenome: {
+      version: 'dddddddddddd',
       navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
       capabilities: ['project-scoped task search'],
     },

@@ -91,6 +91,10 @@ const pack = EvidencePackSchema.parse({
     },
   ],
   applicationMap: {
+    source: {
+      repositorySha: 'b'.repeat(40),
+      sourceHash: 'c'.repeat(64),
+    },
     product: {
       name: 'ProjectFlow',
       purpose: 'Project management workspace.',
@@ -98,9 +102,8 @@ const pack = EvidencePackSchema.parse({
       domainEntities: ['project', 'task', 'user'],
       primaryGoals: ['find assigned work'],
     },
-    activeVariant: {
-      name: 'baseline',
-      version: '1.0.0',
+    activeGenome: {
+      version: 'bbbbbbbbbbbb',
       navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
       capabilities: ['project-scoped task search'],
     },
@@ -136,6 +139,7 @@ const repositorySnapshot: RepositorySnapshot = {
     productionUrl: 'https://darwin-projectflow.pages.dev/',
     studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
   },
+  applicationMap: pack.applicationMap,
   target: {
     targetId: 'projectflow',
     name: 'ProjectFlow',
