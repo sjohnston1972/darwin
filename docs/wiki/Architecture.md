@@ -1,5 +1,7 @@
 # Architecture
 
+> Canonical architecture: [`docs/ARCHITECTURE.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/ARCHITECTURE.md). This page is the hosted operator-oriented companion and must not redefine the API route list or product scope.
+
 ## System context
 
 ```mermaid
@@ -121,4 +123,4 @@ Only an explicit release call merges a reviewed pull request. Candidate previews
 
 The public Build Week deployment now has capability-scoped operator authorization, HMAC-authenticated ProjectFlow ingestion, protected read APIs, and execution-scoped signed repository callbacks with replay protection. It is still not a production trust boundary while atomic release transactions, deployment-aware evidence cycles, and retention remain open.
 
-See [Security and Privacy](Security-and-Privacy.md) and the [issue backlog](https://github.com/sjohnston1972/darwin/issues).
+See [Security and Privacy](Security-and-Privacy.md), the [generated API route reference](https://github.com/sjohnston1972/darwin/blob/main/docs/generated/API_ROUTES.md), and the [issue backlog](https://github.com/sjohnston1972/darwin/issues).

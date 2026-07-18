@@ -16,6 +16,7 @@ npm install
 npm run dev
 npm run lint
 npm run format:check
+npm run docs:check
 npm run typecheck
 npm run test
 npm run build
@@ -64,6 +65,17 @@ npm run context:check
 
 Review the generated diff. Increment prompt/context versions when cache semantics change.
 
+## API route and documentation changes
+
+The Worker reads route authorization metadata from `workers/api/src/api-route-contract.ts`. After changing a route:
+
+```powershell
+npm run docs:generate
+npm run docs:check
+```
+
+Commit `docs/generated/API_ROUTES.md` with the contract change. Follow the [documentation ownership and freshness checklist](https://github.com/sjohnston1972/darwin/blob/main/docs/DOCUMENTATION.md) for release changes.
+
 ## Schema changes
 
 1. Change the shared Zod contract first.
@@ -85,14 +97,7 @@ Review the generated diff. Increment prompt/context versions when cache semantic
 
 ## Current quality baseline
 
-At the July 2026 audit commit:
-
-- lint passed;
-- TypeScript/context check passed;
-- 52 unit/component tests passed;
-- production build passed;
-- `npm audit` reported zero known vulnerabilities;
-- format check failed in three API files, tracked in issue [#24](https://github.com/sjohnston1972/darwin/issues/24).
+Treat command output from the current commit as the quality record; do not preserve stale test counts or resolved issue claims in this page. Pull-request CI runs formatting, lint, generated-context and route-reference checks, TypeScript, tests, build, dependency review, and CodeQL.
 
 ## Contribution flow
 
@@ -103,4 +108,4 @@ At the July 2026 audit commit:
 5. Do not deploy from a feature branch.
 6. Use the manual deployment workflow only after review.
 
-Automated pull-request CI/security checks are tracked in issue [#22](https://github.com/sjohnston1972/darwin/issues/22).
+The repository workflow is the canonical source for current CI/security checks.

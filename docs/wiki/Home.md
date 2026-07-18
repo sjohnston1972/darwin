@@ -1,5 +1,7 @@
 # Darwin Wiki
 
+> The repository is authoritative. Start with the [canonical README](https://github.com/sjohnston1972/darwin/blob/main/README.md); hosted wiki pages mirror the files under [`docs/wiki`](https://github.com/sjohnston1972/darwin/tree/main/docs/wiki).
+
 Darwin is a controlled software evolution engine. It observes semantic product telemetry, creates deterministic evidence, asks GPT-5.6 for a structured mutation portfolio, and hands a human-selected manifest to a bounded Codex workflow in the target repository.
 
 The current proof target is ProjectFlow, a separately deployed task-management application.
@@ -41,6 +43,15 @@ measured interaction
 - [API Reference](API-Reference.md): current Worker routes and contracts.
 - [Development and Testing](Development-and-Testing.md): workspace commands, tests, and contribution workflow.
 - [Troubleshooting](Troubleshooting.md): common failures and recovery steps.
+
+## Canonical source documents
+
+- [Current product specification](https://github.com/sjohnston1972/darwin/blob/main/docs/PRODUCT_SPEC.md)
+- [Technical architecture](https://github.com/sjohnston1972/darwin/blob/main/docs/ARCHITECTURE.md)
+- [Real telemetry and evidence plan](https://github.com/sjohnston1972/darwin/blob/main/docs/REAL_TELEMETRY_PLAN.md)
+- [Three-minute demo source](https://github.com/sjohnston1972/darwin/blob/main/docs/DEMO_SCRIPT.md)
+- [Generated Worker route contract](https://github.com/sjohnston1972/darwin/blob/main/docs/generated/API_ROUTES.md)
+- [Documentation ownership and freshness](https://github.com/sjohnston1972/darwin/blob/main/docs/DOCUMENTATION.md)
 
 ## Evidence language
 

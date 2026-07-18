@@ -1,5 +1,7 @@
 # Demo Runbook
 
+> Canonical three-minute sequence: [`docs/DEMO_SCRIPT.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/DEMO_SCRIPT.md). This runbook adds preparation, recovery, and narration details without changing the proof claims.
+
 ## Goal
 
 Demonstrate that a real ProjectFlow interaction can become inspectable evidence, a GPT-selected product mutation, a real Codex repository change, and a retained or reverted Genome record without editing source during the presentation.

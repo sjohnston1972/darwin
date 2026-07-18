@@ -33,10 +33,12 @@
 
 ## Select
 
-1. Release the reviewed mutation.
-2. Show the merged commit and deployment in the fossil record.
-3. Repeat the measured behavior against the evolved application to establish
-   whether it survived selection.
+1. Review and merge the generated ProjectFlow pull request through the explicit
+   release control.
+2. Show the real merged commit and deployment in Genome.
+3. Repeat the measured behavior against the retained application to establish
+   fitness. If a compatible human cohort is unavailable, label the result as
+   automated validation and state that user fitness is not yet measured.
 
 Closing line:
 
