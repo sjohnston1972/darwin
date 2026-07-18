@@ -1,6 +1,7 @@
 import {
   CodexImplementationManifestSchema,
   DemoResetResponseSchema,
+  DiagnosticsResponseSchema,
   EvidencePackSchema,
   EvidenceAnalysisSchema,
   GenomeExecutionDetailResponseSchema,
@@ -321,6 +322,9 @@ describe('Darwin API', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(response.headers.get('X-Request-ID')).toMatch(
+      /^[A-Za-z0-9._:-]{1,80}$/,
+    );
     expect(body.service).toBe('darwin-api');
     expect(body).toMatchObject({
       version: '0.1.0',
@@ -388,6 +392,7 @@ describe('Darwin API', () => {
         '/api/studies/projectflow-baseline-study/participants/participant-test',
       ],
       ['DELETE', '/api/repository-executions/execution-test/artifacts'],
+      ['GET', '/api/diagnostics'],
       ['GET', '/api/genome'],
       ['GET', '/api/observations/archives'],
       ['GET', '/api/studies/projectflow-baseline-study/events'],
@@ -966,6 +971,7 @@ describe('Darwin API', () => {
 
     expect(response.status).toBe(500);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe(origin);
+    expect(response.headers.get('X-Request-ID')).toBeTruthy();
     await expect(response.json()).resolves.toMatchObject({
       error: 'internal_error',
     });
@@ -973,6 +979,54 @@ describe('Darwin API', () => {
       '[darwin:api]',
       expect.stringContaining('unhandled_request_error'),
     );
+  });
+
+  it('propagates request IDs and retains redacted privileged audit events', async () => {
+    const infoLog = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const requestId = 'operator-reset-test-31';
+    const secret = 'operator-secret-that-must-not-be-logged';
+    const resetResponse = await handleWorkerRequest(
+      new Request('https://darwin-api.example/api/demo/reset', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${secret}`,
+          'X-Request-ID': requestId,
+        },
+      }),
+      { DARWIN_OPERATOR_TOKEN: secret },
+    );
+
+    expect(resetResponse.status).toBe(200);
+    expect(resetResponse.headers.get('X-Request-ID')).toBe(requestId);
+
+    const diagnosticsResponse = await handleRequest(
+      new Request('http://localhost/api/diagnostics?limit=10'),
+    );
+    const diagnostics = DiagnosticsResponseSchema.parse(
+      await diagnosticsResponse.json(),
+    );
+    expect(diagnostics.retentionDays).toBe(30);
+    expect(diagnostics.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          requestId,
+          actor: 'operator',
+          action: 'demo.reset',
+          target: '/api/demo/reset',
+          outcome: 'success',
+          beforeState: 'active_cycle',
+          afterState: 'reset',
+          provider: null,
+        }),
+      ]),
+    );
+    expect(diagnostics.metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: 'd1', failureCount: 0 }),
+      ]),
+    );
+    expect(JSON.stringify(diagnostics)).not.toContain(secret);
+    expect(infoLog.mock.calls.flat().join(' ')).not.toContain(secret);
   });
 
   it('enforces production origins and telemetry rate limits', async () => {

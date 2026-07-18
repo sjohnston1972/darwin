@@ -17,6 +17,7 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/observations/archives` | operator: inspect_evidence | Return retained evidence and analysis summaries. |
 | GET | `/api/observations/archives/:archiveId` | operator: inspect_evidence | Return one complete evidence and analysis archive. |
 | GET | `/api/operations/metrics` | operator: inspect_evidence | Return aggregate telemetry and security counters. |
+| GET | `/api/diagnostics` | operator: inspect_evidence | Return bounded operational audit events and provider metrics. |
 
 ## Retention and deletion
 
@@ -85,4 +86,4 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/simulations/:runId` | operator: inspect_evidence | Return synthetic replay metadata. |
 | GET | `/api/simulations/:runId/summary` | operator: inspect_evidence | Return deterministic synthetic aggregates. |
 
-**Contract total:** 39 method/path entries.
+**Contract total:** 40 method/path entries.

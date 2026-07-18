@@ -31,6 +31,11 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - Repository workflow requests sign the execution, repository, manifest hash, timestamp, nonce, and payload digest; D1 rejects replayed signatures and terminal state rewrites.
 - Callback bodies, patches, output, checks, and changed-file arrays have explicit size limits.
 - D1 records have indexed expiries, nightly deletion/compaction, per-study and per-target event quotas, and operator-only targeted deletion. See [Data retention and deletion](../RETENTION.md).
+- Every Worker response carries a bounded request ID; structured authorization,
+  request, provider-latency, and privileged-transition records use redacted
+  fields only.
+- Privileged audit events and aggregate provider metrics have a 30-day rolling
+  retention window and are visible only through the protected diagnostics API.
 
 ## Privacy boundary
 
@@ -46,12 +51,18 @@ Normal control-room telemetry responses are aggregate-only and omit event record
 | ---------- | -------- | -------------- | ----------------- |
 | Public service status | service/version, configured analysis mode and availability | public operational metadata | response only; not persisted by Darwin |
 | Aggregate study metrics | event, session, participant and behavioral-signal counts | protected operational data | derived on request from retained telemetry |
-| Raw study telemetry | pseudonymous participant/session IDs, semantic routes, targets and timings | protected behavioral data | retained in D1 until an explicit demo reset or operator deletion; no automated expiry yet |
-| Evidence and reasoning | journeys, task attempts, evidence citations and GPT analysis | protected derived behavioral data | retained in D1 until an explicit demo reset or operator deletion; no automated expiry yet |
-| Repository artifacts | source hashes, manifests, patches, checks, Codex output and execution history | protected repository/operational data | retained in D1 until an explicit demo reset or operator deletion; no automated expiry yet |
+| Raw study telemetry | pseudonymous participant/session IDs, semantic routes, targets and timings | protected behavioral data | 30 days; nightly sweep or earlier operator deletion |
+| Evidence and reasoning | journeys, task attempts, evidence citations and GPT analysis | protected derived behavioral data | 90 days; nightly sweep or earlier operator deletion |
+| Repository artifacts | source hashes, manifests, patches, checks, Codex output and execution history | protected repository/operational data | large artifacts 30 days; compact fossil records 365 days |
+| Operational diagnostics | privileged transitions, bounded error codes and provider timing aggregates | protected operational data | 30-day rolling window |
 | Scale replay | seeded 10,000-event run metadata and summary | protected synthetic data | in-memory for 15 minutes, capped at four runs; raw simulated events are not persisted |
 
-The absence of automated D1 expiry remains tracked in issue #18. Until it is implemented, Darwin must not ingest customer, private-repository, or personally identifying telemetry. A demo reset is the supported application-level deletion path for the configured ProjectFlow study.
+Raw telemetry expires after 30 days, derived evidence after 90 days, large execution artifacts after 30 days, and compact fossil records after 365 days. Nightly sweeps and operator-targeted deletion enforce those boundaries; Darwin still must not ingest personally identifying telemetry.
+
+Operational diagnostics deliberately exclude request/callback bodies, raw
+telemetry, prompts and model output, patches, arbitrary provider messages,
+headers, and credentials. Error diagnostics use bounded codes rather than raw
+exception messages. Exports from System status preserve that same boundary.
 
 ## Open security work
 

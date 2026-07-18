@@ -93,6 +93,7 @@ D1 tables currently store:
 | `outcome_validations`    | reserved measured outcome records                      |
 | `demo_state`             | evolution cycle state                                  |
 | `target_connections`     | verified target snapshot and checks                    |
+| `operational_events`     | 30-day redacted audit transitions and provider metrics |
 
 In-memory implementations support local tests and development without D1.
 

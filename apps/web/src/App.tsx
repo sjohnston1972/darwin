@@ -1,7 +1,9 @@
 import {
+  DiagnosticsResponseSchema,
   HealthResponseSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
+  type DiagnosticsResponse,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type EvidencePack,
@@ -32,6 +34,7 @@ import {
   Code2,
   Database,
   Dna,
+  Download,
   FileCheck2,
   ExternalLink,
   FlaskConical,
@@ -45,6 +48,7 @@ import {
   Network,
   Link2,
   Radar,
+  RefreshCw,
   Rocket,
   RotateCcw,
   Server,
@@ -951,6 +955,8 @@ function DarwinDashboard({
                   </div>
                 </div>
               </aside>
+
+              <OperationalDiagnostics />
             </section>
           )}
 
@@ -4307,6 +4313,200 @@ function StatusRow({
         {value}
       </span>
     </div>
+  );
+}
+
+function OperationalDiagnostics() {
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(
+    null,
+  );
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+
+  const load = async () => {
+    setStatus('loading');
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/diagnostics?limit=50`);
+      if (!response.ok) throw new Error('Diagnostics request failed');
+      const parsed = DiagnosticsResponseSchema.parse(await response.json());
+      setDiagnostics(parsed);
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const exportDiagnostics = () => {
+    if (!diagnostics) return;
+    const blob = new Blob([JSON.stringify(diagnostics, null, 2)], {
+      type: 'application/json',
+    });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `darwin-diagnostics-${diagnostics.generatedAt.slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(href);
+  };
+
+  return (
+    <aside
+      className="surface-panel lg:col-span-2"
+      aria-labelledby="operational-diagnostics-title"
+    >
+      <div className="panel-heading gap-4">
+        <div>
+          <p className="section-label">Operations</p>
+          <div className="heading-with-help">
+            <h2
+              id="operational-diagnostics-title"
+              className="mt-2 text-xl font-semibold"
+            >
+              Operational diagnostics
+            </h2>
+            <InfoTip text="Redacted request transitions and aggregate provider latency retained for 30 days. Request bodies, prompts, telemetry payloads, tokens, and credentials are never included." />
+          </div>
+        </div>
+        <div className="ml-auto flex flex-wrap justify-end gap-2">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() => void load()}
+            disabled={status === 'loading'}
+          >
+            <RefreshCw
+              className={status === 'loading' ? 'is-spinning' : undefined}
+              size={15}
+            />
+            Refresh
+          </button>
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={exportDiagnostics}
+            disabled={!diagnostics}
+          >
+            <Download size={15} /> Export JSON
+          </button>
+        </div>
+      </div>
+
+      {status === 'error' && (
+        <p className="px-5 py-6 text-sm text-amber sm:px-6">
+          Diagnostics are unavailable. Runtime status remains independent.
+        </p>
+      )}
+      {status === 'loading' && !diagnostics && (
+        <p className="px-5 py-6 text-sm text-mist sm:px-6">
+          Loading redacted operational history…
+        </p>
+      )}
+      {diagnostics && (
+        <div className="grid gap-8 px-5 py-6 sm:px-6 xl:grid-cols-2">
+          <section aria-labelledby="provider-metrics-title">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h3 id="provider-metrics-title" className="font-semibold">
+                Provider latency
+              </h3>
+              <span className="font-mono text-[11px] uppercase tracking-wider text-mist">
+                {diagnostics.retentionDays} day retention
+              </span>
+            </div>
+            {diagnostics.metrics.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-line font-mono uppercase tracking-wider text-mist">
+                    <tr>
+                      <th className="pb-3 font-normal">Provider / operation</th>
+                      <th className="pb-3 text-right font-normal">Calls</th>
+                      <th className="pb-3 text-right font-normal">Avg</th>
+                      <th className="pb-3 text-right font-normal">Errors</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {diagnostics.metrics.slice(0, 10).map((metric) => (
+                      <tr key={`${metric.provider}:${metric.operation}`}>
+                        <td className="py-3 pr-3">
+                          <span className="text-signal">{metric.provider}</span>
+                          <span className="text-mist">
+                            {' '}
+                            · {metric.operation}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right font-mono">
+                          {metric.count}
+                        </td>
+                        <td className="py-3 text-right font-mono">
+                          {metric.averageDurationMs} ms
+                        </td>
+                        <td
+                          className={`py-3 text-right font-mono ${metric.failureCount ? 'text-amber' : 'text-mist'}`}
+                        >
+                          {metric.failureCount}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-mist">
+                Provider timings will appear after D1, OpenAI, GitHub, or target
+                verification activity.
+              </p>
+            )}
+          </section>
+
+          <section aria-labelledby="audit-events-title">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h3 id="audit-events-title" className="font-semibold">
+                Privileged transitions
+              </h3>
+              <span className="font-mono text-[11px] text-mist">
+                request {diagnostics.requestId.slice(0, 12)}
+              </span>
+            </div>
+            {diagnostics.events.length ? (
+              <ol className="divide-y divide-line">
+                {diagnostics.events.slice(0, 10).map((event) => (
+                  <li className="grid gap-1 py-3 text-xs" key={event.eventId}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${event.outcome === 'success' ? 'bg-signal' : 'bg-amber'}`}
+                      />
+                      <strong className="font-mono font-medium">
+                        {event.action}
+                      </strong>
+                      <time className="ml-auto text-mist">
+                        {new Date(event.occurredAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </time>
+                    </div>
+                    <span className="pl-3.5 text-mist">
+                      {event.actor} · {event.beforeState ?? '—'} →{' '}
+                      {event.afterState ?? '—'} · {event.durationMs} ms
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-mist">
+                No privileged transitions have been recorded in this retention
+                window.
+              </p>
+            )}
+          </section>
+        </div>
+      )}
+    </aside>
   );
 }
 

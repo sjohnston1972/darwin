@@ -1168,6 +1168,57 @@ export const RepositoryRollbackCallbackSchema = RepositoryRollbackSchema.pick({
   .partial()
   .extend({ status: RepositoryRollbackStatusSchema });
 
+export const OperationalProviderSchema = z.enum([
+  'd1',
+  'openai',
+  'github',
+  'target',
+]);
+
+export const OperationalOutcomeSchema = z.enum(['success', 'failure']);
+
+export const OperationalEventSchema = z.object({
+  eventId: z.string().uuid(),
+  kind: z.enum(['audit', 'metric']),
+  requestId: z.string().regex(/^[A-Za-z0-9._:-]{1,80}$/),
+  occurredAt: z.string().datetime(),
+  actor: z.enum([
+    'operator',
+    'viewer',
+    'local-development',
+    'projectflow',
+    'repository-callback',
+    'anonymous',
+    'system',
+  ]),
+  action: z.string().min(1).max(120),
+  target: z.string().min(1).max(240),
+  outcome: OperationalOutcomeSchema,
+  beforeState: z.string().min(1).max(120).nullable(),
+  afterState: z.string().min(1).max(120).nullable(),
+  provider: OperationalProviderSchema.nullable(),
+  operation: z.string().min(1).max(120).nullable(),
+  durationMs: z.number().int().nonnegative(),
+  errorCode: z.string().min(1).max(120).nullable(),
+});
+
+export const OperationalMetricSummarySchema = z.object({
+  provider: OperationalProviderSchema,
+  operation: z.string().min(1).max(120),
+  count: z.number().int().nonnegative(),
+  failureCount: z.number().int().nonnegative(),
+  averageDurationMs: z.number().int().nonnegative(),
+  maximumDurationMs: z.number().int().nonnegative(),
+});
+
+export const DiagnosticsResponseSchema = z.object({
+  requestId: z.string().regex(/^[A-Za-z0-9._:-]{1,80}$/),
+  generatedAt: z.string().datetime(),
+  retentionDays: z.literal(30),
+  events: z.array(OperationalEventSchema).max(100),
+  metrics: z.array(OperationalMetricSummarySchema).max(100),
+});
+
 export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
   service: z.literal('darwin-api'),
@@ -1287,4 +1338,11 @@ export type RepositoryRollback = z.infer<typeof RepositoryRollbackSchema>;
 export type RepositoryRollbackCallback = z.infer<
   typeof RepositoryRollbackCallbackSchema
 >;
+export type OperationalProvider = z.infer<typeof OperationalProviderSchema>;
+export type OperationalOutcome = z.infer<typeof OperationalOutcomeSchema>;
+export type OperationalEvent = z.infer<typeof OperationalEventSchema>;
+export type OperationalMetricSummary = z.infer<
+  typeof OperationalMetricSummarySchema
+>;
+export type DiagnosticsResponse = z.infer<typeof DiagnosticsResponseSchema>;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;

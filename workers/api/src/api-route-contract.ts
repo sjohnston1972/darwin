@@ -79,6 +79,14 @@ export const apiRouteContract = [
     purpose: 'Return aggregate telemetry and security counters.',
   },
   {
+    method: 'GET',
+    path: '/api/diagnostics',
+    group: 'Runtime and history',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return bounded operational audit events and provider metrics.',
+  },
+  {
     method: 'POST',
     path: '/api/retention/sweep',
     group: 'Retention and deletion',

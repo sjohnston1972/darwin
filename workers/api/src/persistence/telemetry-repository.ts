@@ -1,11 +1,12 @@
 import {
-  EvolutionCycleSchema,
   RepositoryMutationExecutionSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
+  type OperationalEvent,
+  type OperationalMetricSummary,
   type ProjectFlowWorkspace,
   type RepositoryMutationExecution,
   type RetentionDeletedCounts,
@@ -93,6 +94,13 @@ export interface ObservationArchiveRecord {
 export interface ObservationArchivePage {
   archives: ObservationArchiveRecord[];
   nextCursor: string | null;
+}
+
+export interface PersistenceOperationMetric {
+  operation: string;
+  durationMs: number;
+  outcome: 'success' | 'failure';
+  errorCode: string | null;
 }
 
 export interface TelemetryRepository {
@@ -209,6 +217,11 @@ export interface TelemetryRepository {
   deleteExecutionArtifacts(
     executionId: string,
   ): Promise<RetentionDeletedCounts>;
+  saveOperationalEvents(events: OperationalEvent[]): Promise<void>;
+  listOperationalAuditEvents(limit: number): Promise<OperationalEvent[]>;
+  summarizeOperationalMetrics(
+    limit: number,
+  ): Promise<OperationalMetricSummary[]>;
   reset(): Promise<void>;
 }
 
@@ -233,6 +246,7 @@ const callbackSignatureStore = new Set<string>();
 const targetRequestSignatureStore = new Map<string, string>();
 const operationalMetricStore = new Map<OperationalMetricName, number>();
 let operationalMetricsUpdatedAt: string | null = null;
+const operationalEventStore = new Map<string, OperationalEvent>();
 let targetConnectionStore: TargetApplicationConnection | null = null;
 const baselineStudyId = 'projectflow-baseline-study';
 const defaultEvolutionCycle = (): EvolutionCycle => ({
@@ -244,7 +258,6 @@ const emptyOperationalMetricCounts = (): OperationalMetricCounts =>
   Object.fromEntries(
     operationalMetricNames.map((name) => [name, 0]),
   ) as OperationalMetricCounts;
-let evolutionCycleStore = defaultEvolutionCycle();
 let latestRetentionSweep: RetentionSweepResult | null = null;
 
 interface ExecutionCursor {
@@ -816,6 +829,18 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     }
   }
 
+  async saveOperationalEvents(events: OperationalEvent[]) {
+    for (const event of events) {
+      operationalEventStore.set(event.eventId, event);
+    }
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1_000;
+    for (const [eventId, stored] of operationalEventStore) {
+      if (Date.parse(stored.occurredAt) < cutoff) {
+        operationalEventStore.delete(eventId);
+      }
+    }
+  }
+
   private deleteDerivedStudyArtifacts(
     studyId: string,
     deleted: RetentionDeletedCounts,
@@ -983,6 +1008,68 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return latestRetentionSweep;
   }
 
+  async listOperationalAuditEvents(limit: number) {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1_000;
+    return [...operationalEventStore.values()]
+      .filter(
+        (event) =>
+          event.kind === 'audit' && Date.parse(event.occurredAt) >= cutoff,
+      )
+      .sort((left, right) =>
+        right.occurredAt === left.occurredAt
+          ? right.eventId.localeCompare(left.eventId)
+          : right.occurredAt.localeCompare(left.occurredAt),
+      )
+      .slice(0, limit);
+  }
+
+  async summarizeOperationalMetrics(limit: number) {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1_000;
+    const aggregates = new Map<
+      string,
+      OperationalMetricSummary & { totalDurationMs: number }
+    >();
+    for (const event of operationalEventStore.values()) {
+      if (
+        event.kind !== 'metric' ||
+        !event.provider ||
+        !event.operation ||
+        Date.parse(event.occurredAt) < cutoff
+      ) {
+        continue;
+      }
+      const key = `${event.provider}:${event.operation}`;
+      const aggregate = aggregates.get(key) ?? {
+        provider: event.provider,
+        operation: event.operation,
+        count: 0,
+        failureCount: 0,
+        averageDurationMs: 0,
+        maximumDurationMs: 0,
+        totalDurationMs: 0,
+      };
+      aggregate.count += 1;
+      aggregate.failureCount += event.outcome === 'failure' ? 1 : 0;
+      aggregate.totalDurationMs += event.durationMs;
+      aggregate.maximumDurationMs = Math.max(
+        aggregate.maximumDurationMs,
+        event.durationMs,
+      );
+      aggregates.set(key, aggregate);
+    }
+    return [...aggregates.values()]
+      .sort((left, right) =>
+        left.provider === right.provider
+          ? left.operation.localeCompare(right.operation)
+          : left.provider.localeCompare(right.provider),
+      )
+      .slice(0, limit)
+      .map(({ totalDurationMs, ...aggregate }) => ({
+        ...aggregate,
+        averageDurationMs: Math.round(totalDurationMs / aggregate.count),
+      }));
+  }
+
   async reset() {
     eventStore.clear();
     workspaceStore.clear();
@@ -998,8 +1085,8 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     callbackSignatureStore.clear();
     targetRequestSignatureStore.clear();
     operationalMetricStore.clear();
+    operationalEventStore.clear();
     operationalMetricsUpdatedAt = null;
-    evolutionCycleStore = defaultEvolutionCycle();
     latestRetentionSweep = null;
   }
 }
@@ -2181,6 +2268,95 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return result;
   }
 
+  async saveOperationalEvents(events: OperationalEvent[]) {
+    await this.database.batch([
+      ...events.map((event) =>
+        this.database
+          .prepare(
+            `INSERT INTO operational_events (
+               event_id, kind, request_id, occurred_at, actor, action, target,
+               outcome, before_state, after_state, provider, operation,
+               duration_ms, error_code, event_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            event.eventId,
+            event.kind,
+            event.requestId,
+            event.occurredAt,
+            event.actor,
+            event.action,
+            event.target,
+            event.outcome,
+            event.beforeState,
+            event.afterState,
+            event.provider,
+            event.operation,
+            event.durationMs,
+            event.errorCode,
+            JSON.stringify(event),
+          ),
+      ),
+      this.database.prepare(
+        `DELETE FROM operational_events
+         WHERE datetime(occurred_at) < datetime('now', '-30 days')`,
+      ),
+    ]);
+  }
+
+  async listOperationalAuditEvents(limit: number) {
+    const result = await this.database
+      .prepare(
+        `SELECT event_json
+         FROM operational_events
+         WHERE kind = 'audit'
+           AND datetime(occurred_at) >= datetime('now', '-30 days')
+         ORDER BY occurred_at DESC, event_id DESC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{ event_json: string }>();
+    return result.results.map(
+      (row) => JSON.parse(row.event_json) as OperationalEvent,
+    );
+  }
+
+  async summarizeOperationalMetrics(limit: number) {
+    const result = await this.database
+      .prepare(
+        `SELECT provider, operation,
+                COUNT(*) AS count,
+                SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+                ROUND(AVG(duration_ms)) AS average_duration_ms,
+                MAX(duration_ms) AS maximum_duration_ms
+         FROM operational_events
+         WHERE kind = 'metric'
+           AND datetime(occurred_at) >= datetime('now', '-30 days')
+           AND provider IS NOT NULL
+           AND operation IS NOT NULL
+         GROUP BY provider, operation
+         ORDER BY provider ASC, operation ASC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{
+        provider: OperationalMetricSummary['provider'];
+        operation: string;
+        count: number;
+        failure_count: number;
+        average_duration_ms: number;
+        maximum_duration_ms: number;
+      }>();
+    return result.results.map((row) => ({
+      provider: row.provider,
+      operation: row.operation,
+      count: row.count,
+      failureCount: row.failure_count,
+      averageDurationMs: row.average_duration_ms,
+      maximumDurationMs: row.maximum_duration_ms,
+    }));
+  }
+
   async reset() {
     await this.database.batch([
       this.database.prepare('DELETE FROM telemetry_events'),
@@ -2196,16 +2372,52 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM outcome_validations'),
       this.database.prepare('DELETE FROM demo_state'),
       this.database.prepare('DELETE FROM retention_runs'),
+      this.database.prepare('DELETE FROM operational_events'),
     ]);
   }
 }
 
 const inMemoryRepository = new InMemoryTelemetryRepository();
 
-export const getTelemetryRepository = (database?: D1Database) =>
-  database ? new D1TelemetryRepository(database) : inMemoryRepository;
+export const getTelemetryRepository = (
+  database?: D1Database,
+  observe?: (metric: PersistenceOperationMetric) => void,
+) => {
+  const repository: TelemetryRepository = database
+    ? new D1TelemetryRepository(database)
+    : inMemoryRepository;
+  if (!observe) return repository;
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== 'function') return value;
+      return async (...args: unknown[]) => {
+        const startedAt = performance.now();
+        try {
+          const result = await value.apply(target, args);
+          observe({
+            operation: String(property),
+            durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            outcome: 'success',
+            errorCode: null,
+          });
+          return result;
+        } catch (error) {
+          observe({
+            operation: String(property),
+            durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            outcome: 'failure',
+            errorCode: error instanceof Error ? error.name : 'UnknownError',
+          });
+          throw error;
+        }
+      };
+    },
+  });
+};
 
 export const resetInMemoryTelemetry = async () => {
   await inMemoryRepository.reset();
   await inMemoryRepository.deleteTargetConnection();
+  operationalEventStore.clear();
 };

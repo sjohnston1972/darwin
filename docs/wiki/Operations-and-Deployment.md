@@ -79,11 +79,31 @@ Set `DARWIN_OPERATOR_TOKEN`, `PROJECTFLOW_INGESTION_SECRET`, `DARWIN_RELEASE`, a
 Before a demo or release, inspect:
 
 1. Worker health and live model availability.
-2. Connected target base SHA/source fingerprint.
-3. D1 migration status.
-4. GitHub Actions queue and permissions.
-5. Cloudflare Pages production and preview deployments.
-6. Current event/evidence counts and any stale execution.
+2. The System status diagnostics panel for recent privileged transitions and provider failures.
+3. Connected target base SHA/source fingerprint.
+4. D1 migration status.
+5. GitHub Actions queue and permissions.
+6. Cloudflare Pages production and preview deployments.
+7. Current event/evidence counts and any stale execution.
+
+Every Worker response carries `X-Request-ID`; a valid inbound request ID is
+propagated, otherwise the Worker creates one. Structured logs and the System
+status JSON export use that identifier to correlate authorization decisions,
+provider calls, and the final response.
+
+Operational audit/metric records are retained in `operational_events` for 30
+days and pruned when new records are written. They contain only actor, bounded
+action/target identifiers, outcome, state labels, provider operation, duration,
+and error code. They must never contain request or callback bodies, telemetry
+payloads, repository patches, prompts/model output, headers, tokens, credentials,
+or arbitrary exception messages. The diagnostics endpoint returns at most 100
+redacted transitions and aggregate latency/error counts; the UI export contains
+the same bounded response.
+
+Configure Cloudflare Worker log retention to no more than 30 days. Console logs
+follow the same redaction allowlist, but their deletion is controlled by the
+Cloudflare account rather than D1; do not attach Logpush destinations with a
+longer retention window for this demo environment.
 
 ## Recovery
 
@@ -107,6 +127,9 @@ Keep its failed record. Correct provider/workflow configuration and use the expl
 
 Use the controlled rollback workflow. Do not force-push or reset ProjectFlow `main`.
 
-## Monitoring backlog
+## Diagnostics failure
 
-Request tracing, durable audit events, latency metrics, and provider diagnostics are tracked in issue [#31](https://github.com/sjohnston1972/darwin/issues/31).
+Operational trace persistence is best-effort and cannot replace the original
+API response. If the System status panel reports diagnostics unavailable, verify
+migration `0012_operational_events.sql`, D1 health, and Worker logs using the
+response request ID. Do not enable body/header logging while investigating.
