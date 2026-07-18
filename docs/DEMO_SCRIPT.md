@@ -3,8 +3,10 @@
 ## Prepare
 
 1. Open the Darwin control room in light mode.
-2. Click **Reset evolution demo** and wait for the ProjectFlow reset workflow.
-3. Confirm the counters are empty and no repository candidate is shown.
+2. Click **Reset evolution demo** and follow the visible queued, running,
+   validating, and deploying states.
+3. Wait for **Baseline deployment verified**, then confirm the counters are
+   empty and no repository candidate is shown.
 
 ## Observe
 
@@ -33,10 +35,13 @@
 
 ## Select
 
-1. Release the reviewed mutation.
-2. Show the merged commit and deployment in the fossil record.
-3. Repeat the measured behavior against the evolved application to establish
-   whether it survived selection.
+1. Review and merge the generated ProjectFlow pull request through the explicit
+   release control.
+2. Show Darwin verify that production reports the real merged commit and app version.
+3. Show that exact measurement boundary and deployment in Genome and Observations.
+4. Repeat the measured behavior against the retained application to establish
+   fitness. If a compatible human cohort is unavailable, label the result as
+   automated validation and state that user fitness is not yet measured.
 
 Closing line:
 

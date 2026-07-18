@@ -1,154 +1,116 @@
 # Darwin MVP Product Specification
 
+**Status:** Current proof-of-life scope for the controlled ProjectFlow repository workflow.
+
 ## 1. Product statement
-Darwin is an autonomous product engineer. It observes application usage, detects product friction, proposes a measurable improvement, uses an engineering agent to implement it, validates the result, and preserves the change in an evolutionary history.
 
-## 2. Target category
-Developer Tools.
+Darwin is a controlled software evolution engine. It observes privacy-safe product telemetry, converts behavior into deterministic selection pressure, asks GPT-5.6 for an evidence-citing mutation portfolio, supervises a bounded Codex repository change, validates the result, and records retained or reverted changes in Genome.
 
-## 3. Target user
-Product and engineering teams responsible for internal or SaaS applications with enough usage data to reveal repeated friction.
+## 2. Target and operator
 
-## 4. Core user story
-As a product engineer, I want Darwin to analyse application behaviour and produce an evidence-backed code improvement so that the product continuously becomes easier to use.
+The single MVP target is ProjectFlow, a separately versioned and deployed task-management application. The operator is a product or engineering reviewer who controls target connection, mutation selection, repository execution, pull-request review, release, and rollback.
 
-## 5. MVP narrative
-The user completes an awkward fixed task in the deployed ProjectFlow baseline.
-Darwin shows the resulting anonymous raw events, reconstructs the task attempt and
-links a deterministic navigation-friction signal to those records. GPT-5.6
-selects an evidence-backed mutation, Codex implements the approved brief, and
-Darwin preserves the evidence hash, real diff and validation result. A separate
-10,000-event synthetic replay demonstrates scale without being presented as
-human telemetry.
+Darwin does not support arbitrary repositories or unsupervised production deployment.
 
-## 6. Primary screens
+## 3. Proof narrative
 
-### 6.1 Landing / control room
-Must show:
-- Darwin wordmark
-- “Helping your software evolve.”
-- connected target application: ProjectFlow
-- current genome version
-- interactions observed
-- evolution cycles
-- fitness score
-- primary CTA: `Open measured study`
+1. A participant completes an awkward fixed task in the deployed ProjectFlow baseline.
+2. Observations shows the resulting anonymous semantic events and exact task-attempt trace.
+3. Deterministic rules convert those records into citable selection pressure.
+4. GPT-5.6 returns one selected mutation and bounded alternatives citing only that evidence.
+5. A human selects a mutation bundle and creates an immutable implementation manifest.
+6. ProjectFlow's authenticated GitHub Actions workflow asks Codex for a bounded patch, applies repository-owned policy, runs real validation, and opens a pull request and preview.
+7. A human reviews and releases or rejects the candidate.
+8. Genome retains the evidence hash, commits, checks, pull request, deployment, and any controlled revert.
 
-### 6.2 ProjectFlow organism
-A standalone functional study application plus a toggleable control-room preview.
+The separate deterministic 10,000-event replay demonstrates scale and is always labelled synthetic. It is not presented as human telemetry or measured fitness.
 
-Baseline:
-- Dashboard
-- Projects
-- Tasks
-- Reports
-- Settings
-- buried search
-- overloaded dashboard
+## 4. Workspaces
 
-Evolved:
-- My Work
-- Projects
-- Insights
-- global search
-- global quick-create task
-- concise dashboard
+### 4.1 Control room
 
-### 6.3 Observation stream
-Truthful display of:
-- real event receipt time and source provenance
-- participant, session and task-attempt identity
-- real measured event, session, and participant counts
-- evidence coverage and recurrence counts
-- friction signals
-- workflow abandonment
+Summarizes the connected target, measured event/session counts, evidence strength, selection pressure, live reasoning availability, measured fitness delta, release confidence, and retained Genome evolutions. The primary action opens the measured ProjectFlow study.
 
-### 6.4 Selection pressure report
-Rank findings by impact and confidence. The intended leading finding is difficulty locating assigned tasks.
+### 4.2 Target application
 
-### 6.5 Mutation proposal
-Fields:
-- mutation ID and name
-- observation
-- evidence
-- hypothesis
-- implementation summary
-- predicted fitness gain
-- confidence
-- risk
-- affected files/components
-- approve/reject controls
+Verifies the configured ProjectFlow repository, tracked branch, immutable commit, `darwin.target.json`, production deployment, measured study URL, mutable/protected paths, source context, validation commands, and change budgets.
 
-### 6.6 Mutation execution
-Show real steps:
-- implementation brief generated
-- source diff loaded or produced
-- unit tests
-- build
-- UX acceptance checks
-- fitness replay
+ProjectFlow remains a separate repository and deployment. Darwin contains no prebuilt evolved version.
 
-### 6.7 Fossil record
-Timeline of versions and retained/rejected mutations.
+### 4.3 Observations
 
-## 7. Functional requirements
+Displays measured event, participant, session, and behavior-signal counts; ordered semantic traces; task attempts; evidence coverage; and rule-backed friction signals. Every signal must link to exact source event IDs. Measured and synthetic evidence never share counts or cohorts.
 
-### FR-1 Real telemetry
-Capture privacy-conscious, ordered, schema-valid events from standalone
-ProjectFlow and preserve task-attempt and source provenance.
+### 4.4 Mutations
 
-### FR-2 Deterministic evidence
-Reconstruct attempts and derive funnels, path loops, abandonment, search use,
-task duration and feature usage without a language model.
+Shows live GPT reasoning over a hashed evidence pack and immutable repository snapshot. Candidates state confidence, tradeoffs, evidence IDs, implementation context, acceptance criteria, and a validation plan. Model preference remains separate from deterministic evidence quality.
 
-### FR-3 Scale replay
-Generate exactly 10,000 seeded synthetic events within seconds and keep them
-separate from real-study evidence.
+This workspace also shows the actual GitHub execution, changed files, diff, checks, pull request, preview, release, and rollback state. It never renders fabricated repository output or invented post-mutation fitness.
 
-### FR-4 Analysis
-Return a live GPT-5.6 portfolio containing one selected mutation and two to five
-alternatives, with every behavioral claim citing a known evidence ID. Fail closed
-when live reasoning is unavailable.
+### 4.5 Genome
 
-### FR-5 Approval
-No mutation is applied without explicit approval in the UI.
+Preserves retained repository mutations and controlled reverts with their measured evidence, automated validation, commits, pull requests, deployments, and provenance. A candidate enters Genome only after the real repository workflow creates it; a retained mutation has survived controlled selection, while a rejected or reverted candidate has failed selection.
 
-### FR-6 Validation
-Run or load genuine build/test results and calculate evolved fitness.
+## 5. Functional requirements
 
-### FR-7 Variant switching
-The organism must visibly change between baseline and evolved states without a redeploy during the demo.
+### FR-1 Target boundary
 
-### FR-8 Timeline
-Persist evolution cycles locally or in D1.
+Accept only the configured ProjectFlow target. Resolve and hash source context from one immutable commit and enforce repository-owned mutation policy.
 
-### FR-9 Evidence availability
-Collection and deterministic evidence parsing work without an OpenAI key. The UI
-must clearly report that reasoning is unavailable and must not invent a proposal.
+### FR-2 Real telemetry
 
-## 8. Non-functional requirements
-- Complete demo flow under three minutes.
-- First meaningful paint under two seconds on broadband.
-- Keyboard accessible core controls.
-- Responsive at 1440x900 and 1920x1080.
-- No secrets in browser bundles.
-- Structured error states.
-- Deterministic demo reset.
+Capture privacy-conscious, ordered, schema-valid ProjectFlow events with anonymous participant, session, task-attempt, application-version, schema-version, viewport, evidence-class, and source provenance.
 
-## 9. Success metrics
-The demo succeeds when:
-- judges understand the idea in 20 seconds
-- the application visibly changes
-- the evidence-to-change chain is clear
-- judges can inspect a raw event supporting a selected finding
-- measured, automated, predicted and synthetic outcomes are unmistakable
-- GPT-5.6 and Codex have distinct roles
-- the project works without manual repair
+### FR-3 Deterministic evidence
 
-## 10. Out of scope
-- unsupervised production deployment
-- broad repository compatibility
-- real A/B testing infrastructure
-- user authentication
-- billing
-- real organisation analytics integrations
+Reconstruct attempts and derive friction signals without a language model. Preserve stable rule IDs, supporting event IDs, coverage, limitations, canonical JSON, and a SHA-256 evidence hash.
+
+### FR-4 Live reasoning
+
+Call GPT-5.6 only after deterministic evidence and an immutable repository snapshot exist. Return one selected mutation and two to five alternatives. Reject unavailable, invalid, unsupported, or uncited recommendations without substituting mock prose.
+
+### FR-5 Human selection
+
+Require an operator to select the mutation bundle and explicitly initiate the controlled repository workflow. Require separate pull-request review and release authority before a candidate changes production.
+
+### FR-6 Controlled implementation
+
+Dispatch ProjectFlow's authenticated workflow. Codex proposes a patch in a read-only-content job; a separate repository-owned job enforces paths and budgets, applies the patch, validates it, commits it, and creates the pull request and preview.
+
+### FR-7 Honest validation and fitness
+
+Display genuine automated checks and human evidence with explicit evidence classes. Calculate evolved fitness on the server only from compatible baseline and post-release measured cohorts, and persist the versioned component scores, evidence hashes, cohort metadata, and limitations with the Genome artifact. Never emit a numeric comparison for an undersized, incompatible, or rolled-back cohort.
+
+### FR-8 Genome and revert
+
+Persist execution, release, deployment, and rollback provenance. A revert is another reviewed ProjectFlow pull request and release, not a local UI variant switch.
+
+### FR-9 Synthetic scale replay
+
+Generate exactly 10,000 deterministic events from the configured seed. Store and display replay summaries separately from measured evidence.
+
+### FR-10 Failure behavior
+
+Collection and deterministic parsing work without an OpenAI key. Missing GPT, GitHub, validation, preview, or release state remains explicit and fails closed.
+
+## 6. Non-functional requirements
+
+- Complete the proof loop reliably in a three-minute demonstration.
+- Keep core controls keyboard accessible and usable at desktop and mobile widths.
+- Keep credentials out of browser bundles and provider errors out of public responses.
+- Provide structured, operator-readable failure states.
+- Preserve deterministic reset and reproducible validation commands.
+- Never mix measured, automated, predicted, or synthetic claims.
+
+## 7. Success standard
+
+The proof succeeds when a reviewer can inspect one real event, follow it through a deterministic evidence ID and live GPT citation, review the actual Codex-authored repository diff and checks, explicitly release or reject it, and inspect the resulting Genome provenance without editing source during the presentation.
+
+## 8. Out of scope
+
+- arbitrary repositories beyond configured ProjectFlow;
+- unsupervised production deployment;
+- multi-tenant identity, billing, or enterprise access control;
+- generic visual editing;
+- statistical A/B testing infrastructure;
+- raw user content, keystrokes, page text, or personal identity capture.

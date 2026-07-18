@@ -1,4 +1,7 @@
-import type { StoredTelemetryEvent } from '@darwin/shared';
+import type {
+  EvidenceApplicationMap,
+  StoredTelemetryEvent,
+} from '@darwin/shared';
 import { describe, expect, it } from 'vitest';
 
 import { buildEvidencePack, reconstructAttempts } from './evidence';
@@ -23,6 +26,34 @@ const base = (sequence: number, route: string) => ({
 
 const attemptId = 'attempt-evidence';
 const taskId = 'find-assigned-task';
+const applicationMap = {
+  source: {
+    repositorySha: 'a'.repeat(40),
+    sourceHash: 'b'.repeat(64),
+  },
+  product: {
+    name: 'ProjectFlow',
+    purpose: 'Project management workspace.',
+    primaryUser: 'Knowledge worker.',
+    domainEntities: ['project', 'task', 'user'],
+    primaryGoals: ['find assigned work'],
+  },
+  activeGenome: {
+    version: 'aaaaaaaaaaaa',
+    navigation: ['Dashboard', 'Projects'],
+    capabilities: ['project-scoped task search'],
+  },
+  interfaceInventory: [
+    {
+      area: 'task-discovery',
+      purpose: 'Find assigned work.',
+      primaryActions: ['open task'],
+    },
+  ],
+  routes: ['/dashboard', '/projects'],
+  mutableAreas: ['navigation', 'search'],
+  protectedAreas: ['telemetry-history'],
+} satisfies EvidenceApplicationMap;
 const events: StoredTelemetryEvent[] = [
   {
     ...base(0, '/study/dashboard'),
@@ -84,6 +115,25 @@ const events: StoredTelemetryEvent[] = [
   },
 ];
 
+const coverageBase = (
+  idOffset: number,
+  index: number,
+  sessionIndex: number,
+  participantIndex: number,
+) => ({
+  ...base(0, '/study/dashboard'),
+  eventId: id(idOffset + index),
+  sessionId: `session-coverage-${sessionIndex}`,
+  participantId: `participant-coverage-${participantIndex}`,
+  occurredAt: new Date(
+    Date.parse('2026-07-16T12:00:00.000Z') + index * 1_000,
+  ).toISOString(),
+  receivedAt: new Date(
+    Date.parse('2026-07-16T12:02:00.000Z') + index * 1_000,
+  ).toISOString(),
+  sequence: index,
+});
+
 describe('real telemetry evidence engine', () => {
   it('reconstructs one unambiguous successful task attempt', () => {
     const attempts = reconstructAttempts(events, '2026-07-16T12:02:00.000Z');
@@ -107,11 +157,13 @@ describe('real telemetry evidence engine', () => {
     const first = await buildEvidencePack(
       'projectflow-baseline-study',
       events,
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
     const second = await buildEvidencePack(
       'projectflow-baseline-study',
       events,
+      applicationMap,
       '2026-07-16T13:00:00.000Z',
     );
 
@@ -123,11 +175,11 @@ describe('real telemetry evidence engine', () => {
       attempts: 1,
     });
     expect(first.frictionSignals[0]).toMatchObject({
-      evidenceId: 'EV-001',
       ruleId: 'excess_path_length',
       taskId,
       affectedAttemptIds: [attemptId],
     });
+    expect(first.frictionSignals[0]?.evidenceId).toMatch(/^EV-[a-f0-9]{12}$/);
     expect(first.frictionSignals[0]?.supportingEventIds).toContain(id(1));
   });
 
@@ -147,10 +199,59 @@ describe('real telemetry evidence engine', () => {
     const pack = await buildEvidencePack(
       'projectflow-baseline-study',
       [...events, ...secondAttempt],
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
 
     expect(pack.tasks[0]?.medianDurationMs).toBe(9_001);
+  });
+
+  it('rejects a measurement window containing multiple application versions', async () => {
+    const mixedEvents = events.map((event, index) => ({
+      ...event,
+      appVersion: index === events.length - 1 ? 'bbbbbbbbbbbb' : 'aaaaaaaaaaaa',
+    }));
+
+    await expect(
+      buildEvidencePack(
+        'projectflow-baseline-study',
+        mixedEvents,
+        applicationMap,
+        '2026-07-16T12:02:00.000Z',
+        {
+          appVersion: 'bbbbbbbbbbbb',
+          measuredCommit: 'b'.repeat(40),
+          deploymentVerifiedAt: '2026-07-16T11:59:00.000Z',
+        },
+      ),
+    ).rejects.toMatchObject({
+      name: 'EvidenceVersionMismatchError',
+      appVersions: ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'],
+    });
+  });
+
+  it('retains the verified deployment boundary in evidence', async () => {
+    const versionedEvents = events.map((event) => ({
+      ...event,
+      appVersion: 'bbbbbbbbbbbb',
+    }));
+    const pack = await buildEvidencePack(
+      'projectflow-baseline-study',
+      versionedEvents,
+      applicationMap,
+      '2026-07-16T12:02:00.000Z',
+      {
+        appVersion: 'bbbbbbbbbbbb',
+        measuredCommit: 'b'.repeat(40),
+        deploymentVerifiedAt: '2026-07-16T11:59:00.000Z',
+      },
+    );
+
+    expect(pack.study).toMatchObject({
+      appVersion: 'bbbbbbbbbbbb',
+      measuredCommit: 'b'.repeat(40),
+      deploymentVerifiedAt: '2026-07-16T11:59:00.000Z',
+    });
   });
 
   it('turns derived pointer behavior into compact citable evidence', async () => {
@@ -219,10 +320,11 @@ describe('real telemetry evidence engine', () => {
     const pack = await buildEvidencePack(
       'projectflow-baseline-study',
       richEvents,
+      applicationMap,
       '2026-07-16T12:02:00.000Z',
     );
 
-    expect(pack.parserVersion).toBe('1.2.0');
+    expect(pack.parserVersion).toBe('1.3.0');
     expect(pack.quality).toMatchObject({
       strength: 'directional',
       sessionCount: 1,
@@ -241,7 +343,7 @@ describe('real telemetry evidence engine', () => {
       expect.arrayContaining([
         expect.objectContaining({
           ruleId: 'rage_click',
-          ruleVersion: '1.2.0',
+          ruleVersion: '1.3.0',
           support: expect.objectContaining({ events: 2, sessions: 1 }),
           supportingEventIds: [id(12), id(13)],
         }),
@@ -262,5 +364,235 @@ describe('real telemetry evidence engine', () => {
     expect(
       pack.frictionSignals.filter((signal) => signal.ruleId === 'rage_click'),
     ).toHaveLength(1);
+  });
+
+  it('groups recurring behavior by canonical context with stable bounded traces', async () => {
+    const recurringHovers = Array.from({ length: 15 }, (_, index) => ({
+      ...base(20 + index, '/study/projects/apollo/tasks'),
+      eventId: id(200 + index),
+      sessionId: `session-hover-${index % 5}`,
+      participantId: `participant-hover-${index % 3}`,
+      taskAttemptId: `attempt-hover-${index % 5}`,
+      taskId,
+      eventType: 'hover_ended' as const,
+      targetId: 'task-create-open',
+      properties: {
+        pointerType: 'mouse' as const,
+        durationMs: 900 + index,
+        clicked: false,
+        immediateExit: false,
+        hoverToClickMs: null,
+      },
+    })) satisfies StoredTelemetryEvent[];
+    const recurringDrags = Array.from({ length: 2 }, (_, index) => ({
+      ...base(40 + index, '/study/projects/apollo/tasks'),
+      eventId: id(240 + index),
+      sessionId: `session-drag-${index}`,
+      participantId: `participant-drag-${index}`,
+      taskAttemptId: `attempt-drag-${index}`,
+      taskId,
+      eventType: 'drag_attempted' as const,
+      targetId: 'task-card-apl-241',
+      properties: {
+        pointerType: 'mouse' as const,
+        draggable: false,
+        distancePx: 80 + index,
+      },
+    })) satisfies StoredTelemetryEvent[];
+    const distinctHoverContexts: StoredTelemetryEvent[] = [
+      {
+        ...recurringHovers[0]!,
+        eventId: id(250),
+        sequence: 35,
+        route: '/study/dashboard',
+      },
+      {
+        ...recurringHovers[0]!,
+        eventId: id(251),
+        sequence: 36,
+        targetId: 'task-search-open',
+      },
+      {
+        ...recurringHovers[0]!,
+        eventId: id(252),
+        sequence: 37,
+        route: '/study/reports',
+      },
+    ];
+    const studyEvents = [
+      ...recurringHovers,
+      ...recurringDrags,
+      ...distinctHoverContexts,
+    ];
+    const first = await buildEvidencePack(
+      'projectflow-baseline-study',
+      studyEvents,
+      applicationMap,
+      '2026-07-16T12:02:00.000Z',
+    );
+    const reordered = await buildEvidencePack(
+      'projectflow-baseline-study',
+      [...studyEvents].reverse(),
+      applicationMap,
+      '2026-07-16T12:02:00.000Z',
+    );
+    const hover = first.frictionSignals.find((signal) =>
+      signal.supportingEventIds.includes(id(200)),
+    );
+    const reorderedHover = reordered.frictionSignals.find((signal) =>
+      signal.supportingEventIds.includes(id(200)),
+    );
+
+    expect(
+      first.frictionSignals.filter(
+        (signal) => signal.ruleId === 'hover_hesitation',
+      ),
+    ).toHaveLength(4);
+    expect(hover).toMatchObject({
+      ruleId: 'hover_hesitation',
+      support: { events: 15, attempts: 5, sessions: 5, participants: 3 },
+    });
+    expect(hover?.supportingEventIds).toHaveLength(15);
+    expect(hover?.trace).toHaveLength(12);
+    expect(reorderedHover?.evidenceId).toBe(hover?.evidenceId);
+    expect(reorderedHover?.trace).toEqual(hover?.trace);
+    expect(
+      first.frictionSignals.find(
+        (signal) => signal.ruleId === 'drag_expectation',
+      )?.support,
+    ).toEqual({ events: 2, attempts: 2, sessions: 2, participants: 2 });
+
+    const withUnrelatedSignal = await buildEvidencePack(
+      'projectflow-baseline-study',
+      [
+        ...studyEvents,
+        {
+          ...base(10, '/study/dashboard'),
+          eventId: id(260),
+          eventType: 'viewport_zoom_changed',
+          properties: { fromScale: 1, toScale: 1.25 },
+        },
+      ],
+      applicationMap,
+      '2026-07-16T12:02:00.000Z',
+    );
+    expect(
+      withUnrelatedSignal.frictionSignals.find((signal) =>
+        signal.supportingEventIds.includes(id(200)),
+      )?.evidenceId,
+    ).toBe(hover?.evidenceId);
+  });
+
+  it('gates substantial quality on independent coverage dimensions', async () => {
+    const oneParticipantEvents: StoredTelemetryEvent[] = [
+      ...Array.from({ length: 100 }, (_, index) => ({
+        ...coverageBase(500, index, 0, 0),
+        eventType: 'page_view' as const,
+      })),
+      {
+        ...coverageBase(500, 100, 0, 0),
+        eventType: 'task_started',
+        taskAttemptId: 'attempt-coverage-one',
+        taskId: 'find-assigned-task',
+      },
+      {
+        ...coverageBase(500, 101, 0, 0),
+        eventType: 'task_completed',
+        taskAttemptId: 'attempt-coverage-one',
+        taskId: 'find-assigned-task',
+        durationMs: 1_000,
+        outcome: 'success',
+      },
+    ];
+    const oneParticipant = await buildEvidencePack(
+      'projectflow-baseline-study',
+      oneParticipantEvents,
+      applicationMap,
+      '2026-07-16T12:05:00.000Z',
+    );
+    expect(oneParticipant.quality).toMatchObject({
+      strength: 'directional',
+      dimensions: {
+        volume: { score: 100 },
+        diversity: { score: 33 },
+        completion: { score: 33 },
+      },
+    });
+    expect(oneParticipant.quality.limitations).toEqual(
+      expect.arrayContaining([
+        'Fewer than three independent sessions were observed.',
+        'Fewer than three anonymous participants were observed.',
+        'Fewer than three terminal task attempts were observed.',
+      ]),
+    );
+
+    const diverseButSparseEvents: StoredTelemetryEvent[] = Array.from(
+      { length: 6 },
+      (_, index) => ({
+        ...coverageBase(700, index, index, index),
+        eventType: 'page_view' as const,
+      }),
+    );
+    const diverseButSparse = await buildEvidencePack(
+      'projectflow-baseline-study',
+      diverseButSparseEvents,
+      applicationMap,
+      '2026-07-16T12:05:00.000Z',
+    );
+    expect(diverseButSparse.quality).toMatchObject({
+      strength: 'directional',
+      dimensions: {
+        volume: { score: 12 },
+        diversity: { score: 100 },
+        completion: { score: 0 },
+      },
+    });
+
+    const fullyCoveredEvents: StoredTelemetryEvent[] = [
+      ...Array.from({ length: 44 }, (_, index) => ({
+        ...coverageBase(800, index, index % 3, index % 3),
+        eventType: 'page_view' as const,
+      })),
+      ...Array.from({ length: 3 }, (_, attemptIndex) => [
+        {
+          ...coverageBase(
+            800,
+            44 + attemptIndex * 2,
+            attemptIndex,
+            attemptIndex,
+          ),
+          eventType: 'task_started' as const,
+          taskAttemptId: `attempt-coverage-${attemptIndex}`,
+          taskId: 'find-assigned-task',
+        },
+        {
+          ...coverageBase(
+            800,
+            45 + attemptIndex * 2,
+            attemptIndex,
+            attemptIndex,
+          ),
+          eventType: 'task_completed' as const,
+          taskAttemptId: `attempt-coverage-${attemptIndex}`,
+          taskId: 'find-assigned-task',
+          durationMs: 1_000,
+          outcome: 'success' as const,
+        },
+      ]).flat(),
+    ];
+    const fullyCovered = await buildEvidencePack(
+      'projectflow-baseline-study',
+      fullyCoveredEvents,
+      applicationMap,
+      '2026-07-16T12:05:00.000Z',
+    );
+    expect(fullyCovered.quality).toMatchObject({
+      strength: 'substantial',
+      dimensions: {
+        volume: { score: 100 },
+        diversity: { score: 100 },
+        completion: { score: 100 },
+      },
+    });
   });
 });

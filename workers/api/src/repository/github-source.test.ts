@@ -9,6 +9,23 @@ const targetConfig = {
   name: 'ProjectFlow',
   purpose: 'Task management',
   defaultBranch: 'main',
+  application: {
+    primaryUser: 'Knowledge worker',
+    domainEntities: ['project', 'task'],
+    primaryGoals: ['find assigned work'],
+    navigation: ['Dashboard', 'Projects'],
+    capabilities: ['project task search'],
+    interfaceInventory: [
+      {
+        area: 'projects',
+        purpose: 'Browse projects',
+        primaryActions: ['open project'],
+      },
+    ],
+    routes: ['/dashboard', '/projects'],
+    mutableAreas: ['navigation'],
+    protectedAreas: ['telemetry-history'],
+  },
   mutablePaths: ['apps/projectflow/src/**'],
   protectedPaths: ['.github/**'],
   contextPaths: ['AGENTS.md', 'apps/projectflow/src/App.tsx'],
@@ -42,6 +59,13 @@ describe('captureRepositorySnapshot', () => {
 
     expect(snapshot.context.baseSha).toBe(commitSha);
     expect(snapshot.context.sourceHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(snapshot.applicationMap).toMatchObject({
+      source: { repositorySha: commitSha },
+      activeGenome: {
+        version: commitSha.slice(0, 12),
+        navigation: ['Dashboard', 'Projects'],
+      },
+    });
     expect(snapshot.context.mutablePaths).toEqual(['apps/projectflow/src/**']);
     expect(snapshot.context.validationCommands).toEqual(['npm run verify']);
     expect(snapshot.context.productionUrl).toBe(
@@ -75,6 +99,34 @@ describe('captureRepositorySnapshot', () => {
 
     await expect(captureRepositorySnapshot({ fetch: fetcher })).rejects.toThrow(
       'GitHub commit lookup failed with 503',
+    );
+  });
+
+  it('derives a new application genome from an arbitrary mutated commit', async () => {
+    let activeSha = '3d4f9fa46b1d'.padEnd(40, '1');
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/commits/main')) {
+        return Response.json({ sha: activeSha });
+      }
+      if (url.endsWith(`/${activeSha}/darwin.target.json`)) {
+        return new Response(JSON.stringify(targetConfig));
+      }
+      if (url.includes(`/${activeSha}/`)) {
+        return new Response(`source at ${activeSha}`);
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const before = await captureRepositorySnapshot({ fetch: fetcher });
+    activeSha = '8a21c0de74f2'.padEnd(40, '2');
+    const after = await captureRepositorySnapshot({ fetch: fetcher });
+
+    expect(before.applicationMap.activeGenome.version).toBe('3d4f9fa46b1d');
+    expect(after.applicationMap.activeGenome.version).toBe('8a21c0de74f2');
+    expect(after.applicationMap.source.repositorySha).toBe(activeSha);
+    expect(after.applicationMap.source.sourceHash).not.toBe(
+      before.applicationMap.source.sourceHash,
     );
   });
 });

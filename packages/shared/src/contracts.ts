@@ -44,7 +44,7 @@ export const TelemetryEventSchema = z.object({
   durationMs: z.number().int().nonnegative().optional(),
 });
 
-const StudyIdentifierSchema = z
+export const StudyIdentifierSchema = z
   .string()
   .min(1)
   .max(128)
@@ -326,6 +326,69 @@ export const TelemetryReceiptSchema = z.object({
   accepted: z.number().int().nonnegative(),
   rejected: z.number().int().nonnegative(),
   duplicates: z.number().int().nonnegative().default(0),
+  sequenceConflicts: z.number().int().nonnegative().default(0),
+});
+
+export const OperationalTelemetryMetricsSchema = z.object({
+  updatedAt: z.string().datetime().nullable(),
+  telemetryRequests: z.number().int().nonnegative(),
+  acceptedEvents: z.number().int().nonnegative(),
+  rejectedEvents: z.number().int().nonnegative(),
+  duplicateEvents: z.number().int().nonnegative(),
+  authenticationRejected: z.number().int().nonnegative(),
+  replayRejected: z.number().int().nonnegative(),
+  contextRejected: z.number().int().nonnegative(),
+  rateLimited: z.number().int().nonnegative(),
+});
+
+export const RetentionPolicySchema = z.object({
+  version: z.literal('1.0.0'),
+  rawTelemetryDays: z.literal(30),
+  workspaceDays: z.literal(30),
+  derivedEvidenceDays: z.literal(90),
+  executionArtifactDays: z.literal(30),
+  fossilRecordDays: z.literal(365),
+  operationalAuditDays: z.literal(90),
+  maxEventsPerStudy: z.number().int().positive(),
+  maxEventsPerTarget: z.number().int().positive(),
+});
+
+export const RetentionHealthSchema = z.object({
+  status: z.enum(['healthy', 'attention']),
+  policy: RetentionPolicySchema,
+  eventCount: z.number().int().nonnegative(),
+  studyCount: z.number().int().nonnegative(),
+  largestStudyEventCount: z.number().int().nonnegative(),
+  expiredRecordCount: z.number().int().nonnegative(),
+  lastSweepAt: z.string().datetime().nullable(),
+});
+
+export const RetentionDeletedCountsSchema = z.object({
+  telemetryEvents: z.number().int().nonnegative(),
+  workspaces: z.number().int().nonnegative(),
+  evidencePacks: z.number().int().nonnegative(),
+  analyses: z.number().int().nonnegative(),
+  manifests: z.number().int().nonnegative(),
+  executions: z.number().int().nonnegative(),
+  callbackArtifacts: z.number().int().nonnegative(),
+  validations: z.number().int().nonnegative(),
+});
+
+export const RetentionSweepResultSchema = z.object({
+  status: z.literal('completed'),
+  policyVersion: z.literal('1.0.0'),
+  completedAt: z.string().datetime(),
+  compactedExecutions: z.number().int().nonnegative(),
+  deleted: RetentionDeletedCountsSchema,
+});
+
+export const RetentionDeletionResponseSchema = z.object({
+  status: z.literal('deleted'),
+  scope: z.enum(['participant', 'study', 'execution']),
+  studyId: StudyIdentifierSchema.optional(),
+  participantId: StudyIdentifierSchema.optional(),
+  executionId: StudyIdentifierSchema.optional(),
+  deleted: RetentionDeletedCountsSchema,
 });
 
 const storedAt = { receivedAt: z.string().datetime() };
@@ -354,11 +417,23 @@ export const StoredTelemetryEventSchema = z.discriminatedUnion('eventType', [
 export const StudyEventsResponseSchema = z.object({
   studyId: StudyIdentifierSchema,
   events: z.array(StoredTelemetryEventSchema),
+  cursor: z.string().min(1).max(500).nullable(),
+  hasMore: z.boolean(),
   count: z.number().int().nonnegative(),
   sessionCounts: z.record(z.string(), z.number().int().nonnegative()),
   participantCount: z.number().int().nonnegative(),
   behaviorSignalCount: z.number().int().nonnegative(),
 });
+
+export const StudyTelemetrySummarySchema = z
+  .object({
+    studyId: StudyIdentifierSchema,
+    count: z.number().int().nonnegative(),
+    sessionCount: z.number().int().nonnegative(),
+    participantCount: z.number().int().nonnegative(),
+    behaviorSignalCount: z.number().int().nonnegative(),
+  })
+  .strict();
 
 export const StudySessionResponseSchema = z.object({
   studyId: StudyIdentifierSchema,
@@ -477,13 +552,43 @@ export const EvidenceQualitySchema = z.object({
   sessionCount: z.number().int().nonnegative(),
   participantCount: z.number().int().nonnegative(),
   completedAttemptCount: z.number().int().nonnegative(),
+  terminalAttemptCount: z.number().int().nonnegative(),
+  dimensions: z.object({
+    volume: z.object({
+      score: z.number().int().min(0).max(100),
+      observedEvents: z.number().int().nonnegative(),
+      minimumEvents: z.number().int().positive(),
+    }),
+    diversity: z.object({
+      score: z.number().int().min(0).max(100),
+      observedParticipants: z.number().int().nonnegative(),
+      minimumParticipants: z.number().int().positive(),
+      observedSessions: z.number().int().nonnegative(),
+      minimumSessions: z.number().int().positive(),
+    }),
+    completion: z.object({
+      score: z.number().int().min(0).max(100),
+      terminalAttempts: z.number().int().nonnegative(),
+      minimumTerminalAttempts: z.number().int().positive(),
+    }),
+    recency: z.object({
+      score: z.number().int().min(0).max(100),
+      latestEventAt: z.string().datetime(),
+      maximumAgeDays: z.number().int().positive(),
+    }),
+    weakestScore: z.number().int().min(0).max(100),
+  }),
   limitations: z.array(z.string().min(1)),
 });
 
+export const EvidenceSignalIdentifierSchema = z
+  .string()
+  .regex(/^EV-(?:\d{3}|[a-f0-9]{12})$/);
+
 export const EvidenceSignalSchema = z.object({
-  evidenceId: z.string().regex(/^EV-\d{3}$/),
+  evidenceId: EvidenceSignalIdentifierSchema,
   ruleId: FrictionRuleSchema,
-  ruleVersion: z.enum(['1.0.0', '1.1.0', '1.2.0']),
+  ruleVersion: z.enum(['1.0.0', '1.1.0', '1.2.0', '1.3.0']),
   severity: z.enum(['low', 'medium', 'high']),
   taskId: StudyIdentifierSchema.optional(),
   summary: z.string().min(1),
@@ -514,15 +619,52 @@ export const EvidenceTaskSummarySchema = z.object({
   ),
 });
 
+export const EvidenceApplicationMapSchema = z.object({
+  source: z.object({
+    repositorySha: z.string().regex(/^[a-f0-9]{40}$/),
+    sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  product: z.object({
+    name: z.literal('ProjectFlow'),
+    purpose: z.string().min(1),
+    primaryUser: z.string().min(1),
+    domainEntities: z.array(z.string().min(1)).min(1),
+    primaryGoals: z.array(z.string().min(1)).min(1),
+  }),
+  activeGenome: z.object({
+    version: z.string().min(1),
+    navigation: z.array(z.string().min(1)).min(1),
+    capabilities: z.array(z.string().min(1)).min(1),
+  }),
+  interfaceInventory: z
+    .array(
+      z.object({
+        area: z.string().min(1),
+        purpose: z.string().min(1),
+        primaryActions: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1),
+  routes: z.array(StudyRouteSchema).min(1),
+  mutableAreas: z.array(z.string().min(1)),
+  protectedAreas: z.array(z.string().min(1)),
+});
+
 export const EvidencePackSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   generatedAt: z.string().datetime(),
-  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0']),
+  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0', '1.3.0']),
   evidenceClass: EvidenceClassSchema,
   study: z.object({
     studyId: StudyIdentifierSchema,
     appVersion: z.string().min(1),
+    measuredCommit: z
+      .string()
+      .regex(/^[a-f0-9]{40}$/)
+      .nullable()
+      .default(null),
+    deploymentVerifiedAt: z.string().datetime().nullable().default(null),
     sourceEventCount: z.number().int().nonnegative(),
     participants: z.number().int().nonnegative(),
     sessions: z.number().int().nonnegative(),
@@ -533,40 +675,14 @@ export const EvidencePackSchema = z.object({
   quality: EvidenceQualitySchema,
   journeys: z.array(EvidenceJourneySchema).min(1).max(50),
   frictionSignals: z.array(EvidenceSignalSchema),
-  applicationMap: z.object({
-    product: z.object({
-      name: z.literal('ProjectFlow'),
-      purpose: z.string().min(1),
-      primaryUser: z.string().min(1),
-      domainEntities: z.array(z.string().min(1)).min(1),
-      primaryGoals: z.array(z.string().min(1)).min(1),
-    }),
-    activeVariant: z.object({
-      name: OrganismVariantSchema,
-      version: z.string().min(1),
-      navigation: z.array(z.string().min(1)).min(1),
-      capabilities: z.array(z.string().min(1)).min(1),
-    }),
-    interfaceInventory: z
-      .array(
-        z.object({
-          area: z.string().min(1),
-          purpose: z.string().min(1),
-          primaryActions: z.array(z.string().min(1)).min(1),
-        }),
-      )
-      .min(1),
-    routes: z.array(StudyRouteSchema),
-    mutableAreas: z.array(z.string().min(1)),
-    protectedAreas: z.array(z.string().min(1)),
-  }),
+  applicationMap: EvidenceApplicationMapSchema,
 });
 
 export const EvidenceMutationCandidateSchema = z.object({
   id: StudyIdentifierSchema,
   title: z.string().min(1),
   problem: z.string().min(1),
-  evidenceIds: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  evidenceIds: z.array(EvidenceSignalIdentifierSchema).min(1),
   pressureClusterIds: z.array(StudyIdentifierSchema).min(1),
   hypothesis: z.string().min(1),
   change: z.string().min(1),
@@ -599,7 +715,7 @@ export const EvidencePressureClusterSchema = z.object({
   id: StudyIdentifierSchema,
   title: z.string().min(1),
   interpretation: z.string().min(1),
-  evidenceIds: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  evidenceIds: z.array(EvidenceSignalIdentifierSchema).min(1),
   affectedTargets: z.array(SemanticTargetSchema),
   userConsequence: z.string().min(1),
   competingExplanations: z.array(z.string().min(1)).min(1),
@@ -653,6 +769,17 @@ export const TargetApplicationConnectionSchema = z.object({
     defaultBranch: StudyIdentifierSchema,
   }),
   repository: RepositoryContextSchema,
+  ingestion: z
+    .object({
+      credentialId: StudyIdentifierSchema,
+      targetId: SemanticTargetSchema,
+      studyIds: z.array(StudyIdentifierSchema).min(1),
+      allowedOrigins: z.array(z.string().url()).min(1),
+      signatureAlgorithm: z.literal('hmac-sha256'),
+      issuedAt: z.string().datetime(),
+    })
+    .optional(),
+  applicationMap: EvidenceApplicationMapSchema,
   checks: z.array(TargetConnectionCheckSchema).length(4),
 });
 
@@ -702,7 +829,7 @@ export const CodexImplementationManifestSchema = z.object({
   repository: RepositoryContextSchema.optional(),
   createdAt: z.string().datetime(),
   brief: z.string().min(1),
-  evidenceCitations: z.array(z.string().regex(/^EV-\d{3}$/)).min(1),
+  evidenceCitations: z.array(EvidenceSignalIdentifierSchema).min(1),
   allowedPaths: z.array(z.string().min(1)).min(1),
   protectedPaths: z.array(z.string().min(1)).min(1),
   acceptanceCriteria: z.array(z.string().min(1)).min(1),
@@ -734,10 +861,12 @@ export const SimulationRunSchema = z.object({
   completedAt: z.string().datetime().optional(),
 });
 
-export const SimulationRequestSchema = z.object({
-  seed: z.number().int().default(1859),
-  variant: OrganismVariantSchema.default('baseline'),
-});
+export const SimulationRequestSchema = z
+  .object({
+    seed: z.number().int().default(1859),
+    variant: OrganismVariantSchema.default('baseline'),
+  })
+  .strict();
 
 export const SimulationMetricsSchema = z.object({
   sessions: z.number().int().positive(),
@@ -784,11 +913,6 @@ export const SimulationCreateResponseSchema = z.object({
   summary: SimulationSummarySchema,
 });
 
-export const DemoResetResponseSchema = z.object({
-  status: z.literal('reset'),
-  repositoryResetDispatched: z.boolean(),
-});
-
 export const RepositoryExecutionStatusSchema = z.enum([
   'prepared',
   'queued',
@@ -798,8 +922,70 @@ export const RepositoryExecutionStatusSchema = z.enum([
   'pull_request_open',
   'preview_ready',
   'releasing',
+  'deployment_verifying',
   'released',
 ]);
+
+export const RepositoryDeploymentVerificationSchema = z.object({
+  status: z.enum(['verifying', 'verified']),
+  expectedCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  expectedAppVersion: z.string().min(1).max(32),
+  observedCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  observedAppVersion: z.string().min(1).max(32).nullable(),
+  attempts: z.number().int().nonnegative(),
+  verifiedAt: z.string().datetime().nullable(),
+  lastError: z.string().min(1).max(500).nullable(),
+});
+
+export const DemoResetStatusSchema = z.enum([
+  'queued',
+  'running',
+  'validating',
+  'deploying',
+  'complete',
+  'failed',
+]);
+
+export const DemoResetExecutionSchema = z.object({
+  resetId: StudyIdentifierSchema,
+  status: DemoResetStatusSchema,
+  repository: z.object({
+    fullName: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+    branch: z.string().min(1).max(200),
+    studyUrl: z.string().url(),
+  }),
+  baselineTag: z.string().min(1).max(100),
+  policyHash: z.string().regex(/^[a-f0-9]{64}$/),
+  repositoryResetDispatched: z.boolean(),
+  workflowRunId: z.number().int().positive().nullable(),
+  workflowUrl: z.string().url().nullable(),
+  baselineCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  deploymentVerification:
+    RepositoryDeploymentVerificationSchema.nullable().default(null),
+  error: z.string().min(1).max(4_000).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+});
+
+export const DemoResetCallbackSchema = DemoResetExecutionSchema.pick({
+  workflowRunId: true,
+  workflowUrl: true,
+  baselineCommit: true,
+  error: true,
+})
+  .partial()
+  .extend({
+    status: z.enum(['running', 'validating', 'deploying', 'failed']),
+  });
+
+export const DemoResetResponseSchema = DemoResetExecutionSchema;
 
 export const RepositoryExecutionCheckSchema = z.object({
   name: z.string().min(1).max(200),
@@ -844,6 +1030,7 @@ export const RepositoryRollbackSchema = z.object({
 
 export const RepositoryMutationExecutionSchema = z.object({
   executionId: StudyIdentifierSchema,
+  revision: z.number().int().nonnegative().default(0),
   manifestId: StudyIdentifierSchema,
   analysisId: StudyIdentifierSchema,
   repository: RepositoryContextSchema,
@@ -869,6 +1056,8 @@ export const RepositoryMutationExecutionSchema = z.object({
     cachedInputTokens: z.number().int().nonnegative().nullable(),
     outputTokens: z.number().int().nonnegative().nullable(),
   }),
+  deploymentVerification:
+    RepositoryDeploymentVerificationSchema.nullable().default(null),
   rollback: RepositoryRollbackSchema.nullable().default(null),
   error: z.string().max(4_000).nullable(),
   createdAt: z.string().datetime(),
@@ -880,11 +1069,135 @@ export const EvolutionCycleSchema = z.object({
   studyId: StudyIdentifierSchema,
   startedAt: z.string().datetime().nullable(),
   genomeEvolutionCount: z.number().int().nonnegative(),
+  measuredCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable()
+    .default(null),
+  appVersion: z.string().min(1).max(32).nullable().default(null),
+  deploymentVerifiedAt: z.string().datetime().nullable().default(null),
+});
+
+export const CursorPageSchema = z.object({
+  limit: z.number().int().min(1).max(25),
+  nextCursor: z.string().min(1).max(500).nullable(),
+});
+
+export const RepositoryRollbackSummarySchema = RepositoryRollbackSchema.pick({
+  rollbackId: true,
+  status: true,
+  revertedSha: true,
+  headSha: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+}).extend({
+  changedFileCount: z.number().int().nonnegative(),
+  checkSummary: z.object({
+    total: z.number().int().nonnegative(),
+    passed: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  hasPatch: z.boolean(),
+  hasError: z.boolean(),
+});
+
+export const RepositoryExecutionSummarySchema =
+  RepositoryMutationExecutionSchema.pick({
+    executionId: true,
+    manifestId: true,
+    analysisId: true,
+    status: true,
+    branch: true,
+    baseSha: true,
+    headSha: true,
+    createdAt: true,
+    updatedAt: true,
+    completedAt: true,
+  }).extend({
+    repository: RepositoryContextSchema.pick({
+      fullName: true,
+      url: true,
+      branch: true,
+      baseSha: true,
+      sourceHash: true,
+    }),
+    changedFileCount: z.number().int().nonnegative(),
+    checkSummary: z.object({
+      total: z.number().int().nonnegative(),
+      passed: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+    }),
+    hasPatch: z.boolean(),
+    hasCodexOutput: z.boolean(),
+    hasError: z.boolean(),
+    rollback: RepositoryRollbackSummarySchema.nullable(),
+  });
+
+export const FitnessFormulaVersionSchema = z.literal('1.0.0');
+
+export const FitnessCohortSchema = z.object({
+  evidenceId: StudyIdentifierSchema,
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  appVersion: z.string().min(1).max(32),
+  measuredCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  participants: z.number().int().nonnegative(),
+  sessions: z.number().int().nonnegative(),
+  terminalAttempts: z.number().int().nonnegative(),
+  taskIds: z.array(StudyIdentifierSchema),
+});
+
+export const FitnessComponentSchema = z.object({
+  metric: z.enum([
+    'task_completion',
+    'navigation_efficiency',
+    'error_rate',
+    'feature_discovery',
+    'median_duration',
+  ]),
+  weight: z.number().int().positive().max(100),
+  baselineScore: z.number().int().min(0).max(100),
+  evolvedScore: z.number().int().min(0).max(100),
+  delta: z.number().int().min(-100).max(100),
+});
+
+export const FitnessOutcomeSchema = z.object({
+  outcomeId: StudyIdentifierSchema,
+  executionId: StudyIdentifierSchema,
+  studyId: StudyIdentifierSchema,
+  formulaVersion: FitnessFormulaVersionSchema,
+  status: z.enum(['measured', 'insufficient', 'rolled_back']),
+  generatedAt: z.string().datetime(),
+  invalidatedAt: z.string().datetime().nullable(),
+  baseline: FitnessCohortSchema,
+  evolved: FitnessCohortSchema,
+  minimumSample: z.object({
+    terminalAttempts: z.number().int().positive(),
+    sessions: z.number().int().positive(),
+    participants: z.number().int().positive(),
+    tasks: z.number().int().positive(),
+    matchingTaskSet: z.literal(true),
+  }),
+  components: z.array(FitnessComponentSchema).max(5),
+  baselineScore: z.number().int().min(0).max(100).nullable(),
+  evolvedScore: z.number().int().min(0).max(100).nullable(),
+  delta: z.number().int().min(-100).max(100).nullable(),
+  limitations: z.array(z.string().min(1).max(500)).max(30),
 });
 
 export const GenomeHistoryResponseSchema = z.object({
   evolutionCycle: EvolutionCycleSchema,
-  executions: z.array(RepositoryMutationExecutionSchema),
+  executions: z.array(RepositoryExecutionSummarySchema).max(25),
+  fitnessOutcomes: z.array(FitnessOutcomeSchema).default([]),
+  page: CursorPageSchema,
+});
+
+export const GenomeExecutionDetailResponseSchema = z.object({
+  execution: RepositoryMutationExecutionSchema,
+  summary: RepositoryExecutionSummarySchema,
 });
 
 export const ObservationArchiveSchema = z.object({
@@ -900,8 +1213,50 @@ export const ObservationArchiveSchema = z.object({
   }),
 });
 
+export const ObservationArchiveSummarySchema = z.object({
+  archiveId: StudyIdentifierSchema,
+  evidence: EvidencePackSchema.pick({
+    evidenceId: true,
+    evidenceHash: true,
+    generatedAt: true,
+    evidenceClass: true,
+    study: true,
+  }).extend({
+    quality: EvidenceQualitySchema.pick({ strength: true, score: true }),
+    signalCount: z.number().int().nonnegative(),
+    fitness: z.object({
+      terminalAttemptCount: z.number().int().nonnegative(),
+      completedAttemptCount: z.number().int().nonnegative(),
+      medianInteractions: z.number().nonnegative().nullable(),
+    }),
+  }),
+  analysis: EvidenceAnalysisSchema.pick({
+    analysisId: true,
+    model: true,
+    createdAt: true,
+  }).extend({
+    selectedMutation: EvidenceMutationCandidateSchema.pick({
+      id: true,
+      title: true,
+    }),
+  }),
+  execution: RepositoryMutationExecutionSchema.pick({
+    executionId: true,
+    manifestId: true,
+    status: true,
+    createdAt: true,
+    completedAt: true,
+  }),
+});
+
 export const ObservationArchivesResponseSchema = z.object({
-  archives: z.array(ObservationArchiveSchema),
+  archives: z.array(ObservationArchiveSummarySchema).max(25),
+  page: CursorPageSchema,
+});
+
+export const ObservationArchiveDetailResponseSchema = z.object({
+  archive: ObservationArchiveSchema,
+  summary: ObservationArchiveSummarySchema,
 });
 
 export const RepositoryExecutionCallbackSchema =
@@ -917,6 +1272,7 @@ export const RepositoryExecutionCallbackSchema =
     changedFiles: true,
     checks: true,
     codex: true,
+    deploymentVerification: true,
     error: true,
     completedAt: true,
   })
@@ -940,10 +1296,70 @@ export const RepositoryRollbackCallbackSchema = RepositoryRollbackSchema.pick({
   .partial()
   .extend({ status: RepositoryRollbackStatusSchema });
 
+export const OperationalProviderSchema = z.enum([
+  'd1',
+  'openai',
+  'github',
+  'target',
+]);
+
+export const OperationalOutcomeSchema = z.enum(['success', 'failure']);
+
+export const OperationalEventSchema = z.object({
+  eventId: z.string().uuid(),
+  kind: z.enum(['audit', 'metric']),
+  requestId: z.string().regex(/^[A-Za-z0-9._:-]{1,80}$/),
+  occurredAt: z.string().datetime(),
+  actor: z.enum([
+    'operator',
+    'viewer',
+    'local-development',
+    'projectflow',
+    'repository-callback',
+    'anonymous',
+    'system',
+  ]),
+  action: z.string().min(1).max(120),
+  target: z.string().min(1).max(240),
+  outcome: OperationalOutcomeSchema,
+  beforeState: z.string().min(1).max(120).nullable(),
+  afterState: z.string().min(1).max(120).nullable(),
+  provider: OperationalProviderSchema.nullable(),
+  operation: z.string().min(1).max(120).nullable(),
+  durationMs: z.number().int().nonnegative(),
+  errorCode: z.string().min(1).max(120).nullable(),
+});
+
+export const OperationalMetricSummarySchema = z.object({
+  provider: OperationalProviderSchema,
+  operation: z.string().min(1).max(120),
+  count: z.number().int().nonnegative(),
+  failureCount: z.number().int().nonnegative(),
+  averageDurationMs: z.number().int().nonnegative(),
+  maximumDurationMs: z.number().int().nonnegative(),
+});
+
+export const DiagnosticsResponseSchema = z.object({
+  requestId: z.string().regex(/^[A-Za-z0-9._:-]{1,80}$/),
+  generatedAt: z.string().datetime(),
+  retentionDays: z.literal(30),
+  events: z.array(OperationalEventSchema).max(100),
+  metrics: z.array(OperationalMetricSummarySchema).max(100),
+});
+
 export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
   service: z.literal('darwin-api'),
-  version: z.string().min(1),
+  version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+  commitSha: z.union([
+    z
+      .string()
+      .length(40)
+      .regex(/^[a-f0-9]+$/),
+    z.literal('local'),
+  ]),
+  buildId: z.string().min(1),
+  retention: RetentionHealthSchema,
   analysis: z.object({
     mode: z.literal('live'),
     model: z.string().min(1),
@@ -962,8 +1378,21 @@ export type ViewportClass = z.infer<typeof ViewportClassSchema>;
 export type StudyTelemetryEvent = z.infer<typeof StudyTelemetryEventSchema>;
 export type TelemetryBatch = z.infer<typeof TelemetryBatchSchema>;
 export type TelemetryReceipt = z.infer<typeof TelemetryReceiptSchema>;
+export type OperationalTelemetryMetrics = z.infer<
+  typeof OperationalTelemetryMetricsSchema
+>;
+export type RetentionPolicy = z.infer<typeof RetentionPolicySchema>;
+export type RetentionHealth = z.infer<typeof RetentionHealthSchema>;
+export type RetentionDeletedCounts = z.infer<
+  typeof RetentionDeletedCountsSchema
+>;
+export type RetentionSweepResult = z.infer<typeof RetentionSweepResultSchema>;
+export type RetentionDeletionResponse = z.infer<
+  typeof RetentionDeletionResponseSchema
+>;
 export type StoredTelemetryEvent = z.infer<typeof StoredTelemetryEventSchema>;
 export type StudyEventsResponse = z.infer<typeof StudyEventsResponseSchema>;
+export type StudyTelemetrySummary = z.infer<typeof StudyTelemetrySummarySchema>;
 export type StudySessionResponse = z.infer<typeof StudySessionResponseSchema>;
 export type ProjectFlowProject = z.infer<typeof ProjectFlowProjectSchema>;
 export type ProjectFlowTask = z.infer<typeof ProjectFlowTaskSchema>;
@@ -976,6 +1405,9 @@ export type TaskAttempt = z.infer<typeof TaskAttemptSchema>;
 export type FrictionRule = z.infer<typeof FrictionRuleSchema>;
 export type EvidenceTraceEvent = z.infer<typeof EvidenceTraceEventSchema>;
 export type EvidenceSignal = z.infer<typeof EvidenceSignalSchema>;
+export type EvidenceApplicationMap = z.infer<
+  typeof EvidenceApplicationMapSchema
+>;
 export type EvidenceTaskSummary = z.infer<typeof EvidenceTaskSummarySchema>;
 export type EvidencePack = z.infer<typeof EvidencePackSchema>;
 export type EvidenceMutationCandidate = z.infer<
@@ -994,8 +1426,14 @@ export type CodexImplementationManifest = z.infer<
 >;
 export type CodexManifestRequest = z.infer<typeof CodexManifestRequestSchema>;
 export type EvolutionCycle = z.infer<typeof EvolutionCycleSchema>;
+export type FitnessCohort = z.infer<typeof FitnessCohortSchema>;
+export type FitnessComponent = z.infer<typeof FitnessComponentSchema>;
+export type FitnessOutcome = z.infer<typeof FitnessOutcomeSchema>;
 export type GenomeHistoryResponse = z.infer<typeof GenomeHistoryResponseSchema>;
 export type ObservationArchive = z.infer<typeof ObservationArchiveSchema>;
+export type ObservationArchiveSummary = z.infer<
+  typeof ObservationArchiveSummarySchema
+>;
 export type ObservationArchivesResponse = z.infer<
   typeof ObservationArchivesResponseSchema
 >;
@@ -1009,6 +1447,9 @@ export type SimulationCreateResponse = z.infer<
   typeof SimulationCreateResponseSchema
 >;
 export type DemoResetResponse = z.infer<typeof DemoResetResponseSchema>;
+export type DemoResetExecution = z.infer<typeof DemoResetExecutionSchema>;
+export type DemoResetStatus = z.infer<typeof DemoResetStatusSchema>;
+export type DemoResetCallback = z.infer<typeof DemoResetCallbackSchema>;
 export type RepositoryExecutionStatus = z.infer<
   typeof RepositoryExecutionStatusSchema
 >;
@@ -1017,6 +1458,12 @@ export type RepositoryExecutionCheck = z.infer<
 >;
 export type RepositoryMutationExecution = z.infer<
   typeof RepositoryMutationExecutionSchema
+>;
+export type RepositoryExecutionSummary = z.infer<
+  typeof RepositoryExecutionSummarySchema
+>;
+export type RepositoryDeploymentVerification = z.infer<
+  typeof RepositoryDeploymentVerificationSchema
 >;
 export type RepositoryExecutionCallback = z.infer<
   typeof RepositoryExecutionCallbackSchema
@@ -1028,4 +1475,11 @@ export type RepositoryRollback = z.infer<typeof RepositoryRollbackSchema>;
 export type RepositoryRollbackCallback = z.infer<
   typeof RepositoryRollbackCallbackSchema
 >;
+export type OperationalProvider = z.infer<typeof OperationalProviderSchema>;
+export type OperationalOutcome = z.infer<typeof OperationalOutcomeSchema>;
+export type OperationalEvent = z.infer<typeof OperationalEventSchema>;
+export type OperationalMetricSummary = z.infer<
+  typeof OperationalMetricSummarySchema
+>;
+export type DiagnosticsResponse = z.infer<typeof DiagnosticsResponseSchema>;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;

@@ -2,12 +2,12 @@
 
 ## Workspaces
 
-| Workspace | Purpose |
-| --- | --- |
-| `@darwin/web` | React control room |
-| `@darwin/api` | Worker API, evidence, reasoning, execution |
-| `@darwin/shared` | Zod schemas and types |
-| `@darwin/telemetry-client` | browser instrumentation |
+| Workspace                  | Purpose                                    |
+| -------------------------- | ------------------------------------------ |
+| `@darwin/web`              | React control room                         |
+| `@darwin/api`              | Worker API, evidence, reasoning, execution |
+| `@darwin/shared`           | Zod schemas and types                      |
+| `@darwin/telemetry-client` | browser instrumentation                    |
 
 ## Common commands
 
@@ -16,8 +16,10 @@ npm install
 npm run dev
 npm run lint
 npm run format:check
+npm run docs:check
 npm run typecheck
 npm run test
+npm run test:e2e
 npm run build
 npm run simulate -- --seed=1859 --variant=baseline
 npm run smoke:production
@@ -51,7 +53,13 @@ Testing Library renders control-room states with mocked API responses and verifi
 
 ### Browser flow
 
-Playwright is installed but the complete browser suite is still tracked in issue [#23](https://github.com/sjohnston1972/darwin/issues/23).
+Playwright runs the real Darwin UI, local Worker, isolated local D1 database, and standalone ProjectFlow target. The suite covers target connection, popup study launch, real semantic telemetry arrival, deterministic evidence, a schema-validated GPT fixture, mutation multi-selection, manifest execution, repository polling, checks, release, Genome archival, and controlled rollback. It also checks every workspace at desktop and 390px, viewport-clamped tooltips, and keyboard navigation.
+
+Only the external OpenAI and GitHub network boundaries are deterministic fixtures. Fixture mode is opt-in through `workers/api/wrangler.e2e.toml` and is refused for non-localhost Worker requests. ProjectFlow defaults to `../projectflow`; set `PROJECTFLOW_E2E_DIR` to another checkout directory when needed.
+
+Pull-request CI runs the `@smoke` cross-window path. The deployment workflow runs the complete browser suite before any production deployment.
+
+Install Chromium once on a development machine with `npx playwright install chromium` before the first browser-suite run.
 
 ## Reasoning context changes
 
@@ -63,6 +71,17 @@ npm run context:check
 ```
 
 Review the generated diff. Increment prompt/context versions when cache semantics change.
+
+## API route and documentation changes
+
+The Worker reads route authorization metadata from `workers/api/src/api-route-contract.ts`. After changing a route:
+
+```powershell
+npm run docs:generate
+npm run docs:check
+```
+
+Commit `docs/generated/API_ROUTES.md` with the contract change. Follow the [documentation ownership and freshness checklist](https://github.com/sjohnston1972/darwin/blob/main/docs/DOCUMENTATION.md) for release changes.
 
 ## Schema changes
 
@@ -85,14 +104,7 @@ Review the generated diff. Increment prompt/context versions when cache semantic
 
 ## Current quality baseline
 
-At the July 2026 audit commit:
-
-- lint passed;
-- TypeScript/context check passed;
-- 52 unit/component tests passed;
-- production build passed;
-- `npm audit` reported zero known vulnerabilities;
-- format check failed in three API files, tracked in issue [#24](https://github.com/sjohnston1972/darwin/issues/24).
+Treat command output from the current commit as the quality record; do not preserve stale test counts or resolved issue claims in this page. Pull-request CI runs formatting, lint, generated-context and route-reference checks, TypeScript, tests, build, dependency review, and CodeQL.
 
 ## Contribution flow
 
@@ -103,4 +115,4 @@ At the July 2026 audit commit:
 5. Do not deploy from a feature branch.
 6. Use the manual deployment workflow only after review.
 
-Automated pull-request CI/security checks are tracked in issue [#22](https://github.com/sjohnston1972/darwin/issues/22).
+The repository workflow is the canonical source for current CI/security checks.

@@ -1,17 +1,26 @@
 import {
+  DiagnosticsResponseSchema,
   HealthResponseSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
+  type DiagnosticsResponse,
+  type DemoResetStatus,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type EvidencePack,
+  type EvidenceSignal,
+  type FitnessOutcome,
   type ObservationArchive,
+  type ObservationArchiveSummary,
   type RepositoryMutationExecution,
+  type RepositoryExecutionSummary,
   type RepositoryRollback,
+  type RetentionHealth,
   type StoredTelemetryEvent,
   type TargetApplicationConnection,
   type TargetConnectionRequest,
 } from '@darwin/shared';
+import rootPackage from '../../../package.json';
 import {
   Activity,
   AlertTriangle,
@@ -27,6 +36,7 @@ import {
   Code2,
   Database,
   Dna,
+  Download,
   FileCheck2,
   ExternalLink,
   FlaskConical,
@@ -40,6 +50,7 @@ import {
   Network,
   Link2,
   Radar,
+  RefreshCw,
   Rocket,
   RotateCcw,
   Server,
@@ -52,6 +63,7 @@ import {
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -64,13 +76,36 @@ import {
   type LiveTelemetryState,
 } from './telemetry/useLiveTelemetry';
 import { apiFetch, getOperatorToken, setOperatorToken } from './api';
+import { DarwinLabView } from './LabView';
 
 type HealthState = 'checking' | 'online' | 'offline';
 type Theme = 'dark' | 'light';
+type DashboardCapability =
+  | 'observe'
+  | 'inspect_evidence'
+  | 'reason'
+  | 'execute'
+  | 'release'
+  | 'reset'
+  | 'connect'
+  | 'simulate';
+
+const operatorCapabilities: DashboardCapability[] = [
+  'observe',
+  'inspect_evidence',
+  'reason',
+  'execute',
+  'release',
+  'reset',
+  'connect',
+  'simulate',
+];
 
 interface ApiHealthState {
   status: HealthState;
   version: string | null;
+  commitSha: string | null;
+  retention: RetentionHealth | null;
   analysis: {
     mode: 'live';
     model: string;
@@ -92,6 +127,10 @@ const navItems = [
     icon: Radar,
   },
   {
+    label: 'Darwin Lab',
+    icon: Users,
+  },
+  {
     label: 'Mutations',
     icon: FlaskConical,
   },
@@ -107,9 +146,20 @@ const dashboardRoutes: Record<DashboardView, string> = {
   'Control room': '/',
   'Target application': '/?view=target',
   Observations: '/?view=observations',
+  'Darwin Lab': '/?view=lab',
   Mutations: '/?view=mutations',
   'System status': '/?view=status',
   Genome: '/?view=genome',
+};
+
+const executionWorkspaceId = (executionId: string) =>
+  `repository-execution-${executionId}`;
+
+const scrollToExecutionWorkspace = (workspaceId: string) => {
+  document.getElementById(workspaceId)?.scrollIntoView?.({
+    behavior: 'smooth',
+    block: 'start',
+  });
 };
 
 function getDashboardView(): DashboardView {
@@ -118,6 +168,8 @@ function getDashboardView(): DashboardView {
       return 'Target application';
     case 'observations':
       return 'Observations';
+    case 'lab':
+      return 'Darwin Lab';
     case 'mutations':
       return 'Mutations';
     case 'status':
@@ -131,6 +183,11 @@ function getDashboardView(): DashboardView {
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
+const webBuildRelease =
+  import.meta.env.VITE_DARWIN_RELEASE || rootPackage.version;
+const webBuildCommit = import.meta.env.VITE_DARWIN_COMMIT_SHA || 'local';
+const shortCommit = (commitSha: string) =>
+  commitSha === 'local' ? commitSha : commitSha.slice(0, 7);
 const projectFlowBaseUrl =
   import.meta.env.VITE_PROJECTFLOW_BASE_URL ?? 'http://localhost:5174';
 const configuredTarget: TargetConnectionRequest = {
@@ -140,76 +197,47 @@ const configuredTarget: TargetConnectionRequest = {
   studyUrl: `${projectFlowBaseUrl}/?study=true`,
 };
 
-interface FitnessDelta {
-  completionPoints: number;
-  interactionDelta: number | null;
-}
-
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const ordered = [...values].sort((left, right) => left - right);
-  const midpoint = Math.floor(ordered.length / 2);
-  return ordered.length % 2
-    ? ordered[midpoint]!
-    : (ordered[midpoint - 1]! + ordered[midpoint]!) / 2;
-}
-
-function compareFitness(
-  baseline: EvidencePack | null,
-  current: EvidencePack | null,
-): FitnessDelta | null {
-  if (!baseline || !current || baseline.evidenceId === current.evidenceId) {
-    return null;
-  }
-
-  const terminalOutcomes = new Set(['success', 'failed', 'abandoned']);
-  const baselineTerminal = baseline.taskAttempts.filter((attempt) =>
-    terminalOutcomes.has(attempt.outcome),
-  );
-  const currentTerminal = current.taskAttempts.filter((attempt) =>
-    terminalOutcomes.has(attempt.outcome),
-  );
-  if (!baselineTerminal.length || !currentTerminal.length) return null;
-
-  const completionRate = (attempts: typeof baselineTerminal) =>
-    attempts.filter((attempt) => attempt.outcome === 'success').length /
-    attempts.length;
-  const baselineInteractions = median(
-    baselineTerminal.map((attempt) => attempt.interactionCount),
-  );
-  const currentInteractions = median(
-    currentTerminal.map((attempt) => attempt.interactionCount),
-  );
-
-  return {
-    completionPoints: Math.round(
-      (completionRate(currentTerminal) - completionRate(baselineTerminal)) *
-        100,
-    ),
-    interactionDelta:
-      baselineInteractions === null || currentInteractions === null
-        ? null
-        : Math.round((currentInteractions - baselineInteractions) * 10) / 10,
-  };
-}
-
+const resetStatusLabel: Record<DemoResetStatus, string> = {
+  queued: 'Reset queued in GitHub Actions',
+  running: 'ProjectFlow baseline is being restored',
+  validating: 'Restored baseline is being validated',
+  deploying: 'Waiting for the baseline deployment',
+  complete: 'Baseline deployment verified',
+  failed: 'Baseline reset requires attention',
+};
 function signedNumber(value: number): string {
   return `${value > 0 ? '+' : ''}${value}`;
 }
 
-function DarwinDashboard() {
+function DarwinDashboard({
+  capabilities,
+}: {
+  capabilities: DashboardCapability[];
+}) {
   const [theme, setTheme] = useState<Theme>(() =>
     document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
   );
   const [health, setHealth] = useState<ApiHealthState>({
     status: 'checking',
     version: null,
+    commitSha: null,
+    retention: null,
     analysis: null,
   });
   const [navigationOpen, setNavigationOpen] = useState(false);
   const activeView = getDashboardView();
   const targetConnection = useTargetConnection();
-  const liveTelemetry = useLiveTelemetry();
+  const liveTelemetry = useLiveTelemetry({
+    canInspectEvidence: capabilities.includes('inspect_evidence'),
+    eventPollingEnabled: ['Control room', 'Observations', 'Mutations'].includes(
+      activeView,
+    ),
+    executionPollingEnabled: ['Mutations', 'Genome'].includes(activeView),
+  });
+  const resetBlocksStudy = Boolean(
+    liveTelemetry.resetExecution?.status !== undefined &&
+    liveTelemetry.resetExecution.status !== 'complete',
+  );
   const repository =
     targetConnection.connection?.repository ??
     liveTelemetry.execution?.repository ??
@@ -276,24 +304,13 @@ function DarwinDashboard() {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', theme === 'light' ? '#f4f7fb' : '#101211');
   }, [theme]);
-  const recentSessions = new Set(
-    liveTelemetry.events.map((event) => event.sessionId),
-  ).size;
-  const recentParticipants = new Set(
-    liveTelemetry.events.map((event) => event.participantId),
-  ).size;
+  const studySessions = Object.keys(liveTelemetry.sessionCounts).length;
+  const studyParticipants = liveTelemetry.participantCount;
   const latestReleasedExecution = liveTelemetry.genomeExecutions.find(
     (execution) => execution.status === 'released',
   );
-  const latestArchivedEvidence = latestReleasedExecution
-    ? (liveTelemetry.observationArchives.find(
-        (archive) =>
-          archive.execution.executionId === latestReleasedExecution.executionId,
-      )?.evidence ?? null)
-    : null;
-  const fitnessDelta = compareFitness(
-    latestArchivedEvidence,
-    liveTelemetry.evidence,
+  const latestFitnessOutcome = liveTelemetry.fitnessOutcomes.find(
+    (outcome) => outcome.executionId === latestReleasedExecution?.executionId,
   );
   const pressureClusters =
     liveTelemetry.analysis?.evidenceAssessment.pressureClusters ?? [];
@@ -303,10 +320,21 @@ function DarwinDashboard() {
     ).length ?? 0;
   const releaseForConfidence =
     liveTelemetry.execution ?? latestReleasedExecution ?? null;
-  const passedChecks = releaseForConfidence?.checks.filter(
-    (check) => check.status === 'passed',
-  ).length;
-  const totalChecks = releaseForConfidence?.checks.length ?? 0;
+  const releaseCheckSummary = releaseForConfidence
+    ? 'checkSummary' in releaseForConfidence
+      ? releaseForConfidence.checkSummary
+      : {
+          total: releaseForConfidence.checks.length,
+          passed: releaseForConfidence.checks.filter(
+            (check) => check.status === 'passed',
+          ).length,
+          failed: releaseForConfidence.checks.filter(
+            (check) => check.status === 'failed',
+          ).length,
+        }
+    : null;
+  const passedChecks = releaseCheckSummary?.passed;
+  const totalChecks = releaseCheckSummary?.total ?? 0;
   const releaseRolledBack =
     releaseForConfidence?.rollback?.status === 'released';
   const releaseConfidence = !releaseForConfidence
@@ -359,10 +387,10 @@ function DarwinDashboard() {
     },
     {
       label: 'Measured sessions',
-      help: 'Independent browser journeys represented by the current live event window.',
-      value: String(recentSessions),
-      meta: `${recentParticipants} anonymous participants`,
-      tone: recentSessions ? 'signal' : 'neutral',
+      help: 'Independent browser journeys across the complete measured study cycle, including sessions outside the recent trace window.',
+      value: String(studySessions),
+      meta: `${studyParticipants} anonymous participants`,
+      tone: studySessions ? 'signal' : 'neutral',
     },
     {
       label: 'Evidence strength',
@@ -412,26 +440,35 @@ function DarwinDashboard() {
     },
     {
       label: 'Fitness delta',
-      help: 'A measured post-release comparison between the archived evidence that informed the retained mutation and the current evidence cycle. Darwin reports completion-rate change only when both samples contain completed task attempts.',
-      value: fitnessDelta
-        ? `${signedNumber(fitnessDelta.completionPoints)} pp`
-        : latestArchivedEvidence
-          ? 'PENDING'
-          : '--',
-      meta: fitnessDelta
-        ? fitnessDelta.interactionDelta === null
-          ? 'Task completion versus archived baseline'
-          : `Median path ${signedNumber(fitnessDelta.interactionDelta)} actions versus baseline`
-        : latestArchivedEvidence
-          ? 'Awaiting completed task attempts in the new cycle'
-          : 'Retain a mutation to establish a baseline',
-      tone: fitnessDelta
-        ? fitnessDelta.completionPoints > 0
-          ? 'signal'
-          : fitnessDelta.completionPoints < 0
+      help: 'The persisted server-side 0-100 fitness outcome. Formula 1.0.0 weights task completion, navigation efficiency, error rate, feature discovery, and median duration after compatibility and sample gates pass.',
+      value:
+        latestFitnessOutcome?.status === 'measured'
+          ? signedNumber(latestFitnessOutcome.delta!)
+          : latestFitnessOutcome?.status === 'insufficient'
+            ? 'GATED'
+            : latestFitnessOutcome?.status === 'rolled_back'
+              ? 'STOPPED'
+              : latestReleasedExecution
+                ? 'PENDING'
+                : '--',
+      meta:
+        latestFitnessOutcome?.status === 'measured'
+          ? `${latestFitnessOutcome.baselineScore}/100 → ${latestFitnessOutcome.evolvedScore}/100 · formula ${latestFitnessOutcome.formulaVersion}`
+          : (latestFitnessOutcome?.limitations[0] ??
+            (latestReleasedExecution
+              ? 'Awaiting a compatible post-release cohort'
+              : 'Retain a mutation to establish a baseline')),
+      tone:
+        latestFitnessOutcome?.status === 'measured'
+          ? latestFitnessOutcome.delta! > 0
+            ? 'signal'
+            : latestFitnessOutcome.delta! < 0
+              ? 'amber'
+              : 'neutral'
+          : latestFitnessOutcome?.status === 'insufficient' ||
+              latestFitnessOutcome?.status === 'rolled_back'
             ? 'amber'
-            : 'neutral'
-        : 'neutral',
+            : 'neutral',
     },
     {
       label: 'Release confidence',
@@ -463,15 +500,29 @@ function DarwinDashboard() {
             ? {
                 status: 'online',
                 version: parsed.data.version,
+                commitSha: parsed.data.commitSha,
+                retention: parsed.data.retention,
                 analysis: parsed.data.analysis,
               }
-            : { status: 'offline', version: null, analysis: null },
+            : {
+                status: 'offline',
+                version: null,
+                commitSha: null,
+                retention: null,
+                analysis: null,
+              },
         );
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError')
           return;
-        setHealth({ status: 'offline', version: null, analysis: null });
+        setHealth({
+          status: 'offline',
+          version: null,
+          commitSha: null,
+          retention: null,
+          analysis: null,
+        });
       });
 
     return () => controller.abort();
@@ -527,6 +578,7 @@ function DarwinDashboard() {
             error={targetConnection.error}
             loading={targetConnection.loading}
             saving={targetConnection.saving}
+            studyBlocked={resetBlocksStudy}
             onConnect={targetConnection.connect}
             onDisconnect={targetConnection.disconnect}
           />
@@ -583,16 +635,69 @@ function DarwinDashboard() {
               className="icon-button"
               type="button"
               onClick={() => void resetDemo()}
-              disabled={false}
-              aria-label="Reset evolution demo"
-              data-explain="Delete Darwin telemetry, evidence, reasoning, manifests and execution state, then dispatch the ProjectFlow baseline restore workflow."
+              disabled={liveTelemetry.resetting}
+              aria-label={
+                liveTelemetry.resetExecution?.status === 'failed'
+                  ? 'Retry evolution reset'
+                  : 'Reset evolution demo'
+              }
+              data-explain="Dispatch the ProjectFlow baseline restore workflow. Darwin preserves current state until the workflow passes and production reports the restored commit."
             >
-              <RotateCcw size={15} />
+              {liveTelemetry.resetting ? (
+                <CircleDashed className="is-spinning" size={15} />
+              ) : (
+                <RotateCcw size={15} />
+              )}
             </button>
           </div>
         </header>
 
         <div className="mx-auto max-w-[1640px] px-5 pb-12 pt-8 sm:px-8 lg:px-10 lg:pt-11">
+          {liveTelemetry.resetExecution &&
+            liveTelemetry.resetExecution.status !== 'complete' && (
+              <section
+                className={`reset-status-band ${liveTelemetry.resetExecution.status === 'failed' ? 'is-failed' : ''}`}
+                role={
+                  liveTelemetry.resetExecution.status === 'failed'
+                    ? 'alert'
+                    : 'status'
+                }
+              >
+                {liveTelemetry.resetExecution.status === 'failed' ? (
+                  <AlertTriangle size={19} />
+                ) : (
+                  <CircleDashed className="is-spinning" size={19} />
+                )}
+                <div>
+                  <strong>
+                    {resetStatusLabel[liveTelemetry.resetExecution.status]}
+                  </strong>
+                  <span>
+                    {liveTelemetry.resetExecution.error ??
+                      'Measured study access remains locked until the verified baseline is live.'}
+                  </span>
+                </div>
+                {liveTelemetry.resetExecution.workflowUrl && (
+                  <a
+                    href={liveTelemetry.resetExecution.workflowUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Workflow <ExternalLink size={12} />
+                  </a>
+                )}
+                {liveTelemetry.resetExecution.status === 'failed' && (
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => void resetDemo()}
+                    disabled={liveTelemetry.resetting}
+                  >
+                    <RotateCcw size={15} /> Retry reset
+                  </button>
+                )}
+              </section>
+            )}
           {activeView === 'Control room' && (
             <>
               <section className="hero-band" aria-labelledby="page-title">
@@ -630,13 +735,20 @@ function DarwinDashboard() {
                       </span>
                     )}
                     <a
-                      className="primary-action"
-                      href={targetApplicationUrl}
+                      className={`primary-action ${resetBlocksStudy ? 'is-disabled' : ''}`}
+                      href={resetBlocksStudy ? undefined : targetApplicationUrl}
                       target="_blank"
                       rel="noreferrer"
+                      aria-disabled={resetBlocksStudy || undefined}
+                      onClick={(event) => {
+                        if (resetBlocksStudy) event.preventDefault();
+                      }}
                       data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
                     >
-                      <Radar size={17} /> Open measured study
+                      <Radar size={17} />{' '}
+                      {resetBlocksStudy
+                        ? 'Measured study locked'
+                        : 'Open measured study'}
                     </a>
                   </div>
                   {!liveTelemetry.analysis && (
@@ -692,9 +804,24 @@ function DarwinDashboard() {
               {liveTelemetry.observationArchives.length > 0 && (
                 <ObservationArchivePanel
                   archives={liveTelemetry.observationArchives}
+                  nextCursor={liveTelemetry.observationArchivesNextCursor}
+                  loadArchive={liveTelemetry.loadObservationArchive}
+                  onLoadMore={() =>
+                    void liveTelemetry.loadMoreObservationArchives()
+                  }
                 />
               )}
             </>
+          )}
+
+          {activeView === 'Darwin Lab' && (
+            <DarwinLabView
+              apiBaseUrl={apiBaseUrl}
+              defaultTargetUrl={`${projectFlowBaseUrl}/`}
+              liveReasoningAvailable={
+                health.analysis?.liveModelAvailable ?? false
+              }
+            />
           )}
 
           {activeView === 'Mutations' &&
@@ -764,11 +891,18 @@ function DarwinDashboard() {
                     label="Worker API"
                     value={
                       health.version
-                        ? `v${health.version} online`
+                        ? `v${health.version} · ${shortCommit(health.commitSha ?? 'local')} · online`
                         : health.status
                     }
                     ready={health.status === 'online'}
-                    help="The deployed Darwin Cloudflare Worker. Its version comes from the live /api/health response."
+                    help="The deployed Darwin Cloudflare Worker. Its semantic release and exact source commit come from the live /api/health response."
+                  />
+                  <StatusRow
+                    icon={LayoutDashboard}
+                    label="Control room"
+                    value={`v${webBuildRelease} · ${shortCommit(webBuildCommit)}`}
+                    ready
+                    help="Build metadata injected into the Vite control-room bundle from the same release tag and workflow commit as the Worker deployment."
                   />
                   <StatusRow
                     icon={Database}
@@ -780,6 +914,17 @@ function DarwinDashboard() {
                     }
                     ready={liveTelemetry.status === 'live'}
                     help="Semantic events currently persisted and returned by the telemetry repository. Production uses Cloudflare D1."
+                  />
+                  <StatusRow
+                    icon={ShieldCheck}
+                    label="Storage retention"
+                    value={
+                      health.retention
+                        ? `${health.retention.eventCount.toLocaleString()} / ${health.retention.policy.maxEventsPerTarget.toLocaleString()} events · ${health.retention.expiredRecordCount} expired · ${health.retention.lastSweepAt ? `swept ${health.retention.lastSweepAt.slice(0, 10)}` : 'awaiting first sweep'}`
+                        : health.status
+                    }
+                    ready={health.retention?.status === 'healthy'}
+                    help="Nightly bounded storage policy: 30-day raw telemetry, 90-day derived evidence, 30-day large artifact compaction, 365-day compact fossil records, per-study/target quotas, and the last completed sweep."
                   />
                   <StatusRow
                     icon={FileCheck2}
@@ -853,6 +998,8 @@ function DarwinDashboard() {
                   </div>
                 </div>
               </aside>
+
+              <OperationalDiagnostics />
             </section>
           )}
 
@@ -924,6 +1071,19 @@ function DarwinDashboard() {
                 <FossilExecutionArtifact
                   key={genomeExecution.executionId}
                   execution={genomeExecution}
+                  executionDetail={
+                    liveTelemetry.execution?.executionId ===
+                    genomeExecution.executionId
+                      ? liveTelemetry.execution
+                      : null
+                  }
+                  loadExecution={liveTelemetry.loadGenomeExecution}
+                  fitnessOutcome={
+                    liveTelemetry.fitnessOutcomes.find(
+                      (outcome) =>
+                        outcome.executionId === genomeExecution.executionId,
+                    ) ?? null
+                  }
                   mutationTitle={
                     liveTelemetry.observationArchives.find(
                       (archive) =>
@@ -966,13 +1126,24 @@ function DarwinDashboard() {
                   }
                 />
               ))}
+              {liveTelemetry.genomeNextCursor && (
+                <div className="archive-pagination">
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => void liveTelemetry.loadMoreGenome()}
+                  >
+                    Load older Genome records
+                  </button>
+                </div>
+              )}
             </section>
           )}
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
             <p className="font-mono">
-              DARWIN CORE {health.version ?? 'OFFLINE'}
+              DARWIN CORE v{webBuildRelease}@{shortCommit(webBuildCommit)}
             </p>
           </footer>
         </div>
@@ -1060,8 +1231,12 @@ function useTargetConnection() {
 }
 
 function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
+  if (activeView === 'Darwin Lab') return null;
   const content: Record<
-    Exclude<DashboardView, 'Control room' | 'Target application'>,
+    Exclude<
+      DashboardView,
+      'Control room' | 'Target application' | 'Darwin Lab'
+    >,
     { eyebrow: string; title: string; description: string }
   > = {
     Observations: {
@@ -1177,7 +1352,7 @@ function DashboardSidebar({
             <p className="truncate text-sm font-medium">Darwin API</p>
             <p className="mt-0.5 text-xs capitalize text-mist">
               {health.version
-                ? `v${health.version} ${health.status}`
+                ? `v${health.version} · ${shortCommit(health.commitSha ?? 'local')} · ${health.status}`
                 : health.status}
             </p>
           </div>
@@ -1202,6 +1377,7 @@ function TargetConnectionView({
   error,
   loading,
   saving,
+  studyBlocked,
   onConnect,
   onDisconnect,
 }: {
@@ -1209,6 +1385,7 @@ function TargetConnectionView({
   error: string | null;
   loading: boolean;
   saving: boolean;
+  studyBlocked: boolean;
   onConnect: (request: TargetConnectionRequest) => Promise<void>;
   onDisconnect: () => Promise<void>;
 }) {
@@ -1334,15 +1511,24 @@ function TargetConnectionView({
               />
               <a
                 aria-label="Open measured study"
-                href={request.studyUrl}
+                href={studyBlocked ? undefined : request.studyUrl}
                 target="_blank"
                 rel="noreferrer"
-                title="Open measured study"
+                aria-disabled={studyBlocked || undefined}
+                title={
+                  studyBlocked
+                    ? 'Measured study locked until reset verification completes'
+                    : 'Open measured study'
+                }
               >
                 <ExternalLink size={16} />
               </a>
             </div>
-            <small>Darwin telemetry is enabled on this application view</small>
+            <small>
+              {studyBlocked
+                ? 'Locked until the baseline reset deployment is verified'
+                : 'Darwin telemetry is enabled on this application view'}
+            </small>
           </label>
 
           {error && (
@@ -1599,6 +1785,142 @@ function GlobalExplainTooltip() {
   );
 }
 
+const signalPageSize = 8;
+const signalSeverityRank: Record<EvidenceSignal['severity'], number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+const signalTargets = (signal: EvidenceSignal) => [
+  ...new Set(signal.trace.map((event) => event.targetId ?? event.route)),
+];
+
+const signalAttemptRecords = (
+  signal: EvidenceSignal,
+  attempts: EvidencePack['taskAttempts'],
+) => {
+  const affected = new Set(signal.affectedAttemptIds);
+  return attempts.filter((attempt) => affected.has(attempt.attemptId));
+};
+
+const signalSessions = (
+  signal: EvidenceSignal,
+  attempts: EvidencePack['taskAttempts'],
+  events: StoredTelemetryEvent[],
+) => {
+  const eventIds = new Set(signal.supportingEventIds);
+  return [
+    ...new Set([
+      ...signalAttemptRecords(signal, attempts).map(
+        (attempt) => attempt.sessionId,
+      ),
+      ...events
+        .filter((event) => eventIds.has(event.eventId))
+        .map((event) => event.sessionId),
+    ]),
+  ];
+};
+
+const signalTasks = (
+  signal: EvidenceSignal,
+  attempts: EvidencePack['taskAttempts'],
+) => [
+  ...new Set([
+    ...(signal.taskId ? [signal.taskId] : []),
+    ...signalAttemptRecords(signal, attempts).map((attempt) => attempt.taskId),
+  ]),
+];
+
+const signalRank = (signal: EvidenceSignal) =>
+  signalSeverityRank[signal.severity] * 1_000_000 +
+  signal.support.participants * 10_000 +
+  signal.support.sessions * 1_000 +
+  signal.support.attempts * 100 +
+  signal.support.events;
+
+interface SignalPressureGroup {
+  id: string;
+  ruleId: EvidenceSignal['ruleId'];
+  target: string;
+  severity: EvidenceSignal['severity'];
+  signals: EvidenceSignal[];
+  eventCount: number;
+  attemptCount: number;
+  sessionCount: number;
+  participantCount: number;
+}
+
+const buildSignalPressureGroups = (
+  signals: EvidenceSignal[],
+  attempts: EvidencePack['taskAttempts'],
+  events: StoredTelemetryEvent[],
+): SignalPressureGroup[] => {
+  const groups = new Map<string, EvidenceSignal[]>();
+  for (const signal of signals) {
+    const target = signalTargets(signal)[0] ?? 'route-level';
+    const id = `${signal.ruleId}:${target}`;
+    groups.set(id, [...(groups.get(id) ?? []), signal]);
+  }
+  return [...groups.entries()]
+    .map(([id, groupedSignals]) => {
+      const eventIds = new Set(
+        groupedSignals.flatMap((signal) => signal.supportingEventIds),
+      );
+      const attemptIds = new Set(
+        groupedSignals.flatMap((signal) => signal.affectedAttemptIds),
+      );
+      const relatedAttempts = attempts.filter((attempt) =>
+        attemptIds.has(attempt.attemptId),
+      );
+      const sessions = new Set([
+        ...relatedAttempts.map((attempt) => attempt.sessionId),
+        ...events
+          .filter((event) => eventIds.has(event.eventId))
+          .map((event) => event.sessionId),
+      ]);
+      const participants = new Set(
+        relatedAttempts.map((attempt) => attempt.participantId),
+      );
+      const severity = groupedSignals.reduce<EvidenceSignal['severity']>(
+        (highest, signal) =>
+          signalSeverityRank[signal.severity] > signalSeverityRank[highest]
+            ? signal.severity
+            : highest,
+        'low',
+      );
+      return {
+        id,
+        ruleId: groupedSignals[0]!.ruleId,
+        target: id.slice(id.indexOf(':') + 1),
+        severity,
+        signals: [...groupedSignals].sort(
+          (left, right) => signalRank(right) - signalRank(left),
+        ),
+        eventCount: eventIds.size,
+        attemptCount: attemptIds.size,
+        sessionCount: Math.max(
+          sessions.size,
+          ...groupedSignals.map((signal) => signal.support.sessions),
+        ),
+        participantCount: Math.max(
+          participants.size,
+          ...groupedSignals.map((signal) => signal.support.participants),
+        ),
+      };
+    })
+    .sort(
+      (left, right) =>
+        signalSeverityRank[right.severity] -
+          signalSeverityRank[left.severity] ||
+        right.participantCount - left.participantCount ||
+        right.sessionCount - left.sessionCount ||
+        right.attemptCount - left.attemptCount ||
+        right.eventCount - left.eventCount ||
+        left.id.localeCompare(right.id),
+    );
+};
+
 function LiveTelemetryPanel({
   telemetry,
   analysisConfig,
@@ -1613,6 +1935,12 @@ function LiveTelemetryPanel({
     ...new Set(telemetry.events.map((event) => event.sessionId)),
   ];
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [signalSeverityFilter, setSignalSeverityFilter] = useState('all');
+  const [signalRuleEventFilter, setSignalRuleEventFilter] = useState('all');
+  const [signalTargetFilter, setSignalTargetFilter] = useState('all');
+  const [signalSessionFilter, setSignalSessionFilter] = useState('all');
+  const [signalTaskFilter, setSignalTaskFilter] = useState('all');
+  const [signalPage, setSignalPage] = useState(0);
   const [implementationMutationIds, setImplementationMutationIds] = useState<
     string[]
   >([]);
@@ -1620,6 +1948,116 @@ function LiveTelemetryPanel({
   const visibleEvents = selectedSession
     ? telemetry.events.filter((event) => event.sessionId === selectedSession)
     : telemetry.events;
+  const evidenceSignals = telemetry.evidence?.frictionSignals ?? [];
+  const evidenceAttempts = telemetry.evidence?.taskAttempts ?? [];
+  const rankedSignals = useMemo(
+    () =>
+      [...evidenceSignals].sort(
+        (left, right) =>
+          signalRank(right) - signalRank(left) ||
+          left.evidenceId.localeCompare(right.evidenceId),
+      ),
+    [evidenceSignals],
+  );
+  const pressureGroups = useMemo(
+    () =>
+      buildSignalPressureGroups(
+        evidenceSignals,
+        evidenceAttempts,
+        telemetry.events,
+      ),
+    [evidenceAttempts, evidenceSignals, telemetry.events],
+  );
+  const signalRules = useMemo(
+    () => [...new Set(evidenceSignals.map((signal) => signal.ruleId))].sort(),
+    [evidenceSignals],
+  );
+  const signalEventTypes = useMemo(
+    () =>
+      [
+        ...new Set(
+          evidenceSignals.flatMap((signal) =>
+            signal.trace.map((event) => event.eventType),
+          ),
+        ),
+      ].sort(),
+    [evidenceSignals],
+  );
+  const signalTargetOptions = useMemo(
+    () => [...new Set(evidenceSignals.flatMap(signalTargets))].sort(),
+    [evidenceSignals],
+  );
+  const signalSessionOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          evidenceSignals.flatMap((signal) =>
+            signalSessions(signal, evidenceAttempts, telemetry.events),
+          ),
+        ),
+      ].sort(),
+    [evidenceAttempts, evidenceSignals, telemetry.events],
+  );
+  const signalTaskOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          evidenceSignals.flatMap((signal) =>
+            signalTasks(signal, evidenceAttempts),
+          ),
+        ),
+      ].sort(),
+    [evidenceAttempts, evidenceSignals],
+  );
+  const filteredSignals = rankedSignals.filter((signal) => {
+    if (
+      signalSeverityFilter !== 'all' &&
+      signal.severity !== signalSeverityFilter
+    ) {
+      return false;
+    }
+    if (
+      signalRuleEventFilter.startsWith('rule:') &&
+      signal.ruleId !== signalRuleEventFilter.slice('rule:'.length)
+    ) {
+      return false;
+    }
+    if (
+      signalRuleEventFilter.startsWith('event:') &&
+      !signal.trace.some(
+        (event) =>
+          event.eventType === signalRuleEventFilter.slice('event:'.length),
+      )
+    ) {
+      return false;
+    }
+    if (
+      signalTargetFilter !== 'all' &&
+      !signalTargets(signal).includes(signalTargetFilter)
+    ) {
+      return false;
+    }
+    if (
+      signalSessionFilter !== 'all' &&
+      !signalSessions(signal, evidenceAttempts, telemetry.events).includes(
+        signalSessionFilter,
+      )
+    ) {
+      return false;
+    }
+    return (
+      signalTaskFilter === 'all' ||
+      signalTasks(signal, evidenceAttempts).includes(signalTaskFilter)
+    );
+  });
+  const signalPageCount = Math.max(
+    1,
+    Math.ceil(filteredSignals.length / signalPageSize),
+  );
+  const pagedSignals = filteredSignals.slice(
+    signalPage * signalPageSize,
+    (signalPage + 1) * signalPageSize,
+  );
   const configuredModel = analysisConfig?.model ?? 'gpt-5.6';
   const liveModelAvailable = analysisConfig?.liveModelAvailable ?? false;
   const implementationCandidates = telemetry.analysis
@@ -1640,11 +2078,54 @@ function LiveTelemetryPanel({
     implementationCandidatesSelected.every(
       (candidate, index) => candidate.id === manifestMutationIds[index],
     );
+  const lastUpdatedLabel = telemetry.lastUpdatedAt
+    ? new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }).format(new Date(telemetry.lastUpdatedAt))
+    : null;
   const toggleImplementationMutation = (mutationId: string) => {
     setImplementationMutationIds((current) =>
       current.includes(mutationId)
         ? current.filter((id) => id !== mutationId)
         : [...current, mutationId],
+    );
+  };
+  const focusPressureGroup = (group: SignalPressureGroup) => {
+    setSignalSeverityFilter('all');
+    setSignalRuleEventFilter(`rule:${group.ruleId}`);
+    setSignalTargetFilter(group.target);
+    setSignalSessionFilter('all');
+    setSignalTaskFilter('all');
+    setSignalPage(0);
+    window.requestAnimationFrame(() =>
+      document
+        .getElementById('signal-inspector')
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    );
+  };
+  const revealExactSignal = (signal: EvidenceSignal) => {
+    setSignalSeverityFilter('all');
+    setSignalRuleEventFilter('all');
+    setSignalTargetFilter('all');
+    setSignalSessionFilter('all');
+    setSignalTaskFilter('all');
+    setSignalPage(
+      Math.max(0, Math.floor(rankedSignals.indexOf(signal) / signalPageSize)),
+    );
+    window.history.replaceState(
+      {},
+      '',
+      `${dashboardRoutes.Observations}#signal-${signal.evidenceId}`,
+    );
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() => {
+        const row = document.getElementById(`signal-${signal.evidenceId}`);
+        if (!(row instanceof HTMLDetailsElement)) return;
+        row.open = true;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }),
     );
   };
 
@@ -1662,18 +2143,28 @@ function LiveTelemetryPanel({
   }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
   useEffect(() => {
+    setSignalPage(0);
+  }, [
+    signalSeverityFilter,
+    signalRuleEventFilter,
+    signalTargetFilter,
+    signalSessionFilter,
+    signalTaskFilter,
+    telemetry.evidence?.evidenceId,
+  ]);
+
+  useEffect(() => {
     if (!isObservations || !telemetry.evidence) return;
     const signalId = decodeURIComponent(window.location.hash).replace(
       '#signal-',
       '',
     );
     if (!signalId || signalId === window.location.hash) return;
-    const signal = document.getElementById(`signal-${signalId}`);
-    if (!(signal instanceof HTMLDetailsElement)) return;
-    signal.open = true;
-    window.requestAnimationFrame(() =>
-      signal.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+    const signalIndex = rankedSignals.findIndex(
+      (signal) => signal.evidenceId === signalId,
     );
+    if (signalIndex < 0) return;
+    revealExactSignal(rankedSignals[signalIndex]!);
   }, [isObservations, telemetry.evidence?.evidenceId]);
 
   return (
@@ -1692,33 +2183,56 @@ function LiveTelemetryPanel({
             <InfoTip
               text={
                 isObservations
-                  ? 'Real semantic events ingested from the standalone ProjectFlow application. The view shows ordered behavior, sessions, participants, and detector-ready signals without recording typed values.'
+                  ? telemetry.canInspectEvidence
+                    ? 'Real semantic events ingested from the standalone ProjectFlow application. Evidence-inspector access shows ordered pseudonymous traces without recording typed values.'
+                    : 'Aggregate study counts omit event records and participant or session identifiers. Ordered traces require evidence-inspector access.'
                   : 'GPT reasons only over the verified evidence pack and connected ProjectFlow source snapshot. Candidate changes stay reviewable until an approved manifest is executed.'
               }
             />
           </div>
           <p className="mt-2 text-sm text-mist">
             {isObservations
-              ? 'Ordered semantic events from standalone ProjectFlow.'
+              ? telemetry.canInspectEvidence
+                ? 'Ordered semantic events from standalone ProjectFlow.'
+                : 'Aggregate behavior counts with raw identities omitted.'
               : 'Compare real pressure clusters, choose a bounded mutation bundle, and supervise the implementation.'}
           </p>
         </div>
         <div className="live-evidence-actions">
-          <button
-            aria-label="Refresh live telemetry"
-            className={`source-status source-${telemetry.status}`}
-            data-explain="Refresh the latest live event window, study counts, genome state, and observation archive from Darwin's API."
-            disabled={telemetry.refreshing}
-            onClick={() => void telemetry.refresh()}
-            type="button"
-          >
-            <span /> {telemetry.refreshing ? 'refreshing' : telemetry.status}
-            <RotateCcw
-              className={telemetry.refreshing ? 'is-spinning' : ''}
-              size={12}
-            />
-          </button>
-          {isObservations && (
+          <div className="live-update-stack">
+            <button
+              aria-label="Refresh live telemetry"
+              className={`source-status source-${telemetry.status}`}
+              data-explain="Refresh events, evidence, GPT analysis, Codex manifest, current execution, Genome, and observation archives from Darwin's API. Partial failures name the affected subsystem."
+              disabled={telemetry.refreshing}
+              onClick={() => void telemetry.refresh()}
+              type="button"
+            >
+              <span /> {telemetry.refreshing ? 'refreshing' : telemetry.status}
+              <RotateCcw
+                className={telemetry.refreshing ? 'is-spinning' : ''}
+                size={12}
+              />
+            </button>
+            <div
+              aria-live="polite"
+              className={`live-update-indicator is-${telemetry.pollingState}`}
+            >
+              <span>
+                {telemetry.pollingState === 'paused'
+                  ? 'updates paused'
+                  : telemetry.pollingState === 'stale'
+                    ? 'telemetry stale'
+                    : 'incremental updates'}
+              </span>
+              {telemetry.lastUpdatedAt && lastUpdatedLabel && (
+                <time dateTime={telemetry.lastUpdatedAt}>
+                  Last update {lastUpdatedLabel}
+                </time>
+              )}
+            </div>
+          </div>
+          {isObservations && telemetry.canInspectEvidence && (
             <button
               className="primary-action evidence-action"
               type="button"
@@ -1753,16 +2267,50 @@ function LiveTelemetryPanel({
 
       {isObservations && (
         <>
+          <div
+            className="evidence-stats measurement-boundary"
+            aria-label="Verified measurement boundary"
+          >
+            <div data-explain="The exact ProjectFlow production commit admitted into the current evidence cycle only after deployment verification succeeds.">
+              <GitBranch size={16} />
+              <span>Measured commit</span>
+              <strong>
+                {telemetry.evolutionCycle.measuredCommit?.slice(0, 12) ??
+                  'baseline'}
+              </strong>
+            </div>
+            <div data-explain="The single application version required for every event in the current evidence pack.">
+              <Dna size={16} />
+              <span>App version</span>
+              <strong>
+                {telemetry.evolutionCycle.appVersion ?? 'baseline'}
+              </strong>
+            </div>
+            <div data-explain="The production deployment timestamp that anchors the current evidence cycle. Events received before this boundary are excluded.">
+              <ShieldCheck size={16} />
+              <span>Deployment</span>
+              <strong>
+                {telemetry.evolutionCycle.deploymentVerifiedAt
+                  ? `verified ${new Date(
+                      telemetry.evolutionCycle.deploymentVerifiedAt,
+                    ).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`
+                  : 'baseline study'}
+              </strong>
+            </div>
+          </div>
           <div className="evidence-stats" aria-label="Real study counts">
             <div data-explain="Every persisted semantic event in this study, counted across the full database rather than only the recent trace window.">
               <Database size={16} />
-              <span>Raw events</span>
+              <span>Measured events</span>
               <strong>{telemetry.count}</strong>
             </div>
             <div data-explain="Distinct ordered browser sessions across the full persisted study.">
               <Network size={16} />
               <span>Sessions</span>
-              <strong>{Object.keys(telemetry.sessionCounts).length}</strong>
+              <strong>{telemetry.sessionCount}</strong>
             </div>
             <div data-explain="Anonymous participant identifiers represented across the full persisted study.">
               <Users size={16} />
@@ -1808,6 +2356,17 @@ function LiveTelemetryPanel({
                 ))}
               </div>
             </div>
+          ) : telemetry.count && !telemetry.canInspectEvidence ? (
+            <div className="empty-evidence">
+              <ShieldCheck size={18} />
+              <div>
+                <strong>Aggregate telemetry view</strong>
+                <span>
+                  Raw sessions and ordered traces require the evidence-inspector
+                  capability.
+                </span>
+              </div>
+            </div>
           ) : (
             <div className="empty-evidence">
               <Activity size={18} />
@@ -1837,6 +2396,17 @@ function LiveTelemetryPanel({
                 <dd>{telemetry.evidence.parserVersion}</dd>
               </div>
               <div>
+                <dt>App version</dt>
+                <dd>{telemetry.evidence.study.appVersion}</dd>
+              </div>
+              <div>
+                <dt>Measured commit</dt>
+                <dd>
+                  {telemetry.evidence.study.measuredCommit?.slice(0, 12) ??
+                    'baseline'}
+                </dd>
+              </div>
+              <div>
                 <dt>Quality</dt>
                 <dd>{telemetry.evidence.quality.score}/100</dd>
               </div>
@@ -1856,49 +2426,431 @@ function LiveTelemetryPanel({
           </div>
           {isObservations && (
             <>
-              <div className="evidence-signals">
-                {telemetry.evidence.frictionSignals.length ? (
-                  telemetry.evidence.frictionSignals.map((signal) => (
-                    <details
-                      id={`signal-${signal.evidenceId}`}
-                      key={signal.evidenceId}
+              {evidenceSignals.length ? (
+                <>
+                  <section
+                    className="signal-pressure-overview"
+                    aria-labelledby="pressure-overview-title"
+                  >
+                    <div className="signal-section-heading">
+                      <div>
+                        <span className="section-label">Top pressures</span>
+                        <h3 id="pressure-overview-title">
+                          Ranked by severity and independent support
+                        </h3>
+                      </div>
+                      <span>
+                        {pressureGroups.length} grouped pressures ·{' '}
+                        {evidenceSignals.length} exact signals
+                      </span>
+                    </div>
+                    <div className="top-pressure-grid">
+                      {pressureGroups.slice(0, 3).map((group, index) => (
+                        <button
+                          key={group.id}
+                          onClick={() => focusPressureGroup(group)}
+                          type="button"
+                          aria-label={`Inspect ${group.ruleId.replaceAll('_', ' ')} on ${group.target}`}
+                        >
+                          <span className="pressure-rank">
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                          <span
+                            className={`signal-severity severity-${group.severity}`}
+                          >
+                            {group.severity}
+                          </span>
+                          <strong>{group.ruleId.replaceAll('_', ' ')}</strong>
+                          <code>{group.target}</code>
+                          <small>
+                            {group.participantCount} participants ·{' '}
+                            {group.sessionCount} sessions · {group.eventCount}{' '}
+                            events
+                          </small>
+                        </button>
+                      ))}
+                    </div>
+                    <div
+                      className="pressure-group-list"
+                      aria-label="Ranked pressure groups"
                     >
-                      <summary>
-                        <span>{signal.evidenceId}</span>
-                        <strong>{signal.ruleId.replaceAll('_', ' ')}</strong>
-                        <small>{signal.severity}</small>
-                        <ChevronRight size={15} />
-                      </summary>
-                      <p>{signal.summary}</p>
-                      <div className="signal-provenance">
-                        <span>Rule {signal.ruleVersion}</span>
-                        <span>{signal.support.events} events</span>
-                        <span>{signal.support.sessions} sessions</span>
-                        <span>{signal.support.participants} participants</span>
+                      {pressureGroups.map((group) => (
+                        <details key={group.id}>
+                          <summary>
+                            <span
+                              className={`signal-severity severity-${group.severity}`}
+                            >
+                              {group.severity}
+                            </span>
+                            <span className="pressure-group-title">
+                              <strong>
+                                {group.ruleId.replaceAll('_', ' ')}
+                              </strong>
+                              <code>{group.target}</code>
+                            </span>
+                            <span className="pressure-group-support">
+                              {group.signals.length} signals ·{' '}
+                              {group.eventCount} events · {group.attemptCount}{' '}
+                              attempts · {group.sessionCount} sessions ·{' '}
+                              {group.participantCount} participants
+                            </span>
+                            <ChevronRight size={15} />
+                          </summary>
+                          <div>
+                            {group.signals.map((signal) => (
+                              <a
+                                href={`#signal-${signal.evidenceId}`}
+                                key={signal.evidenceId}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  revealExactSignal(signal);
+                                }}
+                              >
+                                <span>{signal.evidenceId}</span>
+                                <strong>{signal.summary}</strong>
+                                <small>
+                                  {signal.support.events} events ·{' '}
+                                  {signal.support.sessions} sessions
+                                </small>
+                              </a>
+                            ))}
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section
+                    className="signal-inspector"
+                    id="signal-inspector"
+                    aria-labelledby="signal-inspector-title"
+                  >
+                    <div className="signal-section-heading">
+                      <div>
+                        <span className="section-label">
+                          Full signal inspector
+                        </span>
+                        <h3 id="signal-inspector-title">
+                          Exact detector output and raw event links
+                        </h3>
                       </div>
-                      <div className="signal-trace">
-                        {signal.trace.map((event) => (
-                          <code key={event.eventId}>
-                            {event.sequence.toString().padStart(2, '0')} ·{' '}
-                            {event.eventType} · {event.targetId ?? event.route}
-                          </code>
-                        ))}
+                      <span>
+                        {filteredSignals.length} of {evidenceSignals.length}{' '}
+                        signals
+                      </span>
+                    </div>
+                    <div className="signal-filters" aria-label="Signal filters">
+                      <label>
+                        <span>Severity</span>
+                        <select
+                          value={signalSeverityFilter}
+                          onChange={(event) =>
+                            setSignalSeverityFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All severities</option>
+                          <option value="high">High</option>
+                          <option value="medium">Medium</option>
+                          <option value="low">Low</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Rule / event</span>
+                        <select
+                          value={signalRuleEventFilter}
+                          onChange={(event) =>
+                            setSignalRuleEventFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All rules and events</option>
+                          <optgroup label="Detector rules">
+                            {signalRules.map((rule) => (
+                              <option key={rule} value={`rule:${rule}`}>
+                                {rule.replaceAll('_', ' ')}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Trace event types">
+                            {signalEventTypes.map((eventType) => (
+                              <option
+                                key={eventType}
+                                value={`event:${eventType}`}
+                              >
+                                {eventType.replaceAll('_', ' ')}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Target</span>
+                        <select
+                          value={signalTargetFilter}
+                          onChange={(event) =>
+                            setSignalTargetFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All targets</option>
+                          {signalTargetOptions.map((target) => (
+                            <option key={target} value={target}>
+                              {target}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Session</span>
+                        <select
+                          value={signalSessionFilter}
+                          onChange={(event) =>
+                            setSignalSessionFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All sessions</option>
+                          {signalSessionOptions.map((session) => (
+                            <option key={session} value={session}>
+                              {shortId(session)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Task</span>
+                        <select
+                          value={signalTaskFilter}
+                          onChange={(event) =>
+                            setSignalTaskFilter(event.target.value)
+                          }
+                        >
+                          <option value="all">All tasks</option>
+                          {signalTaskOptions.map((task) => (
+                            <option key={task} value={task}>
+                              {task.replaceAll('_', ' ')}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="evidence-signals">
+                      {pagedSignals.length ? (
+                        pagedSignals.map((signal) => {
+                          const supportingIds = new Set(
+                            signal.supportingEventIds,
+                          );
+                          const rawEvents = telemetry.events.filter((event) =>
+                            supportingIds.has(event.eventId),
+                          );
+                          return (
+                            <details
+                              id={`signal-${signal.evidenceId}`}
+                              key={signal.evidenceId}
+                            >
+                              <summary>
+                                <span className="evidence-signal-id">
+                                  {signal.evidenceId}
+                                </span>
+                                <span className="evidence-signal-title">
+                                  <strong>
+                                    {signal.ruleId.replaceAll('_', ' ')}
+                                  </strong>
+                                  <small>
+                                    {signalTargets(signal).join(' · ')}
+                                  </small>
+                                </span>
+                                <span className="signal-row-support">
+                                  {signal.support.events} events ·{' '}
+                                  {signal.support.attempts} attempts ·{' '}
+                                  {signal.support.sessions} sessions ·{' '}
+                                  {signal.support.participants} participants
+                                </span>
+                                <span
+                                  className={`signal-severity severity-${signal.severity}`}
+                                >
+                                  {signal.severity}
+                                </span>
+                                <ChevronRight size={15} />
+                              </summary>
+                              <p>{signal.summary}</p>
+                              <div className="signal-provenance">
+                                <span>Rule {signal.ruleVersion}</span>
+                                <span>
+                                  {signal.affectedAttemptIds.length} cited
+                                  attempts
+                                </span>
+                                <span>
+                                  {signal.supportingEventIds.length} cited event
+                                  IDs
+                                </span>
+                                {signalTasks(signal, evidenceAttempts).map(
+                                  (task) => (
+                                    <span key={task}>Task {task}</span>
+                                  ),
+                                )}
+                              </div>
+                              <div className="signal-detail-grid">
+                                <div className="signal-trace">
+                                  <span>Canonical evidence trace</span>
+                                  {signal.trace.map((event) => (
+                                    <code key={event.eventId}>
+                                      {event.sequence
+                                        .toString()
+                                        .padStart(2, '0')}{' '}
+                                      · {event.eventType} ·{' '}
+                                      {event.targetId ?? event.route}
+                                    </code>
+                                  ))}
+                                </div>
+                                <div className="signal-raw-events">
+                                  <span>Loaded raw semantic events</span>
+                                  {rawEvents.length ? (
+                                    rawEvents.map((event) => (
+                                      <EventTraceRow
+                                        event={event}
+                                        key={event.eventId}
+                                      />
+                                    ))
+                                  ) : (
+                                    <p>
+                                      Exact event IDs are retained in the
+                                      evidence pack; their raw records are
+                                      outside the latest loaded trace window.
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </details>
+                          );
+                        })
+                      ) : (
+                        <p className="no-signals">
+                          No exact signals match all selected filters.
+                        </p>
+                      )}
+                    </div>
+                    <nav
+                      className="signal-pagination"
+                      aria-label="Signal pages"
+                    >
+                      <span>
+                        {filteredSignals.length
+                          ? `${signalPage * signalPageSize + 1}–${Math.min((signalPage + 1) * signalPageSize, filteredSignals.length)} of ${filteredSignals.length}`
+                          : '0 signals'}
+                      </span>
+                      <div>
+                        <button
+                          type="button"
+                          disabled={signalPage === 0}
+                          onClick={() =>
+                            setSignalPage((current) => Math.max(0, current - 1))
+                          }
+                        >
+                          Previous
+                        </button>
+                        <span>
+                          Page {Math.min(signalPage + 1, signalPageCount)} of{' '}
+                          {signalPageCount}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={signalPage + 1 >= signalPageCount}
+                          onClick={() =>
+                            setSignalPage((current) =>
+                              Math.min(signalPageCount - 1, current + 1),
+                            )
+                          }
+                        >
+                          Next
+                        </button>
                       </div>
-                    </details>
-                  ))
-                ) : (
+                    </nav>
+                  </section>
+                </>
+              ) : (
+                <div className="evidence-signals">
                   <p className="no-signals">
                     No detector threshold was crossed by the current real
                     sample.
                   </p>
-                )}
-              </div>
+                </div>
+              )}
               <div className="evidence-quality-band">
                 <div>
                   <span>Evidence quality</span>
                   <strong>{telemetry.evidence.quality.strength}</strong>
                   <code>{telemetry.evidence.quality.score}/100</code>
                 </div>
+                <dl className="evidence-dimensions">
+                  <div>
+                    <dt>Volume</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.volume.score}/100
+                    </dd>
+                    <small>
+                      {
+                        telemetry.evidence.quality.dimensions.volume
+                          .observedEvents
+                      }
+                      /
+                      {
+                        telemetry.evidence.quality.dimensions.volume
+                          .minimumEvents
+                      }{' '}
+                      events
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Diversity</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.diversity.score}
+                      /100
+                    </dd>
+                    <small>
+                      {
+                        telemetry.evidence.quality.dimensions.diversity
+                          .observedParticipants
+                      }{' '}
+                      participants ·{' '}
+                      {
+                        telemetry.evidence.quality.dimensions.diversity
+                          .observedSessions
+                      }{' '}
+                      sessions
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Completion</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.completion.score}
+                      /100
+                    </dd>
+                    <small>
+                      {
+                        telemetry.evidence.quality.dimensions.completion
+                          .terminalAttempts
+                      }
+                      /
+                      {
+                        telemetry.evidence.quality.dimensions.completion
+                          .minimumTerminalAttempts
+                      }{' '}
+                      terminal attempts
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Recency</dt>
+                    <dd>
+                      {telemetry.evidence.quality.dimensions.recency.score}/100
+                    </dd>
+                    <small>
+                      ≤
+                      {
+                        telemetry.evidence.quality.dimensions.recency
+                          .maximumAgeDays
+                      }
+                      d gate
+                    </small>
+                  </div>
+                </dl>
                 {telemetry.evidence.quality.limitations.length ? (
                   <ul>
                     {telemetry.evidence.quality.limitations.map(
@@ -2068,12 +3020,11 @@ function LiveTelemetryPanel({
                           telemetry.execution.status !== 'failed' &&
                           manifestMatchesSelection
                         ) {
-                          document
-                            .getElementById('validation')
-                            ?.scrollIntoView?.({
-                              behavior: 'smooth',
-                              block: 'start',
-                            });
+                          scrollToExecutionWorkspace(
+                            executionWorkspaceId(
+                              telemetry.execution.executionId,
+                            ),
+                          );
                           return;
                         }
                         void telemetry
@@ -2082,18 +3033,16 @@ function LiveTelemetryPanel({
                               (candidate) => candidate.id,
                             ),
                           )
-                          .then(() =>
+                          .then((execution) => {
+                            if (!execution) return;
+                            const workspaceId = executionWorkspaceId(
+                              execution.executionId,
+                            );
                             window.setTimeout(
-                              () =>
-                                document
-                                  .getElementById('validation')
-                                  ?.scrollIntoView?.({
-                                    behavior: 'smooth',
-                                    block: 'start',
-                                  }),
+                              () => scrollToExecutionWorkspace(workspaceId),
                               0,
-                            ),
-                          );
+                            );
+                          });
                       }}
                     >
                       {telemetry.preparingManifest || telemetry.implementing ? (
@@ -2443,6 +3392,7 @@ const executionStatusLabel: Record<
   pull_request_open: 'Pull request open',
   preview_ready: 'Preview ready for review',
   releasing: 'Merging reviewed pull request',
+  deployment_verifying: 'Verifying production deployment',
   released: 'Mutation released',
 };
 
@@ -2483,8 +3433,14 @@ function MutationWorkspaceReset({
 
 function ObservationArchivePanel({
   archives,
+  nextCursor,
+  loadArchive,
+  onLoadMore,
 }: {
-  archives: ObservationArchive[];
+  archives: ObservationArchiveSummary[];
+  nextCursor: string | null;
+  loadArchive: (archiveId: string) => Promise<ObservationArchive>;
+  onLoadMore: () => void;
 }) {
   return (
     <section
@@ -2507,24 +3463,72 @@ function ObservationArchivePanel({
         <Database size={19} className="text-mist" />
       </div>
       {archives.map((archive) => (
-        <ObservationArchiveArtifact key={archive.archiveId} archive={archive} />
+        <ObservationArchiveArtifact
+          key={archive.archiveId}
+          archive={archive}
+          loadArchive={loadArchive}
+        />
       ))}
+      {nextCursor && (
+        <div className="archive-pagination">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={onLoadMore}
+          >
+            Load older observation records
+          </button>
+        </div>
+      )}
     </section>
   );
 }
 
 function ObservationArchiveArtifact({
   archive,
+  loadArchive,
 }: {
-  archive: ObservationArchive;
+  archive: ObservationArchiveSummary;
+  loadArchive: (archiveId: string) => Promise<ObservationArchive>;
 }) {
+  const [detail, setDetail] = useState<ObservationArchive | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const deepLinked =
+    window.location.hash === `#observation-${archive.archiveId}`;
+  const [open, setOpen] = useState(deepLinked);
+
+  const hydrate = async () => {
+    if (detail || loading) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setDetail(await loadArchive(archive.archiveId));
+    } catch (reason) {
+      setLoadError(
+        reason instanceof Error ? reason.message : 'Archive detail failed.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (deepLinked) void hydrate();
+  }, []);
+
   const { analysis, evidence, execution } = archive;
   const failed = execution.status === 'failed';
-  const signalCount = evidence.frictionSignals.length;
   return (
     <details
       className="fossil-artifact observation-artifact"
       id={`observation-${archive.archiveId}`}
+      open={open}
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setOpen(nextOpen);
+        if (nextOpen) void hydrate();
+      }}
     >
       <summary>
         <div className="fossil-artifact-summary">
@@ -2557,58 +3561,100 @@ function ObservationArchiveArtifact({
         <ChevronRight className="fossil-artifact-chevron" size={18} />
       </summary>
       <div className="fossil-artifact-detail observation-archive-detail">
-        <div className="observation-archive-stats">
-          <div>
-            <span>Participants</span>
-            <strong>{evidence.study.participants}</strong>
-          </div>
-          <div>
-            <span>Task attempts</span>
-            <strong>{evidence.study.attempts}</strong>
-          </div>
-          <div>
-            <span>Selection pressures</span>
-            <strong>{signalCount}</strong>
-          </div>
-          <div>
-            <span>Reasoned with</span>
-            <strong>{analysis.model}</strong>
-          </div>
-        </div>
-        <div className="observation-archive-copy">
-          <div>
-            <span className="section-label">Evidence assessment</span>
-            <p>{analysis.evidenceAssessment.summary}</p>
-          </div>
-          <div>
-            <span className="section-label">
-              Mutation informed by this evidence
-            </span>
-            <strong>{analysis.selectedMutation.title}</strong>
-            <p>{analysis.selectedMutation.hypothesis}</p>
-          </div>
-        </div>
-        <div className="observation-archive-signals">
-          <span className="section-label">Retained signals</span>
-          {evidence.frictionSignals.map((signal) => (
-            <div key={signal.evidenceId}>
-              <strong>
-                {signal.severity} · {signal.summary}
-              </strong>
-              <span>
-                {signal.support.events} events across {signal.support.sessions}{' '}
-                sessions
-              </span>
+        {loading && (
+          <ArchiveLoading label="Loading evidence journeys and traces" />
+        )}
+        {loadError && (
+          <ArchiveLoadError
+            message={loadError}
+            onRetry={() => void hydrate()}
+          />
+        )}
+        {detail && (
+          <>
+            <div className="observation-archive-stats">
+              <div>
+                <span>Participants</span>
+                <strong>{detail.evidence.study.participants}</strong>
+              </div>
+              <div>
+                <span>Task attempts</span>
+                <strong>{detail.evidence.study.attempts}</strong>
+              </div>
+              <div>
+                <span>Selection pressures</span>
+                <strong>{detail.evidence.frictionSignals.length}</strong>
+              </div>
+              <div>
+                <span>Reasoned with</span>
+                <strong>{detail.analysis.model}</strong>
+              </div>
             </div>
-          ))}
-        </div>
+            <div className="observation-archive-copy">
+              <div>
+                <span className="section-label">Evidence assessment</span>
+                <p>{detail.analysis.evidenceAssessment.summary}</p>
+              </div>
+              <div>
+                <span className="section-label">
+                  Mutation informed by this evidence
+                </span>
+                <strong>{detail.analysis.selectedMutation.title}</strong>
+                <p>{detail.analysis.selectedMutation.hypothesis}</p>
+              </div>
+            </div>
+            <div className="observation-archive-signals">
+              <span className="section-label">Retained signals</span>
+              {detail.evidence.frictionSignals.map((signal) => (
+                <div key={signal.evidenceId}>
+                  <strong>
+                    {signal.severity} · {signal.summary}
+                  </strong>
+                  <span>
+                    {signal.support.events} events across{' '}
+                    {signal.support.sessions} sessions
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </details>
   );
 }
 
+function ArchiveLoading({ label }: { label: string }) {
+  return (
+    <div className="archive-detail-state" aria-live="polite">
+      <CircleDashed className="is-spinning" size={18} /> {label}
+    </div>
+  );
+}
+
+function ArchiveLoadError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="archive-detail-state is-error" role="alert">
+      <AlertTriangle size={18} />
+      <span>{message}</span>
+      <button className="secondary-action" type="button" onClick={onRetry}>
+        Retry detail
+      </button>
+    </div>
+  );
+}
+
 function FossilExecutionArtifact({
   execution,
+  executionDetail,
+  loadExecution,
+  fitnessOutcome,
   mutationTitle,
   manifest,
   releasing,
@@ -2620,7 +3666,10 @@ function FossilExecutionArtifact({
   onReleaseRollback,
   onRetry,
 }: {
-  execution: RepositoryMutationExecution;
+  execution: RepositoryExecutionSummary;
+  executionDetail: RepositoryMutationExecution | null;
+  loadExecution: (executionId: string) => Promise<RepositoryMutationExecution>;
+  fitnessOutcome: FitnessOutcome | null;
   mutationTitle: string | null;
   manifest: CodexImplementationManifest | null;
   releasing: boolean;
@@ -2632,6 +3681,38 @@ function FossilExecutionArtifact({
   onReleaseRollback: () => void;
   onRetry: () => void;
 }) {
+  const [detail, setDetail] = useState<RepositoryMutationExecution | null>(
+    executionDetail,
+  );
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const deepLinked =
+    window.location.hash === `#fossil-${execution.executionId}`;
+  const [open, setOpen] = useState(deepLinked);
+
+  useEffect(() => {
+    if (executionDetail) setDetail(executionDetail);
+  }, [executionDetail]);
+
+  const hydrate = async () => {
+    if (detail || loading) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setDetail(await loadExecution(execution.executionId));
+    } catch (reason) {
+      setLoadError(
+        reason instanceof Error ? reason.message : 'Genome detail failed.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (deepLinked) void hydrate();
+  }, []);
+
   const retained = execution.status === 'released';
   const failed = execution.status === 'failed';
   const rollback = execution.rollback;
@@ -2645,7 +3726,16 @@ function FossilExecutionArtifact({
           : 'CANDIDATE';
 
   return (
-    <details className="fossil-artifact" id={`fossil-${execution.executionId}`}>
+    <details
+      className="fossil-artifact"
+      id={`fossil-${execution.executionId}`}
+      open={open}
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setOpen(nextOpen);
+        if (nextOpen) void hydrate();
+      }}
+    >
       <summary>
         <div className="fossil-artifact-summary">
           <div>
@@ -2674,7 +3764,17 @@ function FossilExecutionArtifact({
           </div>
           <div>
             <span>Fitness</span>
-            <strong>{retained ? 'Measurement pending' : '--'}</strong>
+            <strong>
+              {fitnessOutcome?.status === 'measured'
+                ? `${fitnessOutcome.evolvedScore}/100 · ${signedNumber(fitnessOutcome.delta!)}`
+                : fitnessOutcome?.status === 'insufficient'
+                  ? 'Sample gated'
+                  : fitnessOutcome?.status === 'rolled_back'
+                    ? 'Stopped after rollback'
+                    : retained
+                      ? 'Measurement pending'
+                      : '--'}
+            </strong>
           </div>
           <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
             {artifactState}
@@ -2683,22 +3783,89 @@ function FossilExecutionArtifact({
         <ChevronRight className="fossil-artifact-chevron" size={18} />
       </summary>
       <div className="fossil-artifact-detail">
-        <RepositoryExecutionWorkspace
-          embedded
-          archived
-          execution={execution}
-          manifest={manifest}
-          releasing={releasing}
-          retrying={retrying}
-          rollingBack={rollingBack}
-          releasingRollback={releasingRollback}
-          onRelease={onRelease}
-          onRollback={onRollback}
-          onReleaseRollback={onReleaseRollback}
-          onRetry={onRetry}
-        />
+        {fitnessOutcome && <FitnessOutcomePanel outcome={fitnessOutcome} />}
+        {loading && (
+          <ArchiveLoading label="Loading patch, checks, and Codex output" />
+        )}
+        {loadError && (
+          <ArchiveLoadError
+            message={loadError}
+            onRetry={() => void hydrate()}
+          />
+        )}
+        {detail && (
+          <RepositoryExecutionWorkspace
+            embedded
+            archived
+            execution={detail}
+            manifest={manifest}
+            releasing={releasing}
+            retrying={retrying}
+            rollingBack={rollingBack}
+            releasingRollback={releasingRollback}
+            onRelease={onRelease}
+            onRollback={onRollback}
+            onReleaseRollback={onReleaseRollback}
+            onRetry={onRetry}
+          />
+        )}
       </div>
     </details>
+  );
+}
+
+function FitnessOutcomePanel({ outcome }: { outcome: FitnessOutcome }) {
+  return (
+    <section
+      className="fitness-outcome-panel"
+      aria-label="Persisted fitness outcome"
+    >
+      <div className="fitness-outcome-heading">
+        <div>
+          <span className="section-label">Measured fitness</span>
+          <strong>
+            {outcome.status === 'measured'
+              ? `${outcome.baselineScore}/100 → ${outcome.evolvedScore}/100`
+              : outcome.status === 'rolled_back'
+                ? 'Comparison stopped after rollback'
+                : 'Minimum sample gate not met'}
+          </strong>
+        </div>
+        <code>formula {outcome.formulaVersion}</code>
+      </div>
+      {outcome.components.length > 0 && (
+        <div className="fitness-component-grid">
+          {outcome.components.map((component) => (
+            <div key={component.metric}>
+              <span>{component.metric.replaceAll('_', ' ')}</span>
+              <strong>
+                {component.baselineScore} → {component.evolvedScore}
+              </strong>
+              <code>{component.weight}%</code>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="fitness-cohort-line">
+        <span>
+          Baseline <code>{outcome.baseline.appVersion}</code> ·{' '}
+          {outcome.baseline.terminalAttempts} attempts ·{' '}
+          {outcome.baseline.sessions} sessions
+        </span>
+        <span>
+          Evolved <code>{outcome.evolved.appVersion}</code> ·{' '}
+          {outcome.evolved.terminalAttempts} attempts ·{' '}
+          {outcome.evolved.sessions} sessions
+        </span>
+      </div>
+      {outcome.limitations.length > 0 && (
+        <ul className="fitness-limitations">
+          {outcome.limitations.map((limitation) => (
+            <li key={limitation}>{limitation}</li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -2736,23 +3903,30 @@ function RepositoryExecutionWorkspace({
     'pull_request_open',
     'preview_ready',
     'releasing',
+    'deployment_verifying',
     'released',
   ].includes(status);
   const validationComplete = [
     'pull_request_open',
     'preview_ready',
     'releasing',
+    'deployment_verifying',
     'released',
   ].includes(status);
-  const reviewComplete = ['preview_ready', 'releasing', 'released'].includes(
-    status,
-  );
+  const reviewComplete = [
+    'preview_ready',
+    'releasing',
+    'deployment_verifying',
+    'released',
+  ].includes(status);
+  const regionId = executionWorkspaceId(execution.executionId);
+  const headingId = `${regionId}-title`;
 
   return (
     <section
       className={`${embedded ? 'execution-panel execution-panel-embedded' : 'mt-8 surface-panel execution-panel'}`}
-      id="validation"
-      aria-labelledby="repository-execution-title"
+      id={regionId}
+      aria-labelledby={headingId}
     >
       <div className="panel-heading execution-heading">
         <div>
@@ -2762,10 +3936,7 @@ function RepositoryExecutionWorkspace({
               : 'Live repository mutation'}
           </p>
           <div className="heading-with-help">
-            <h2
-              id="repository-execution-title"
-              className="mt-2 text-xl font-semibold"
-            >
+            <h2 id={headingId} className="mt-2 text-xl font-semibold">
               {archived ? 'Codex execution record' : 'Codex execution'}
             </h2>
             <InfoTip text="A real GitHub Actions run applies the selected manifest to the exact ProjectFlow commit, enforces repository policy, runs validation, opens a pull request, and deploys a review preview. Retained mutations can be rolled back through a separately reviewed inverse pull request." />
@@ -2778,6 +3949,7 @@ function RepositoryExecutionWorkspace({
             'codex_running',
             'validating',
             'releasing',
+            'deployment_verifying',
           ].includes(status) && (
             <CircleDashed className="is-spinning" size={14} />
           )}
@@ -2787,6 +3959,7 @@ function RepositoryExecutionWorkspace({
             'codex_running',
             'validating',
             'releasing',
+            'deployment_verifying',
           ].includes(status) && <GitBranch size={14} />}
           {executionStatusLabel[status]}
         </span>
@@ -2836,7 +4009,7 @@ function RepositoryExecutionWorkspace({
           state={
             status === 'released'
               ? 'complete'
-              : status === 'releasing'
+              : status === 'releasing' || status === 'deployment_verifying'
                 ? 'active'
                 : 'pending'
           }
@@ -2862,6 +4035,15 @@ function RepositoryExecutionWorkspace({
           <span>Branch</span>
           <code>{execution.branch}</code>
         </div>
+        {execution.deploymentVerification && (
+          <div>
+            <span>Production deployment</span>
+            <code>
+              {execution.deploymentVerification.status} ·{' '}
+              {execution.deploymentVerification.expectedAppVersion}
+            </code>
+          </div>
+        )}
       </div>
 
       <div className="repository-links" aria-label="Repository artifacts">
@@ -2890,6 +4072,20 @@ function RepositoryExecutionWorkspace({
           <div>
             <strong>Repository execution stopped</strong>
             <span>{execution.error}</span>
+          </div>
+        </div>
+      )}
+
+      {execution.deploymentVerification?.lastError && (
+        <div className="execution-error" role="status">
+          <CircleDashed className="is-spinning" size={17} />
+          <div>
+            <strong>Production deployment still converging</strong>
+            <span>
+              {execution.deploymentVerification.lastError} · observed{' '}
+              {execution.deploymentVerification.observedAppVersion ??
+                'no identity'}
+            </span>
           </div>
         </div>
       )}
@@ -3036,10 +4232,27 @@ function RepositoryExecutionWorkspace({
                 <Rocket size={16} /> Release reviewed mutation
               </button>
             )}
-            {(status === 'releasing' || releasing) && (
+            {(status === 'releasing' ||
+              (status !== 'deployment_verifying' && releasing)) && (
               <button className="approve-action" type="button" disabled>
                 <CircleDashed className="is-spinning" size={16} /> Merging pull
                 request
+              </button>
+            )}
+            {status === 'deployment_verifying' && releasing && (
+              <button className="approve-action" type="button" disabled>
+                <CircleDashed className="is-spinning" size={16} /> Verifying
+                production deployment
+              </button>
+            )}
+            {status === 'deployment_verifying' && !releasing && (
+              <button
+                className="approve-action"
+                type="button"
+                onClick={onRelease}
+                data-explain="Recheck the ProjectFlow production metadata. The evidence cycle advances only when the deployed commit and app version match the reviewed merge."
+              >
+                <ShieldCheck size={16} /> Check production deployment
               </button>
             )}
             {status === 'released' && (
@@ -3099,13 +4312,19 @@ function RollbackWorkspace({
   const status = rollback?.status;
   const rollbackInProgress =
     status && !['failed', 'released', 'preview_ready'].includes(status);
+  const regionId = `${executionWorkspaceId(execution.executionId)}-rollback`;
+  const headingId = `${regionId}-title`;
 
   return (
-    <section className="rollback-workspace" aria-labelledby="rollback-title">
+    <section
+      className="rollback-workspace"
+      id={regionId}
+      aria-labelledby={headingId}
+    >
       <div className="rollback-heading">
         <div>
           <p className="section-label">Controlled rollback</p>
-          <h3 id="rollback-title" className="mt-2 text-lg font-semibold">
+          <h3 id={headingId} className="mt-2 text-lg font-semibold">
             {rollback?.status === 'released'
               ? 'Mutation reverted through review'
               : 'Prepare a reviewable inverse change'}
@@ -3328,25 +4547,232 @@ function StatusRow({
   );
 }
 
+function OperationalDiagnostics() {
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(
+    null,
+  );
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+
+  const load = async () => {
+    setStatus('loading');
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/diagnostics?limit=50`);
+      if (!response.ok) throw new Error('Diagnostics request failed');
+      const parsed = DiagnosticsResponseSchema.parse(await response.json());
+      setDiagnostics(parsed);
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const exportDiagnostics = () => {
+    if (!diagnostics) return;
+    const blob = new Blob([JSON.stringify(diagnostics, null, 2)], {
+      type: 'application/json',
+    });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `darwin-diagnostics-${diagnostics.generatedAt.slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(href);
+  };
+
+  return (
+    <aside
+      className="surface-panel lg:col-span-2"
+      aria-labelledby="operational-diagnostics-title"
+    >
+      <div className="panel-heading gap-4">
+        <div>
+          <p className="section-label">Operations</p>
+          <div className="heading-with-help">
+            <h2
+              id="operational-diagnostics-title"
+              className="mt-2 text-xl font-semibold"
+            >
+              Operational diagnostics
+            </h2>
+            <InfoTip text="Redacted request transitions and aggregate provider latency retained for 30 days. Request bodies, prompts, telemetry payloads, tokens, and credentials are never included." />
+          </div>
+        </div>
+        <div className="ml-auto flex flex-wrap justify-end gap-2">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() => void load()}
+            disabled={status === 'loading'}
+          >
+            <RefreshCw
+              className={status === 'loading' ? 'is-spinning' : undefined}
+              size={15}
+            />
+            Refresh
+          </button>
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={exportDiagnostics}
+            disabled={!diagnostics}
+          >
+            <Download size={15} /> Export JSON
+          </button>
+        </div>
+      </div>
+
+      {status === 'error' && (
+        <p className="px-5 py-6 text-sm text-amber sm:px-6">
+          Diagnostics are unavailable. Runtime status remains independent.
+        </p>
+      )}
+      {status === 'loading' && !diagnostics && (
+        <p className="px-5 py-6 text-sm text-mist sm:px-6">
+          Loading redacted operational history…
+        </p>
+      )}
+      {diagnostics && (
+        <div className="grid gap-8 px-5 py-6 sm:px-6 xl:grid-cols-2">
+          <section aria-labelledby="provider-metrics-title">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h3 id="provider-metrics-title" className="font-semibold">
+                Provider latency
+              </h3>
+              <span className="font-mono text-[11px] uppercase tracking-wider text-mist">
+                {diagnostics.retentionDays} day retention
+              </span>
+            </div>
+            {diagnostics.metrics.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-line font-mono uppercase tracking-wider text-mist">
+                    <tr>
+                      <th className="pb-3 font-normal">Provider / operation</th>
+                      <th className="pb-3 text-right font-normal">Calls</th>
+                      <th className="pb-3 text-right font-normal">Avg</th>
+                      <th className="pb-3 text-right font-normal">Errors</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {diagnostics.metrics.slice(0, 10).map((metric) => (
+                      <tr key={`${metric.provider}:${metric.operation}`}>
+                        <td className="py-3 pr-3">
+                          <span className="text-signal">{metric.provider}</span>
+                          <span className="text-mist">
+                            {' '}
+                            · {metric.operation}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right font-mono">
+                          {metric.count}
+                        </td>
+                        <td className="py-3 text-right font-mono">
+                          {metric.averageDurationMs} ms
+                        </td>
+                        <td
+                          className={`py-3 text-right font-mono ${metric.failureCount ? 'text-amber' : 'text-mist'}`}
+                        >
+                          {metric.failureCount}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-mist">
+                Provider timings will appear after D1, OpenAI, GitHub, or target
+                verification activity.
+              </p>
+            )}
+          </section>
+
+          <section aria-labelledby="audit-events-title">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h3 id="audit-events-title" className="font-semibold">
+                Privileged transitions
+              </h3>
+              <span className="font-mono text-[11px] text-mist">
+                request {diagnostics.requestId.slice(0, 12)}
+              </span>
+            </div>
+            {diagnostics.events.length ? (
+              <ol className="divide-y divide-line">
+                {diagnostics.events.slice(0, 10).map((event) => (
+                  <li className="grid gap-1 py-3 text-xs" key={event.eventId}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${event.outcome === 'success' ? 'bg-signal' : 'bg-amber'}`}
+                      />
+                      <strong className="font-mono font-medium">
+                        {event.action}
+                      </strong>
+                      <time className="ml-auto text-mist">
+                        {new Date(event.occurredAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </time>
+                    </div>
+                    <span className="pl-3.5 text-mist">
+                      {event.actor} · {event.beforeState ?? '—'} →{' '}
+                      {event.afterState ?? '—'} · {event.durationMs} ms
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-mist">
+                No privileged transitions have been recorded in this retention
+                window.
+              </p>
+            )}
+          </section>
+        </div>
+      )}
+    </aside>
+  );
+}
+
 function OperatorBoundary() {
   const [state, setState] = useState<'checking' | 'locked' | 'unlocked'>(
     'checking',
   );
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<DashboardCapability[]>([]);
 
   const verify = async (candidate?: string) => {
     if (candidate !== undefined) setOperatorToken(candidate);
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/auth/session`);
-      const payload = (await response.json()) as { message?: string };
+      const payload = (await response.json()) as {
+        capabilities?: string[];
+        message?: string;
+      };
       if (!response.ok) {
         throw new Error(payload.message ?? 'Operator authorization failed.');
       }
+      const authorizedCapabilities = (payload.capabilities ?? []).filter(
+        (capability): capability is DashboardCapability =>
+          operatorCapabilities.includes(capability as DashboardCapability),
+      );
+      if (!authorizedCapabilities.includes('observe')) {
+        throw new Error('The access token has no observation capability.');
+      }
+      setCapabilities(authorizedCapabilities);
       setError(null);
       setState('unlocked');
     } catch (reason) {
       setOperatorToken(null);
+      setCapabilities([]);
       setError(
         reason instanceof Error
           ? reason.message
@@ -3360,6 +4786,7 @@ function OperatorBoundary() {
     void verify(getOperatorToken() ?? undefined);
     const lock = () => {
       setOperatorToken(null);
+      setCapabilities([]);
       setState('locked');
       setError('Your operator session is no longer authorized.');
     };
@@ -3368,7 +4795,9 @@ function OperatorBoundary() {
       window.removeEventListener('darwin:operator-unauthorized', lock);
   }, []);
 
-  if (state === 'unlocked') return <DarwinDashboard />;
+  if (state === 'unlocked') {
+    return <DarwinDashboard capabilities={capabilities} />;
+  }
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -3437,7 +4866,7 @@ function OperatorBoundary() {
 
 function App() {
   return import.meta.env.MODE === 'test' ? (
-    <DarwinDashboard />
+    <DarwinDashboard capabilities={operatorCapabilities} />
   ) : (
     <OperatorBoundary />
   );

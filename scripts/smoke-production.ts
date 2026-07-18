@@ -9,6 +9,13 @@ try {
 const apiUrl = 'https://darwin-api.stevie-johnston.workers.dev';
 const controlRoomUrl = 'https://darwin-control-room.pages.dev';
 const projectFlowUrl = 'https://darwin-projectflow.pages.dev';
+const expectedRelease = process.env.DARWIN_RELEASE?.trim();
+const expectedCommit = process.env.DARWIN_COMMIT_SHA?.trim();
+if (!expectedRelease || !expectedCommit) {
+  throw new Error(
+    'DARWIN_RELEASE and DARWIN_COMMIT_SHA are required for production smoke tests.',
+  );
+}
 const operatorToken = process.env.DARWIN_OPERATOR_TOKEN?.trim();
 if (!operatorToken) {
   throw new Error(
@@ -81,8 +88,18 @@ const fetchPageWithSecurityPolicy = async (
 
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
-).json()) as { status: string; version: string };
-if (health.status !== 'ok' || health.version !== '0.23.0') {
+).json()) as {
+  status: string;
+  version: string;
+  commitSha: string;
+  buildId: string;
+};
+if (
+  health.status !== 'ok' ||
+  health.version !== expectedRelease ||
+  health.commitSha !== expectedCommit ||
+  health.buildId !== `v${expectedRelease}@${expectedCommit.slice(0, 7)}`
+) {
   throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
 }
 
@@ -126,8 +143,9 @@ for (const [label, url, title, connectSource] of [
   if (!html.includes(title)) throw new Error(`${label} HTML title is missing.`);
 }
 
-const eventId = crypto.randomUUID();
+const eventId = '00000000-0000-4000-8000-000000001859';
 const studyId = 'projectflow-baseline-automated-study';
+const participantId = 'participant-production-smoke';
 await requireOk(
   await fetch(`${projectFlowUrl}/api/darwin/telemetry/events`, {
     method: 'POST',
@@ -139,8 +157,8 @@ await requireOk(
         {
           schemaVersion: 1,
           eventId,
-          sessionId: `session-${eventId.slice(0, 8)}`,
-          participantId: `participant-${eventId.slice(9, 17)}`,
+          sessionId: 'session-production-smoke',
+          participantId,
           studyId,
           appVersion: '1.0.0',
           source: 'automated',
@@ -183,6 +201,21 @@ if (
   );
 }
 
+const smokeDeletion = (await (
+  await requireOk(
+    await fetch(
+      `${apiUrl}/api/studies/${studyId}/participants/${participantId}`,
+      { method: 'DELETE', headers: operatorHeaders },
+    ),
+    'Smoke telemetry cleanup',
+  )
+).json()) as { deleted: { telemetryEvents: number } };
+if (smokeDeletion.deleted.telemetryEvents < 1) {
+  throw new Error(
+    'The deterministic smoke telemetry event was not cleaned up.',
+  );
+}
+
 const simulation = (await (
   await requireOk(
     await fetch(`${apiUrl}/api/simulations`, {
@@ -210,6 +243,7 @@ console.log(
       projectFlowUrl,
       targetCommit: targetConnection.repository.baseSha,
       d1EventId: eventId,
+      d1EventDeleted: smokeDeletion.deleted.telemetryEvents,
       simulationEvents: simulation.run.eventCount,
     },
     null,

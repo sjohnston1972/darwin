@@ -1,5 +1,6 @@
 import {
   EvidencePackSchema,
+  type EvidenceApplicationMap,
   type EvidenceClass,
   type EvidencePack,
   type EvidenceSignal,
@@ -9,8 +10,8 @@ import {
   type TaskAttempt,
 } from '@darwin/shared';
 
-const parserVersion = '1.2.0' as const;
-const ruleVersion = '1.2.0' as const;
+const parserVersion = '1.3.0' as const;
+const ruleVersion = '1.3.0' as const;
 const declaredInteractionBudget: Record<string, number> = {
   'create-project': 3,
   'create-assigned-task': 5,
@@ -30,6 +31,27 @@ interface SignalCandidate {
   summary: string;
   attempts: string[];
   events: StoredTelemetryEvent[];
+  canonicalGroupKey?: string;
+}
+
+export class EvidenceVersionMismatchError extends Error {
+  readonly appVersions: string[];
+
+  constructor(appVersions: string[]) {
+    super(
+      appVersions.length > 1
+        ? 'Evidence cannot combine telemetry from multiple application versions.'
+        : 'Evidence telemetry does not match the verified deployment version.',
+    );
+    this.name = 'EvidenceVersionMismatchError';
+    this.appVersions = appVersions;
+  }
+}
+
+interface EvidenceDeploymentBoundary {
+  appVersion: string | null;
+  measuredCommit: string | null;
+  deploymentVerifiedAt: string | null;
 }
 
 const terminalTypes = new Set(['task_completed', 'task_failed']);
@@ -37,7 +59,9 @@ const terminalTypes = new Set(['task_completed', 'task_failed']);
 export async function buildEvidencePack(
   studyId: string,
   storedEvents: StoredTelemetryEvent[],
+  applicationMap: EvidenceApplicationMap,
   generatedAt = new Date().toISOString(),
+  deploymentBoundary?: EvidenceDeploymentBoundary,
 ): Promise<EvidencePack> {
   const events = storedEvents
     .filter((event) => event.studyId === studyId)
@@ -46,23 +70,32 @@ export async function buildEvidencePack(
         ? left.sequence - right.sequence
         : left.receivedAt.localeCompare(right.receivedAt),
     );
+  const appVersions = [...new Set(events.map((event) => event.appVersion))];
+  if (
+    appVersions.length > 1 ||
+    (deploymentBoundary?.appVersion &&
+      appVersions[0] !== deploymentBoundary.appVersion)
+  ) {
+    throw new EvidenceVersionMismatchError(appVersions);
+  }
   const taskAttempts = reconstructAttempts(events, generatedAt);
   const candidates = detectFriction(events, taskAttempts);
-  const frictionSignals = candidates.map((candidate, index) =>
-    signalFromCandidate(candidate, index),
+  const frictionSignals = await Promise.all(
+    candidates.map((candidate) => signalFromCandidate(candidate)),
   );
   const tasks = summarizeTasks(taskAttempts);
   const evidenceClass = evidenceClassFor(events);
-  const quality = assessEvidence(events, taskAttempts);
+  const quality = assessEvidence(events, taskAttempts, generatedAt);
   const journeys = buildJourneys(events);
-  const appVersion = events.at(-1)?.appVersion ?? 'unknown';
-  const evolved = appVersion.startsWith('1.1');
+  const appVersion = appVersions[0] ?? 'unknown';
   const payload = {
     parserVersion,
     evidenceClass,
     study: {
       studyId,
       appVersion,
+      measuredCommit: deploymentBoundary?.measuredCommit ?? null,
+      deploymentVerifiedAt: deploymentBoundary?.deploymentVerifiedAt ?? null,
       sourceEventCount: events.length,
       participants: new Set(events.map((event) => event.participantId)).size,
       sessions: new Set(events.map((event) => event.sessionId)).size,
@@ -73,110 +106,7 @@ export async function buildEvidencePack(
     quality,
     journeys,
     frictionSignals,
-    applicationMap: {
-      product: {
-        name: 'ProjectFlow' as const,
-        purpose:
-          'A project-management workspace for finding assigned work, coordinating projects, creating tasks, and reviewing delivery health.',
-        primaryUser:
-          'A knowledge worker managing personal tasks and shared project delivery.',
-        domainEntities: ['workspace', 'project', 'task', 'user', 'report'],
-        primaryGoals: [
-          'find assigned work',
-          'create and assign tasks',
-          'monitor project delivery',
-          'review team workload',
-        ],
-      },
-      activeVariant: {
-        name: evolved ? ('evolved' as const) : ('baseline' as const),
-        version: appVersion,
-        navigation: evolved
-          ? ['Dashboard', 'My Work', 'Projects', 'Insights', 'Settings']
-          : ['Dashboard', 'Projects', 'Reports', 'Settings'],
-        capabilities: evolved
-          ? [
-              'global task search',
-              'direct My Work route',
-              'global quick-create task',
-              'project task directory',
-              'delivery insights',
-            ]
-          : [
-              'dashboard task summary',
-              'project directory',
-              'project-scoped task search',
-              'project-scoped task creation',
-              'standalone reports',
-            ],
-      },
-      interfaceInventory: [
-        {
-          area: 'dashboard',
-          purpose: 'Summarise work, project health, capacity, and activity.',
-          primaryActions: ['open a project', 'inspect assigned tasks'],
-        },
-        {
-          area: 'projects',
-          purpose: 'Browse projects before opening project-scoped work.',
-          primaryActions: ['search projects', 'create project', 'open project'],
-        },
-        {
-          area: 'task-discovery',
-          purpose: 'Find and open work assigned to the current user.',
-          primaryActions: evolved
-            ? ['open My Work', 'use global task search', 'open task']
-            : [
-                'open Projects',
-                'open project',
-                'open task directory',
-                'search tasks',
-                'open task',
-              ],
-        },
-        {
-          area: 'reporting',
-          purpose: 'Review delivery metrics and project status.',
-          primaryActions: evolved
-            ? ['open Insights']
-            : ['open standalone Reports'],
-        },
-        {
-          area: 'global-header',
-          purpose: 'Provide workspace-wide actions and navigation context.',
-          primaryActions: evolved
-            ? ['search all tasks', 'create task']
-            : ['view notifications'],
-        },
-        {
-          area: 'work-items',
-          purpose:
-            'Present project and task summaries with clear actions and readable supporting detail.',
-          primaryActions: [
-            'inspect item details',
-            'open item',
-            'reorder item when supported',
-          ],
-        },
-      ],
-      routes: [...new Set(events.map((event) => event.route))].sort(),
-      mutableAreas: [
-        'navigation',
-        'search',
-        'task-discovery',
-        'item-presentation',
-        'contextual-help',
-        'interaction-behavior',
-        'drag-and-drop',
-        'in-app-history',
-        'typography',
-      ],
-      protectedAreas: [
-        'telemetry-history',
-        'authentication',
-        'database-schema',
-      ],
-    },
+    applicationMap,
   };
   const evidenceHash = await sha256(canonicalStringify(payload));
   return EvidencePackSchema.parse({
@@ -490,7 +420,8 @@ function detectFriction(
   return compactBehaviorCandidates(candidates).sort(
     (left, right) =>
       order.indexOf(left.ruleId) - order.indexOf(right.ruleId) ||
-      (left.taskId ?? '').localeCompare(right.taskId ?? ''),
+      (left.taskId ?? '').localeCompare(right.taskId ?? '') ||
+      canonicalSignalKey(left).localeCompare(canonicalSignalKey(right)),
   );
 }
 
@@ -514,51 +445,82 @@ function compactBehaviorCandidates(candidates: SignalCandidate[]) {
       continue;
     }
     const representative = candidate.events[0];
-    const key = [
-      candidate.ruleId,
-      candidate.taskId ?? 'session',
-      representative ? (targetOf(representative) ?? representative.route) : '',
-    ].join(':');
+    const key = representative
+      ? canonicalStringify({
+          ruleId: candidate.ruleId,
+          taskId: candidate.taskId ?? 'session',
+          appVersion: representative.appVersion,
+          route: representative.route,
+          targetId: targetOf(representative) ?? null,
+          viewport: representative.viewport,
+          context: behaviorContext(representative),
+        })
+      : canonicalSignalKey(candidate);
     const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, { ...candidate });
+      grouped.set(key, { ...candidate, canonicalGroupKey: key });
       continue;
     }
-    existing.events = [...existing.events, ...candidate.events].slice(0, 12);
+    existing.events = [...existing.events, ...candidate.events];
     existing.attempts = [
       ...new Set([...existing.attempts, ...candidate.attempts]),
-    ];
+    ].sort();
     if (severityRank(candidate.severity) > severityRank(existing.severity)) {
       existing.severity = candidate.severity;
     }
-    const count = existing.events.length;
+    const count = new Set(existing.events.map((event) => event.eventId)).size;
     existing.summary = `${existing.summary.split(' Observed ')[0]} Observed ${count} times in this bounded evidence group.`;
   }
   return [...compacted, ...grouped.values()];
 }
 
+function behaviorContext(event: StoredTelemetryEvent) {
+  switch (event.eventType) {
+    case 'interaction_signal':
+      return {
+        signal: event.properties.signal,
+        pointerType: event.properties.pointerType,
+        relatedTargetIds: [...(event.properties.relatedTargetIds ?? [])].sort(),
+      };
+    case 'hover_ended':
+    case 'drag_attempted':
+    case 'touch_cancelled':
+      return { pointerType: event.properties.pointerType };
+    case 'browser_navigation':
+      return {
+        direction: event.properties.direction,
+        fromRoute: event.properties.fromRoute,
+        toRoute: event.properties.toRoute,
+      };
+    case 'viewport_zoom_changed':
+      return { direction: 'increase' };
+    default:
+      return {};
+  }
+}
+
 const severityRank = (severity: EvidenceSignal['severity']) =>
   ({ low: 0, medium: 1, high: 2 })[severity];
 
-function signalFromCandidate(
+async function signalFromCandidate(
   candidate: SignalCandidate,
-  index: number,
-): EvidenceSignal {
+): Promise<EvidenceSignal> {
   const uniqueEvents = [
     ...new Map(
       candidate.events.map((event) => [event.eventId, event]),
     ).values(),
-  ];
+  ].sort(compareEvidenceEvents);
+  const groupHash = await sha256(canonicalSignalKey(candidate));
   return {
-    evidenceId: `EV-${String(index + 1).padStart(3, '0')}`,
+    evidenceId: `EV-${groupHash.slice(0, 12)}`,
     ruleId: candidate.ruleId,
     ruleVersion,
     severity: candidate.severity,
     ...(candidate.taskId ? { taskId: candidate.taskId } : {}),
     summary: candidate.summary,
-    affectedAttemptIds: candidate.attempts,
+    affectedAttemptIds: [...new Set(candidate.attempts)].sort(),
     supportingEventIds: uniqueEvents.map((event) => event.eventId),
-    trace: uniqueEvents.slice(0, 12).map(traceEvent),
+    trace: representativeEvents(uniqueEvents, 12).map(traceEvent),
     support: {
       events: uniqueEvents.length,
       attempts: new Set(candidate.attempts).size,
@@ -567,6 +529,62 @@ function signalFromCandidate(
         .size,
     },
   };
+}
+
+function canonicalSignalKey(candidate: SignalCandidate) {
+  if (candidate.canonicalGroupKey) return candidate.canonicalGroupKey;
+  return canonicalStringify({
+    ruleId: candidate.ruleId,
+    taskId: candidate.taskId ?? 'session',
+    attempts: [...new Set(candidate.attempts)].sort(),
+    appVersions: [
+      ...new Set(candidate.events.map((event) => event.appVersion)),
+    ].sort(),
+    routes: [...new Set(candidate.events.map((event) => event.route))].sort(),
+    targets: [
+      ...new Set(candidate.events.map(targetOf).filter(Boolean)),
+    ].sort(),
+  });
+}
+
+function representativeEvents(events: StoredTelemetryEvent[], limit: number) {
+  if (events.length <= limit) return events;
+  const buckets = new Map<string, StoredTelemetryEvent[]>();
+  for (const event of events) {
+    const key = `${event.participantId}:${event.sessionId}`;
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(event);
+    buckets.set(key, bucket);
+  }
+  const orderedBuckets = [...buckets.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, bucket]) => bucket.sort(compareEvidenceEvents));
+  const selected: StoredTelemetryEvent[] = [];
+  for (let round = 0; selected.length < limit; round += 1) {
+    let found = false;
+    for (const bucket of orderedBuckets) {
+      const event = bucket[round];
+      if (!event) continue;
+      selected.push(event);
+      found = true;
+      if (selected.length === limit) break;
+    }
+    if (!found) break;
+  }
+  return selected.sort(compareEvidenceEvents);
+}
+
+function compareEvidenceEvents(
+  left: StoredTelemetryEvent,
+  right: StoredTelemetryEvent,
+) {
+  return (
+    left.occurredAt.localeCompare(right.occurredAt) ||
+    left.participantId.localeCompare(right.participantId) ||
+    left.sessionId.localeCompare(right.sessionId) ||
+    left.sequence - right.sequence ||
+    left.eventId.localeCompare(right.eventId)
+  );
 }
 
 function traceEvent(event: StoredTelemetryEvent): EvidenceTraceEvent {
@@ -584,29 +602,77 @@ function traceEvent(event: StoredTelemetryEvent): EvidenceTraceEvent {
 function assessEvidence(
   events: StoredTelemetryEvent[],
   attempts: TaskAttempt[],
+  generatedAt: string,
 ) {
+  const minimumEvents = 50;
+  const minimumSessions = 3;
+  const minimumParticipants = 3;
+  const minimumTerminalAttempts = 3;
+  const maximumAgeDays = 7;
   const sessionCount = new Set(events.map((event) => event.sessionId)).size;
   const participantCount = new Set(events.map((event) => event.participantId))
     .size;
   const completedAttemptCount = attempts.filter(
     (attempt) => attempt.outcome === 'success',
   ).length;
-  const score = Math.min(
-    100,
-    Math.min(25, Math.floor(events.length / 4)) +
-      Math.min(30, sessionCount * 15) +
-      Math.min(30, participantCount * 15) +
-      Math.min(15, completedAttemptCount * 5),
+  const terminalAttemptCount = attempts.filter(
+    (attempt) => attempt.outcome === 'success' || attempt.outcome === 'failed',
+  ).length;
+  const volumeScore = coverageScore(events.length, minimumEvents);
+  const diversityScore = Math.min(
+    coverageScore(sessionCount, minimumSessions),
+    coverageScore(participantCount, minimumParticipants),
   );
+  const completionScore = coverageScore(
+    terminalAttemptCount,
+    minimumTerminalAttempts,
+  );
+  const latestEventAt = events.reduce(
+    (latest, event) => (event.occurredAt > latest ? event.occurredAt : latest),
+    events[0]!.occurredAt,
+  );
+  const evidenceAgeMs = Math.max(
+    0,
+    Date.parse(generatedAt) - Date.parse(latestEventAt),
+  );
+  const evidenceAgeDays = Math.floor(evidenceAgeMs / (24 * 60 * 60 * 1_000));
+  const maximumAgeMs = maximumAgeDays * 24 * 60 * 60 * 1_000;
+  const recencyScore = Math.max(
+    0,
+    Math.round(100 - (evidenceAgeDays / maximumAgeDays) * 50),
+  );
+  const dimensionScores = [
+    volumeScore,
+    diversityScore,
+    completionScore,
+    recencyScore,
+  ];
+  const weakestScore = Math.min(...dimensionScores);
+  const score = Math.round(
+    dimensionScores.reduce((total, value) => total + value, 0) /
+      dimensionScores.length,
+  );
+  const meetsSubstantialGates =
+    events.length >= minimumEvents &&
+    sessionCount >= minimumSessions &&
+    participantCount >= minimumParticipants &&
+    terminalAttemptCount >= minimumTerminalAttempts &&
+    evidenceAgeMs <= maximumAgeMs;
   const limitations: string[] = [];
-  if (events.length < 50)
-    limitations.push('Fewer than 50 semantic events were observed.');
-  if (sessionCount < 3)
+  if (events.length < minimumEvents)
+    limitations.push(
+      `Event volume is below the ${minimumEvents}-event coverage gate.`,
+    );
+  if (sessionCount < minimumSessions)
     limitations.push('Fewer than three independent sessions were observed.');
-  if (participantCount < 3)
+  if (participantCount < minimumParticipants)
     limitations.push('Fewer than three anonymous participants were observed.');
-  if (completedAttemptCount < 3)
-    limitations.push('Fewer than three completed task attempts were observed.');
+  if (terminalAttemptCount < minimumTerminalAttempts)
+    limitations.push('Fewer than three terminal task attempts were observed.');
+  if (evidenceAgeMs > maximumAgeMs)
+    limitations.push(
+      'The newest event is older than the seven-day recency gate.',
+    );
   if (events.every((event) => event.source === 'automated')) {
     limitations.push(
       'The evidence was produced by automated browser sessions, not people.',
@@ -614,7 +680,7 @@ function assessEvidence(
   }
   return {
     strength:
-      score >= 75
+      meetsSubstantialGates && score >= 75
         ? ('substantial' as const)
         : score >= 35
           ? ('directional' as const)
@@ -624,9 +690,34 @@ function assessEvidence(
     sessionCount,
     participantCount,
     completedAttemptCount,
+    terminalAttemptCount,
+    dimensions: {
+      volume: {
+        score: volumeScore,
+        observedEvents: events.length,
+        minimumEvents,
+      },
+      diversity: {
+        score: diversityScore,
+        observedParticipants: participantCount,
+        minimumParticipants,
+        observedSessions: sessionCount,
+        minimumSessions,
+      },
+      completion: {
+        score: completionScore,
+        terminalAttempts: terminalAttemptCount,
+        minimumTerminalAttempts,
+      },
+      recency: { score: recencyScore, latestEventAt, maximumAgeDays },
+      weakestScore,
+    },
     limitations,
   };
 }
+
+const coverageScore = (observed: number, minimum: number) =>
+  Math.min(100, Math.round((observed / minimum) * 100));
 
 function buildJourneys(events: StoredTelemetryEvent[]) {
   const sessions = new Map<string, StoredTelemetryEvent[]>();

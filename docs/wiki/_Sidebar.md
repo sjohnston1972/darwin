@@ -4,6 +4,7 @@
 - [Getting Started](Getting-Started)
 - [Architecture](Architecture)
 - [Telemetry and Evidence](Telemetry-and-Evidence)
+- [Darwin Lab](Darwin-Lab)
 - [AI and Mutation Workflow](AI-and-Mutation-Workflow)
 - [Demo Runbook](Demo-Runbook)
 - [Operations and Deployment](Operations-and-Deployment)

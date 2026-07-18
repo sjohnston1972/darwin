@@ -18,6 +18,28 @@ const quality = {
   sessionCount: 1,
   participantCount: 1,
   completedAttemptCount: 1,
+  terminalAttemptCount: 1,
+  dimensions: {
+    volume: { score: 100, observedEvents: 80, minimumEvents: 50 },
+    diversity: {
+      score: 33,
+      observedParticipants: 1,
+      minimumParticipants: 3,
+      observedSessions: 1,
+      minimumSessions: 3,
+    },
+    completion: {
+      score: 33,
+      terminalAttempts: 1,
+      minimumTerminalAttempts: 3,
+    },
+    recency: {
+      score: 100,
+      latestEventAt: '2026-07-16T12:00:00.000Z',
+      maximumAgeDays: 7,
+    },
+    weakestScore: 33,
+  },
   limitations: [
     'Fewer than three independent sessions were observed.',
     'Fewer than three anonymous participants were observed.',
@@ -91,6 +113,10 @@ const pack = EvidencePackSchema.parse({
     },
   ],
   applicationMap: {
+    source: {
+      repositorySha: 'b'.repeat(40),
+      sourceHash: 'c'.repeat(64),
+    },
     product: {
       name: 'ProjectFlow',
       purpose: 'Project management workspace.',
@@ -98,9 +124,8 @@ const pack = EvidencePackSchema.parse({
       domainEntities: ['project', 'task', 'user'],
       primaryGoals: ['find assigned work'],
     },
-    activeVariant: {
-      name: 'baseline',
-      version: '1.0.0',
+    activeGenome: {
+      version: 'bbbbbbbbbbbb',
       navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
       capabilities: ['project-scoped task search'],
     },
@@ -136,6 +161,7 @@ const repositorySnapshot: RepositorySnapshot = {
     productionUrl: 'https://darwin-projectflow.pages.dev/',
     studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
   },
+  applicationMap: pack.applicationMap,
   target: {
     targetId: 'projectflow',
     name: 'ProjectFlow',
@@ -266,6 +292,7 @@ describe('evidence-backed reasoning v2', () => {
               ...modelOutput.evidenceAssessment.pressureClusters[0],
               affectedTargets: [
                 'invented-control',
+                'nav-projects',
                 '/study/projects/apollo',
                 'Task row',
               ],
@@ -278,6 +305,74 @@ describe('evidence-backed reasoning v2', () => {
     expect(
       normalized.evidenceAssessment.pressureClusters[0]?.affectedTargets,
     ).toEqual(['nav-projects']);
+  });
+
+  it('rejects duplicate and causally incoherent portfolio identifiers', () => {
+    const expectIncoherent = (value: unknown, evidencePack = pack) => {
+      try {
+        validateModelOutput(value, evidencePack);
+        throw new Error('Expected incoherent model output to be rejected.');
+      } catch (error) {
+        expect(error).toBeInstanceOf(EvidenceReasoningError);
+        expect(error).toMatchObject({ code: 'incoherent_model_output' });
+      }
+    };
+    const cluster = modelOutput.evidenceAssessment.pressureClusters[0]!;
+
+    expectIncoherent({
+      ...modelOutput,
+      evidenceAssessment: {
+        ...modelOutput.evidenceAssessment,
+        pressureClusters: [cluster, { ...cluster, title: 'Duplicate cluster' }],
+      },
+    });
+    expectIncoherent({
+      ...modelOutput,
+      alternatives: [
+        {
+          ...modelOutput.alternatives[0],
+          id: modelOutput.selectedMutation.id,
+        },
+        modelOutput.alternatives[1],
+      ],
+    });
+
+    const secondEventId = '00000000-0000-4000-8000-000000000002';
+    const packWithSecondEvidence = {
+      ...pack,
+      frictionSignals: [
+        ...pack.frictionSignals,
+        {
+          ...pack.frictionSignals[0]!,
+          evidenceId: 'EV-002',
+          supportingEventIds: [secondEventId],
+          trace: [
+            {
+              ...pack.frictionSignals[0]!.trace[0]!,
+              eventId: secondEventId,
+              targetId: 'task-search',
+            },
+          ],
+        },
+      ],
+    };
+    expectIncoherent(
+      {
+        ...modelOutput,
+        selectedMutation: {
+          ...modelOutput.selectedMutation,
+          evidenceIds: ['EV-002'],
+        },
+      },
+      packWithSecondEvidence,
+    );
+    expectIncoherent({
+      ...modelOutput,
+      evidenceAssessment: {
+        ...modelOutput.evidenceAssessment,
+        pressureClusters: [{ ...cluster, affectedTargets: [] }],
+      },
+    });
   });
 
   it('uses ordered journeys and returns an evidence-normalized portfolio', async () => {
@@ -307,6 +402,9 @@ describe('evidence-backed reasoning v2', () => {
     expect(
       analysis.selectedMutation.scorecard.evidenceStrength,
     ).toBeLessThanOrEqual(quality.score);
+    expect(
+      analysis.selectedMutation.scorecard.evidenceStrength,
+    ).toBeLessThanOrEqual(quality.dimensions.weakestScore);
     expect(analysis.selectedMutation.confidence).toBe(
       analysis.selectedMutation.scorecard.evidenceStrength / 100,
     );
@@ -356,7 +454,7 @@ describe('evidence-backed reasoning v2', () => {
       feasibility: 100,
       validationClarity: 100,
     });
-    expect(normalized.selectedMutation.scorecard.total).toBeGreaterThan(80);
+    expect(normalized.selectedMutation.scorecard.total).toBe(77);
   });
 
   it('fails closed without live GPT instead of returning a substitute mutation', async () => {

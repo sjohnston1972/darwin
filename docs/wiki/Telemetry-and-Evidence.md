@@ -1,5 +1,7 @@
 # Telemetry and Evidence
 
+> Canonical collection and parsing plan: [`docs/REAL_TELEMETRY_PLAN.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/REAL_TELEMETRY_PLAN.md). This page explains how to operate the current implementation.
+
 ## Design goal
 
 Darwin needs enough behavioral context to reason about product friction without turning the telemetry client into a session-replay recorder.
@@ -23,17 +25,17 @@ Zod discriminated unions reject unknown fields and invalid ranges.
 
 ## Captured event types
 
-| Category | Events and measurements |
-| --- | --- |
-| lifecycle | session start/end, page view |
-| navigation | route change, browser Back/Forward |
-| click | target ID, pointer type, click count, normalized position |
-| hover | start/end, duration, click outcome, immediate exit, hover-to-click |
-| pointer | target transitions, direction-change count, indecision window |
-| gesture | drag attempt, draggable state, bounded distance, touch cancel |
-| readability | relative viewport/browser zoom change |
-| workflow | task start, completion, failure, abandonment |
-| form/search | error codes, query length, result count |
+| Category    | Events and measurements                                            |
+| ----------- | ------------------------------------------------------------------ |
+| lifecycle   | session start/end, page view                                       |
+| navigation  | route change, browser Back/Forward                                 |
+| click       | target ID, pointer type, click count, normalized position          |
+| hover       | start/end, duration, click outcome, immediate exit, hover-to-click |
+| pointer     | target transitions, direction-change count, indecision window      |
+| gesture     | drag attempt, draggable state, bounded distance, touch cancel      |
+| readability | relative viewport/browser zoom change                              |
+| workflow    | task start, completion, failure, abandonment                       |
+| form/search | error codes, query length, result count                            |
 
 ## Explicit exclusions
 
@@ -50,9 +52,15 @@ Darwin does not collect:
 
 ## Browser delivery
 
-The telemetry client keeps a local outbox, batches at most 50 events, posts to `/api/telemetry/events`, and uses event IDs for idempotency. D1 stores the original validated event JSON plus indexed study/session fields and a server receipt timestamp.
+The telemetry client keeps a local outbox, batches at most 50 events, posts to `/api/telemetry/events`, and uses event IDs for idempotency. Events leave the outbox only when a schema-valid server receipt accounts for the complete batch. Beacon delivery during page hide is treated as an unacknowledged attempt, so the same event IDs are safely retried and deduplicated later.
 
-Delivery reliability and ingestion authentication are active hardening items. See issues [#2](https://github.com/sjohnston1972/darwin/issues/2) and [#11](https://github.com/sjohnston1972/darwin/issues/11).
+Failed and rate-limited delivery uses bounded exponential backoff with jitter and honors `Retry-After`. Storage quota/privacy failures fall back to the in-memory outbox. `client.health()` and the optional `onHealth` callback expose outbox size, dropped-event count, storage failures, delivery failures, consecutive failures, and the next retry time; overflow is bounded and never silent. Timer-driven flushes contain failures so instrumentation cannot create unhandled promise rejections in ProjectFlow.
+
+D1 stores the original validated event JSON plus indexed study/session fields and a server receipt timestamp.
+
+The ingestion authentication and operational rejection boundary is documented in [Security and Privacy](Security-and-Privacy.md).
+
+Raw records expire after 30 days and ingestion is bounded to 50,000 events per study and 250,000 for the configured target by default. The full data-class matrix, nightly compaction and operator deletion behavior are defined in [Data retention and deletion](../RETENTION.md).
 
 ## Deterministic parsing
 
@@ -91,17 +99,17 @@ Signal aggregation is being improved in issue [#8](https://github.com/sjohnston1
 
 ## Evidence quality
 
-Evidence quality currently reports:
+Evidence quality reports four independent 0-100 dimensions:
 
-- event count;
-- independent session count;
-- anonymous participant count;
-- completed attempt count;
-- a 0-100 coverage score;
+- volume against a 50-event gate;
+- diversity against three independent sessions and three anonymous participants;
+- completion against three terminal task attempts;
+- recency against a seven-day gate;
+- a composite 0-100 coverage score and the weakest dimension;
 - `insufficient`, `directional`, or `substantial` strength;
 - explicit limitations.
 
-It is a coverage indicator, not statistical significance. Minimum diversity gates are tracked in issue [#9](https://github.com/sjohnston1972/darwin/issues/9).
+`substantial` is possible only when every minimum gate is met. Candidate evidence strength and confidence cannot exceed the weakest coverage dimension. This is a coverage indicator, not statistical significance.
 
 ## Measured versus synthetic
 
