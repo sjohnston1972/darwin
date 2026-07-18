@@ -302,8 +302,8 @@ function DarwinDashboard({
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute('content', theme === 'light' ? '#f4f7fb' : '#101211');
   }, [theme]);
-  const recentSessions = liveTelemetry.sessionCount;
-  const recentParticipants = liveTelemetry.participantCount;
+  const studySessions = Object.keys(liveTelemetry.sessionCounts).length;
+  const studyParticipants = liveTelemetry.participantCount;
   const latestReleasedExecution = liveTelemetry.genomeExecutions.find(
     (execution) => execution.status === 'released',
   );
@@ -381,10 +381,10 @@ function DarwinDashboard({
     },
     {
       label: 'Measured sessions',
-      help: 'Independent browser journeys represented by the current live event window.',
-      value: String(recentSessions),
-      meta: `${recentParticipants} anonymous participants`,
-      tone: recentSessions ? 'signal' : 'neutral',
+      help: 'Independent browser journeys across the complete measured study cycle, including sessions outside the recent trace window.',
+      value: String(studySessions),
+      meta: `${studyParticipants} anonymous participants`,
+      tone: studySessions ? 'signal' : 'neutral',
     },
     {
       label: 'Evidence strength',
