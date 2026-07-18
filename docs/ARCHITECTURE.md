@@ -43,6 +43,7 @@ GET  /api/health
 POST /api/demo/reset
 POST /api/telemetry/events
 GET  /api/studies/:study/events
+GET  /api/studies/:study/events/raw
 GET  /api/studies/:study/sessions/:session
 POST /api/studies/:study/evidence
 GET  /api/studies/:study/evidence/latest

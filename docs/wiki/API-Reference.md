@@ -54,7 +54,8 @@ Reset completion verification is tracked in issue #10.
 | Method | Route                                                         | Purpose                             |
 | ------ | ------------------------------------------------------------- | ----------------------------------- |
 | POST   | `/api/telemetry/events`                                       | ingest 1-50 strict semantic events  |
-| GET    | `/api/studies/:studyId/events?limit=200`                      | recent events plus aggregate counts |
+| GET    | `/api/studies/:studyId/events`                                | aggregate-only study counts          |
+| GET    | `/api/studies/:studyId/events/raw?limit=200`                  | recent pseudonymous event records    |
 | GET    | `/api/studies/:studyId/sessions/:sessionId`                   | ordered session trace               |
 | GET    | `/api/studies/:studyId/participants/:participantId/workspace` | get anonymous ProjectFlow workspace |
 | PUT    | `/api/studies/:studyId/participants/:participantId/workspace` | replace validated workspace         |
@@ -72,6 +73,8 @@ Ingestion returns:
 The batch body is capped at 256 KB and the event list at 50 records. Production ProjectFlow calls a same-origin Pages Function, which signs the timestamp, target, deployment origin, edge-derived client key, and exact body with `PROJECTFLOW_INGESTION_SECRET`. The Worker rejects unsigned requests, stale or invalid signatures, exact request replays, unsupported studies/provenance/versions, and target-origin mismatches. `PROJECTFLOW_ALLOWED_APP_VERSIONS` is a comma-separated allow-list for named baseline versions; commit and candidate versions must also match the connected repository or a recorded execution.
 
 `GET /api/operations/metrics` returns persistent counts for telemetry requests, accepted/rejected/duplicate events, authentication failures, request replays, context failures, and rate limits. It is an authenticated control-plane route and never exposes credentials or event payloads.
+
+The default events response contains only total event, session, participant, and behavioral-signal counts. It omits event records and participant/session identifiers and requires the `observe` capability. The `/events/raw` and `/sessions/:sessionId` routes require `inspect_evidence` and return pseudonymous traces only to evidence inspectors.
 
 ## Evidence and reasoning
 

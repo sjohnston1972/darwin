@@ -6,6 +6,7 @@ import {
   ObservationArchivesResponseSchema,
   RepositoryMutationExecutionSchema,
   StudyEventsResponseSchema,
+  StudyTelemetrySummarySchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
@@ -22,6 +23,7 @@ const eventWindowLimit = 200;
 
 export interface LiveTelemetryState {
   behaviorSignalCount: number;
+  canInspectEvidence: boolean;
   count: number;
   clearError: () => void;
   analysis: EvidenceAnalysis | null;
@@ -43,6 +45,7 @@ export interface LiveTelemetryState {
   releasingRollback: boolean;
   rollingBack: boolean;
   participantCount: number;
+  sessionCount: number;
   resetState: () => void;
   resetEvolution: () => Promise<boolean>;
   sessionCounts: Record<string, number>;
@@ -55,13 +58,16 @@ export interface LiveTelemetryState {
   startRollback: (executionId?: string) => Promise<void>;
 }
 
-export function useLiveTelemetry(): LiveTelemetryState {
+export function useLiveTelemetry(
+  canInspectEvidence: boolean,
+): LiveTelemetryState {
   const [events, setEvents] = useState<StoredTelemetryEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
   const [sessionCounts, setSessionCounts] = useState<Record<string, number>>(
     {},
   );
+  const [sessionCount, setSessionCount] = useState(0);
   const [participantCount, setParticipantCount] = useState(0);
   const [behaviorSignalCount, setBehaviorSignalCount] = useState(0);
   const [analysis, setAnalysis] = useState<EvidenceAnalysis | null>(null);
@@ -110,6 +116,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setEvents([]);
     setCount(0);
     setSessionCounts({});
+    setSessionCount(0);
     setParticipantCount(0);
     setBehaviorSignalCount(0);
     setEvidence(null);
@@ -121,18 +128,37 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setRefreshing(true);
     setError(null);
     try {
-      const response = await apiFetch(
-        `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}`,
+      const summaryResponse = await apiFetch(
+        `${apiBaseUrl}/api/studies/${studyId}/events`,
       );
-      if (!response.ok) throw new Error('Live telemetry request failed.');
-      const result = StudyEventsResponseSchema.parse(await response.json());
-      setEvents(result.events);
-      setCount(result.count);
-      setSessionCounts(result.sessionCounts);
-      setParticipantCount(result.participantCount);
-      setBehaviorSignalCount(result.behaviorSignalCount);
+      if (!summaryResponse.ok)
+        throw new Error('Live telemetry request failed.');
+      const summary = StudyTelemetrySummarySchema.parse(
+        await summaryResponse.json(),
+      );
+      setCount(summary.count);
+      setSessionCount(summary.sessionCount);
+      setParticipantCount(summary.participantCount);
+      setBehaviorSignalCount(summary.behaviorSignalCount);
+      if (canInspectEvidence) {
+        const traceResponse = await apiFetch(
+          `${apiBaseUrl}/api/studies/${studyId}/events/raw?limit=${eventWindowLimit}`,
+        );
+        if (!traceResponse.ok)
+          throw new Error('Evidence inspector request failed.');
+        const trace = StudyEventsResponseSchema.parse(
+          await traceResponse.json(),
+        );
+        setEvents(trace.events);
+        setSessionCounts(trace.sessionCounts);
+      } else {
+        setEvents([]);
+        setSessionCounts({});
+      }
       setStatus('live');
-      await Promise.all([refreshGenome(), refreshObservationArchives()]);
+      if (canInspectEvidence) {
+        await Promise.all([refreshGenome(), refreshObservationArchives()]);
+      }
     } catch (error) {
       setStatus('offline');
       setError(
@@ -147,22 +173,38 @@ export function useLiveTelemetry(): LiveTelemetryState {
 
   useEffect(() => {
     let active = true;
-    void refreshGenome().catch(() => undefined);
-    void refreshObservationArchives().catch(() => undefined);
+    if (canInspectEvidence) {
+      void refreshGenome().catch(() => undefined);
+      void refreshObservationArchives().catch(() => undefined);
+    }
     const load = async () => {
       const generation = resetGeneration.current;
       try {
-        const response = await apiFetch(
-          `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}`,
+        const summaryResponse = await apiFetch(
+          `${apiBaseUrl}/api/studies/${studyId}/events`,
         );
-        if (!response.ok) throw new Error('Live telemetry request failed.');
-        const result = StudyEventsResponseSchema.parse(await response.json());
+        if (!summaryResponse.ok)
+          throw new Error('Live telemetry request failed.');
+        const summary = StudyTelemetrySummarySchema.parse(
+          await summaryResponse.json(),
+        );
+        let trace: ReturnType<typeof StudyEventsResponseSchema.parse> | null =
+          null;
+        if (canInspectEvidence) {
+          const traceResponse = await apiFetch(
+            `${apiBaseUrl}/api/studies/${studyId}/events/raw?limit=${eventWindowLimit}`,
+          );
+          if (!traceResponse.ok)
+            throw new Error('Evidence inspector request failed.');
+          trace = StudyEventsResponseSchema.parse(await traceResponse.json());
+        }
         if (active && generation === resetGeneration.current) {
-          setEvents(result.events);
-          setCount(result.count);
-          setSessionCounts(result.sessionCounts);
-          setParticipantCount(result.participantCount);
-          setBehaviorSignalCount(result.behaviorSignalCount);
+          setEvents(trace?.events ?? []);
+          setCount(summary.count);
+          setSessionCounts(trace?.sessionCounts ?? {});
+          setSessionCount(summary.sessionCount);
+          setParticipantCount(summary.participantCount);
+          setBehaviorSignalCount(summary.behaviorSignalCount);
           setStatus('live');
         }
       } catch {
@@ -226,13 +268,15 @@ export function useLiveTelemetry(): LiveTelemetryState {
         );
       }
     };
-    void loadDerivedState().catch(() => undefined);
+    if (canInspectEvidence) {
+      void loadDerivedState().catch(() => undefined);
+    }
     const interval = window.setInterval(() => void load(), 2_000);
     return () => {
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [canInspectEvidence]);
 
   useEffect(() => {
     const rollbackComplete =
@@ -497,6 +541,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setEvents([]);
     setCount(0);
     setSessionCounts({});
+    setSessionCount(0);
     setParticipantCount(0);
     setBehaviorSignalCount(0);
     setEvidence(null);
@@ -542,6 +587,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     analyseEvidence,
     analysing,
     behaviorSignalCount,
+    canInspectEvidence,
     clearError: () => setError(null),
     count,
     evidence,
@@ -565,6 +611,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     refreshing,
     resetEvolution,
     resetState,
+    sessionCount,
     sessionCounts,
     startControlledEvolution,
     startRollback,

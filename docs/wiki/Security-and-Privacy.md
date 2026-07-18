@@ -35,6 +35,21 @@ The telemetry contract excludes typed values, search text, feedback text, keystr
 
 Participant and session IDs are pseudonymous. They still require access control and retention because behavioral traces can be linkable.
 
+Normal control-room telemetry responses are aggregate-only and omit event records, participant IDs, and session IDs. Pseudonymous IDs, raw event records, evidence traces, repository patches, Codex output, and execution history are restricted to the `inspect_evidence` capability.
+
+## Data classification and current retention
+
+| Data class | Examples | Classification | Current retention |
+| ---------- | -------- | -------------- | ----------------- |
+| Public service status | service/version, configured analysis mode and availability | public operational metadata | response only; not persisted by Darwin |
+| Aggregate study metrics | event, session, participant and behavioral-signal counts | protected operational data | derived on request from retained telemetry |
+| Raw study telemetry | pseudonymous participant/session IDs, semantic routes, targets and timings | protected behavioral data | retained in D1 until an explicit demo reset or operator deletion; no automated expiry yet |
+| Evidence and reasoning | journeys, task attempts, evidence citations and GPT analysis | protected derived behavioral data | retained in D1 until an explicit demo reset or operator deletion; no automated expiry yet |
+| Repository artifacts | source hashes, manifests, patches, checks, Codex output and execution history | protected repository/operational data | retained in D1 until an explicit demo reset or operator deletion; no automated expiry yet |
+| Scale replay | seeded 10,000-event run metadata and summary | protected synthetic data | in-memory for 15 minutes, capped at four runs; raw simulated events are not persisted |
+
+The absence of automated D1 expiry remains tracked in issue #18. Until it is implemented, Darwin must not ingest customer, private-repository, or personally identifying telemetry. A demo reset is the supported application-level deletion path for the configured ProjectFlow study.
+
 ## Open security work
 
 The July 2026 repository audit identified these priority items:
