@@ -9,8 +9,15 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
+import rootPackage from '../../../package.json';
 
 const timestamp = '2026-07-16T12:00:00.000Z';
+const webBuildRelease =
+  import.meta.env.VITE_DARWIN_RELEASE || rootPackage.version;
+const webBuildCommit = import.meta.env.VITE_DARWIN_COMMIT_SHA || 'local';
+const expectedWebBuild = `v${webBuildRelease} · ${
+  webBuildCommit === 'local' ? webBuildCommit : webBuildCommit.slice(0, 7)
+}`;
 const repository = {
   owner: 'sjohnston1972',
   name: 'projectflow',
@@ -1383,9 +1390,7 @@ describe('Darwin control room', () => {
       .closest('div');
     expect(controlRoomStatus).not.toBeNull();
     expect(
-      within(controlRoomStatus!).getByText(
-        /^v0\.1\.0 · (?:local|[0-9a-f]{7})$/,
-      ),
+      within(controlRoomStatus!).getByText(expectedWebBuild),
     ).toBeVisible();
     const retentionStatus = screen
       .getByText('Storage retention')
