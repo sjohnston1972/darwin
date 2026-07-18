@@ -48,11 +48,27 @@ export const apiRouteContract = [
   },
   {
     method: 'GET',
+    path: '/api/genome/:executionId',
+    group: 'Runtime and history',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return one complete repository execution record.',
+  },
+  {
+    method: 'GET',
     path: '/api/observations/archives',
     group: 'Runtime and history',
     access: 'operator',
     capability: 'inspect_evidence',
     purpose: 'Return retained evidence and analysis summaries.',
+  },
+  {
+    method: 'GET',
+    path: '/api/observations/archives/:archiveId',
+    group: 'Runtime and history',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return one complete evidence and analysis archive.',
   },
   {
     method: 'GET',

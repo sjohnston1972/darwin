@@ -3,8 +3,10 @@ import {
   DemoResetResponseSchema,
   EvidencePackSchema,
   EvidenceAnalysisSchema,
+  GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
   HealthResponseSchema,
+  ObservationArchiveDetailResponseSchema,
   ObservationArchivesResponseSchema,
   OperationalTelemetryMetricsSchema,
   ParticipantWorkspaceResponseSchema,
@@ -1677,19 +1679,33 @@ describe('Darwin API', () => {
     const genomeResponse = await handleRequest(
       new Request('http://localhost/api/genome'),
     );
-    const genome = GenomeHistoryResponseSchema.parse(
-      await genomeResponse.json(),
-    );
+    const genomeBody = await genomeResponse.text();
+    const genome = GenomeHistoryResponseSchema.parse(JSON.parse(genomeBody));
     expect(genome.evolutionCycle.genomeEvolutionCount).toBe(1);
     expect(genome.evolutionCycle.startedAt).not.toBeNull();
     expect(genome.executions).toHaveLength(1);
     expect(genome.executions[0]?.executionId).toBe(execution.executionId);
+    expect(genome.page).toEqual({ limit: 10, nextCursor: null });
+    expect(genomeBody).not.toContain('All checks passed.');
+    expect(genomeBody).not.toContain('Implemented the approved mutation.');
+    expect(genomeBody).not.toContain('@@');
+
+    const genomeDetailResponse = await handleRequest(
+      new Request(`http://localhost/api/genome/${execution.executionId}`),
+    );
+    const genomeDetailBody = await genomeDetailResponse.text();
+    const genomeDetail = GenomeExecutionDetailResponseSchema.parse(
+      JSON.parse(genomeDetailBody),
+    );
+    expect(genomeDetail.execution.checks[0]?.output).toBe('All checks passed.');
+    expect(genomeDetailBody.length).toBeGreaterThan(genomeBody.length);
 
     const observationArchivesResponse = await handleRequest(
       new Request('http://localhost/api/observations/archives'),
     );
+    const observationArchivesBody = await observationArchivesResponse.text();
     const observationArchives = ObservationArchivesResponseSchema.parse(
-      await observationArchivesResponse.json(),
+      JSON.parse(observationArchivesBody),
     );
     expect(observationArchives.archives).toHaveLength(1);
     expect(observationArchives.archives[0]?.execution.executionId).toBe(
@@ -1698,6 +1714,32 @@ describe('Darwin API', () => {
     expect(observationArchives.archives[0]?.evidence.evidenceId).toBe(
       first.evidenceId,
     );
+    expect(observationArchives.page).toEqual({ limit: 10, nextCursor: null });
+    expect(observationArchivesBody).not.toContain('frictionSignals');
+    expect(observationArchivesBody).not.toContain('journeys');
+
+    const observationArchiveDetailResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/observations/archives/${execution.executionId}`,
+      ),
+    );
+    const observationArchiveDetailBody =
+      await observationArchiveDetailResponse.text();
+    const observationArchiveDetail =
+      ObservationArchiveDetailResponseSchema.parse(
+        JSON.parse(observationArchiveDetailBody),
+      );
+    expect(
+      observationArchiveDetail.archive.evidence.frictionSignals,
+    ).not.toHaveLength(0);
+    expect(observationArchiveDetailBody.length).toBeGreaterThan(
+      observationArchivesBody.length,
+    );
+
+    const invalidArchivePage = await handleRequest(
+      new Request('http://localhost/api/genome?limit=1000'),
+    );
+    expect(invalidArchivePage.status).toBe(400);
 
     const nextCycleEventsResponse = await handleRequest(
       new Request(

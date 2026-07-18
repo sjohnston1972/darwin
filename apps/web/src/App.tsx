@@ -7,7 +7,9 @@ import {
   type EvidencePack,
   type EvidenceSignal,
   type ObservationArchive,
+  type ObservationArchiveSummary,
   type RepositoryMutationExecution,
+  type RepositoryExecutionSummary,
   type RepositoryRollback,
   type RetentionHealth,
   type StoredTelemetryEvent,
@@ -196,7 +198,7 @@ function median(values: number[]): number | null {
 }
 
 function compareFitness(
-  baseline: EvidencePack | null,
+  baseline: ObservationArchiveSummary['evidence'] | null,
   current: EvidencePack | null,
 ): FitnessDelta | null {
   if (!baseline || !current || baseline.evidenceId === current.evidenceId) {
@@ -204,28 +206,27 @@ function compareFitness(
   }
 
   const terminalOutcomes = new Set(['success', 'failed', 'abandoned']);
-  const baselineTerminal = baseline.taskAttempts.filter((attempt) =>
-    terminalOutcomes.has(attempt.outcome),
-  );
   const currentTerminal = current.taskAttempts.filter((attempt) =>
     terminalOutcomes.has(attempt.outcome),
   );
-  if (!baselineTerminal.length || !currentTerminal.length) return null;
+  if (!baseline.fitness.terminalAttemptCount || !currentTerminal.length) {
+    return null;
+  }
 
-  const completionRate = (attempts: typeof baselineTerminal) =>
+  const completionRate = (attempts: typeof currentTerminal) =>
     attempts.filter((attempt) => attempt.outcome === 'success').length /
     attempts.length;
-  const baselineInteractions = median(
-    baselineTerminal.map((attempt) => attempt.interactionCount),
-  );
+  const baselineCompletionRate =
+    baseline.fitness.completedAttemptCount /
+    baseline.fitness.terminalAttemptCount;
+  const baselineInteractions = baseline.fitness.medianInteractions;
   const currentInteractions = median(
     currentTerminal.map((attempt) => attempt.interactionCount),
   );
 
   return {
     completionPoints: Math.round(
-      (completionRate(currentTerminal) - completionRate(baselineTerminal)) *
-        100,
+      (completionRate(currentTerminal) - baselineCompletionRate) * 100,
     ),
     interactionDelta:
       baselineInteractions === null || currentInteractions === null
@@ -348,10 +349,21 @@ function DarwinDashboard({
     ).length ?? 0;
   const releaseForConfidence =
     liveTelemetry.execution ?? latestReleasedExecution ?? null;
-  const passedChecks = releaseForConfidence?.checks.filter(
-    (check) => check.status === 'passed',
-  ).length;
-  const totalChecks = releaseForConfidence?.checks.length ?? 0;
+  const releaseCheckSummary = releaseForConfidence
+    ? 'checkSummary' in releaseForConfidence
+      ? releaseForConfidence.checkSummary
+      : {
+          total: releaseForConfidence.checks.length,
+          passed: releaseForConfidence.checks.filter(
+            (check) => check.status === 'passed',
+          ).length,
+          failed: releaseForConfidence.checks.filter(
+            (check) => check.status === 'failed',
+          ).length,
+        }
+    : null;
+  const passedChecks = releaseCheckSummary?.passed;
+  const totalChecks = releaseCheckSummary?.total ?? 0;
   const releaseRolledBack =
     releaseForConfidence?.rollback?.status === 'released';
   const releaseConfidence = !releaseForConfidence
@@ -751,6 +763,11 @@ function DarwinDashboard({
               {liveTelemetry.observationArchives.length > 0 && (
                 <ObservationArchivePanel
                   archives={liveTelemetry.observationArchives}
+                  nextCursor={liveTelemetry.observationArchivesNextCursor}
+                  loadArchive={liveTelemetry.loadObservationArchive}
+                  onLoadMore={() =>
+                    void liveTelemetry.loadMoreObservationArchives()
+                  }
                 />
               )}
             </>
@@ -1001,6 +1018,13 @@ function DarwinDashboard({
                 <FossilExecutionArtifact
                   key={genomeExecution.executionId}
                   execution={genomeExecution}
+                  executionDetail={
+                    liveTelemetry.execution?.executionId ===
+                    genomeExecution.executionId
+                      ? liveTelemetry.execution
+                      : null
+                  }
+                  loadExecution={liveTelemetry.loadGenomeExecution}
                   mutationTitle={
                     liveTelemetry.observationArchives.find(
                       (archive) =>
@@ -1043,6 +1067,17 @@ function DarwinDashboard({
                   }
                 />
               ))}
+              {liveTelemetry.genomeNextCursor && (
+                <div className="archive-pagination">
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => void liveTelemetry.loadMoreGenome()}
+                  >
+                    Load older Genome records
+                  </button>
+                </div>
+              )}
             </section>
           )}
 
@@ -3252,8 +3287,14 @@ function MutationWorkspaceReset({
 
 function ObservationArchivePanel({
   archives,
+  nextCursor,
+  loadArchive,
+  onLoadMore,
 }: {
-  archives: ObservationArchive[];
+  archives: ObservationArchiveSummary[];
+  nextCursor: string | null;
+  loadArchive: (archiveId: string) => Promise<ObservationArchive>;
+  onLoadMore: () => void;
 }) {
   return (
     <section
@@ -3276,24 +3317,71 @@ function ObservationArchivePanel({
         <Database size={19} className="text-mist" />
       </div>
       {archives.map((archive) => (
-        <ObservationArchiveArtifact key={archive.archiveId} archive={archive} />
+        <ObservationArchiveArtifact
+          key={archive.archiveId}
+          archive={archive}
+          loadArchive={loadArchive}
+        />
       ))}
+      {nextCursor && (
+        <div className="archive-pagination">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={onLoadMore}
+          >
+            Load older observation records
+          </button>
+        </div>
+      )}
     </section>
   );
 }
 
 function ObservationArchiveArtifact({
   archive,
+  loadArchive,
 }: {
-  archive: ObservationArchive;
+  archive: ObservationArchiveSummary;
+  loadArchive: (archiveId: string) => Promise<ObservationArchive>;
 }) {
+  const [detail, setDetail] = useState<ObservationArchive | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const deepLinked =
+    window.location.hash === `#observation-${archive.archiveId}`;
+  const [open, setOpen] = useState(deepLinked);
+  const hydrate = async () => {
+    if (detail || loading) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setDetail(await loadArchive(archive.archiveId));
+    } catch (reason) {
+      setLoadError(
+        reason instanceof Error ? reason.message : 'Archive detail failed.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (deepLinked) void hydrate();
+  }, []);
+
   const { analysis, evidence, execution } = archive;
   const failed = execution.status === 'failed';
-  const signalCount = evidence.frictionSignals.length;
   return (
     <details
       className="fossil-artifact observation-artifact"
       id={`observation-${archive.archiveId}`}
+      open={open}
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setOpen(nextOpen);
+        if (nextOpen) void hydrate();
+      }}
     >
       <summary>
         <div className="fossil-artifact-summary">
@@ -3326,58 +3414,99 @@ function ObservationArchiveArtifact({
         <ChevronRight className="fossil-artifact-chevron" size={18} />
       </summary>
       <div className="fossil-artifact-detail observation-archive-detail">
-        <div className="observation-archive-stats">
-          <div>
-            <span>Participants</span>
-            <strong>{evidence.study.participants}</strong>
-          </div>
-          <div>
-            <span>Task attempts</span>
-            <strong>{evidence.study.attempts}</strong>
-          </div>
-          <div>
-            <span>Selection pressures</span>
-            <strong>{signalCount}</strong>
-          </div>
-          <div>
-            <span>Reasoned with</span>
-            <strong>{analysis.model}</strong>
-          </div>
-        </div>
-        <div className="observation-archive-copy">
-          <div>
-            <span className="section-label">Evidence assessment</span>
-            <p>{analysis.evidenceAssessment.summary}</p>
-          </div>
-          <div>
-            <span className="section-label">
-              Mutation informed by this evidence
-            </span>
-            <strong>{analysis.selectedMutation.title}</strong>
-            <p>{analysis.selectedMutation.hypothesis}</p>
-          </div>
-        </div>
-        <div className="observation-archive-signals">
-          <span className="section-label">Retained signals</span>
-          {evidence.frictionSignals.map((signal) => (
-            <div key={signal.evidenceId}>
-              <strong>
-                {signal.severity} · {signal.summary}
-              </strong>
-              <span>
-                {signal.support.events} events across {signal.support.sessions}{' '}
-                sessions
-              </span>
+        {loading && (
+          <ArchiveLoading label="Loading evidence journeys and traces" />
+        )}
+        {loadError && (
+          <ArchiveLoadError
+            message={loadError}
+            onRetry={() => void hydrate()}
+          />
+        )}
+        {detail && (
+          <>
+            <div className="observation-archive-stats">
+              <div>
+                <span>Participants</span>
+                <strong>{detail.evidence.study.participants}</strong>
+              </div>
+              <div>
+                <span>Task attempts</span>
+                <strong>{detail.evidence.study.attempts}</strong>
+              </div>
+              <div>
+                <span>Selection pressures</span>
+                <strong>{detail.evidence.frictionSignals.length}</strong>
+              </div>
+              <div>
+                <span>Reasoned with</span>
+                <strong>{detail.analysis.model}</strong>
+              </div>
             </div>
-          ))}
-        </div>
+            <div className="observation-archive-copy">
+              <div>
+                <span className="section-label">Evidence assessment</span>
+                <p>{detail.analysis.evidenceAssessment.summary}</p>
+              </div>
+              <div>
+                <span className="section-label">
+                  Mutation informed by this evidence
+                </span>
+                <strong>{detail.analysis.selectedMutation.title}</strong>
+                <p>{detail.analysis.selectedMutation.hypothesis}</p>
+              </div>
+            </div>
+            <div className="observation-archive-signals">
+              <span className="section-label">Retained signals</span>
+              {detail.evidence.frictionSignals.map((signal) => (
+                <div key={signal.evidenceId}>
+                  <strong>
+                    {signal.severity} · {signal.summary}
+                  </strong>
+                  <span>
+                    {signal.support.events} events across{' '}
+                    {signal.support.sessions} sessions
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </details>
   );
 }
 
+function ArchiveLoading({ label }: { label: string }) {
+  return (
+    <div className="archive-detail-state" aria-live="polite">
+      <CircleDashed className="is-spinning" size={18} /> {label}
+    </div>
+  );
+}
+
+function ArchiveLoadError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="archive-detail-state is-error" role="alert">
+      <AlertTriangle size={18} />
+      <span>{message}</span>
+      <button className="secondary-action" type="button" onClick={onRetry}>
+        Retry detail
+      </button>
+    </div>
+  );
+}
+
 function FossilExecutionArtifact({
   execution,
+  executionDetail,
+  loadExecution,
   mutationTitle,
   manifest,
   releasing,
@@ -3389,7 +3518,9 @@ function FossilExecutionArtifact({
   onReleaseRollback,
   onRetry,
 }: {
-  execution: RepositoryMutationExecution;
+  execution: RepositoryExecutionSummary;
+  executionDetail: RepositoryMutationExecution | null;
+  loadExecution: (executionId: string) => Promise<RepositoryMutationExecution>;
   mutationTitle: string | null;
   manifest: CodexImplementationManifest | null;
   releasing: boolean;
@@ -3401,6 +3532,33 @@ function FossilExecutionArtifact({
   onReleaseRollback: () => void;
   onRetry: () => void;
 }) {
+  const [detail, setDetail] = useState<RepositoryMutationExecution | null>(
+    executionDetail,
+  );
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const deepLinked =
+    window.location.hash === `#fossil-${execution.executionId}`;
+  const [open, setOpen] = useState(deepLinked);
+  const hydrate = async () => {
+    if (detail || loading) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setDetail(await loadExecution(execution.executionId));
+    } catch (reason) {
+      setLoadError(
+        reason instanceof Error ? reason.message : 'Genome detail failed.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (deepLinked) void hydrate();
+  }, []);
+
   const retained = execution.status === 'released';
   const failed = execution.status === 'failed';
   const rollback = execution.rollback;
@@ -3414,7 +3572,16 @@ function FossilExecutionArtifact({
           : 'CANDIDATE';
 
   return (
-    <details className="fossil-artifact" id={`fossil-${execution.executionId}`}>
+    <details
+      className="fossil-artifact"
+      id={`fossil-${execution.executionId}`}
+      open={open}
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setOpen(nextOpen);
+        if (nextOpen) void hydrate();
+      }}
+    >
       <summary>
         <div className="fossil-artifact-summary">
           <div>
@@ -3452,20 +3619,31 @@ function FossilExecutionArtifact({
         <ChevronRight className="fossil-artifact-chevron" size={18} />
       </summary>
       <div className="fossil-artifact-detail">
-        <RepositoryExecutionWorkspace
-          embedded
-          archived
-          execution={execution}
-          manifest={manifest}
-          releasing={releasing}
-          retrying={retrying}
-          rollingBack={rollingBack}
-          releasingRollback={releasingRollback}
-          onRelease={onRelease}
-          onRollback={onRollback}
-          onReleaseRollback={onReleaseRollback}
-          onRetry={onRetry}
-        />
+        {loading && (
+          <ArchiveLoading label="Loading patch, checks, and Codex output" />
+        )}
+        {loadError && (
+          <ArchiveLoadError
+            message={loadError}
+            onRetry={() => void hydrate()}
+          />
+        )}
+        {detail && (
+          <RepositoryExecutionWorkspace
+            embedded
+            archived
+            execution={detail}
+            manifest={manifest}
+            releasing={releasing}
+            retrying={retrying}
+            rollingBack={rollingBack}
+            releasingRollback={releasingRollback}
+            onRelease={onRelease}
+            onRollback={onRollback}
+            onReleaseRollback={onReleaseRollback}
+            onRetry={onRetry}
+          />
+        )}
       </div>
     </details>
   );

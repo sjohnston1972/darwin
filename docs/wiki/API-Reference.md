@@ -15,6 +15,10 @@ All JSON request/response contracts are defined in [`packages/shared/src/contrac
 
 ProjectFlow telemetry and participant-workspace routes require a signed target request derived from `PROJECTFLOW_INGESTION_SECRET`. Repository workflow routes require execution-scoped signatures derived from `DARWIN_CALLBACK_TOKEN`. Protected responses use `Cache-Control: no-store`.
 
+## Paged history and archives
+
+The two collection routes accept an opaque `cursor` and a `limit` from 1 to 25 (default 10). Collection responses expose the next opaque cursor under `page.nextCursor`; full artifact data is returned only by the identifier routes.
+
 ## Target connection input
 
 ```json
