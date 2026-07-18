@@ -14,6 +14,7 @@ const workspaces = [
     route: '/?view=observations',
     heading: 'Observations',
   },
+  { name: 'darwin-lab', route: '/?view=lab', heading: 'Darwin Lab' },
   { name: 'mutations', route: '/?view=mutations', heading: 'Mutations' },
   { name: 'genome', route: '/?view=genome', heading: 'Genome' },
 ] as const;
@@ -72,6 +73,27 @@ test('keeps edge tooltips inside the viewport', async ({ page }) => {
   expect(box!.y).toBeGreaterThanOrEqual(12);
   expect(box!.x + box!.width).toBeLessThanOrEqual(888);
   expect(box!.y + box!.height).toBeLessThanOrEqual(688);
+});
+
+test('creates and queues a bounded Darwin Lab experiment', async ({ page }) => {
+  await page.goto('/?view=lab');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Darwin Lab' }),
+  ).toBeVisible();
+  await expect(page.getByText('SYNTHETIC ONLY')).toBeVisible();
+
+  await page
+    .getByRole('button', { name: 'Create bounded experiment' })
+    .click();
+  await expect(
+    page.getByRole('heading', {
+      level: 2,
+      name: 'Apollo discovery study',
+    }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Queue population' }).click();
+  await expect(page.getByText('Browser runner requested')).toBeVisible();
+  await expect(page.getByText('npm run lab:runner')).toBeVisible();
 });
 
 test('supports keyboard navigation between workspaces', async ({ page }) => {

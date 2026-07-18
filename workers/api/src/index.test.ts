@@ -874,6 +874,7 @@ describe('Darwin API', () => {
       studyIds: [
         'projectflow-baseline-study',
         'projectflow-baseline-automated-study',
+        'projectflow-darwin-lab',
       ],
       allowedOrigins: ['https://darwin-projectflow.pages.dev'],
       signatureAlgorithm: 'hmac-sha256',

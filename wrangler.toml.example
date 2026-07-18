@@ -8,6 +8,7 @@ crons = ["17 3 * * *"]
 [vars]
 DARWIN_AI_MODE = "mock"
 OPENAI_MODEL = "gpt-5.6"
+OPENAI_LAB_AGENT_MODEL = "gpt-5.6-luna"
 DARWIN_DEMO_SEED = "1859"
 DARWIN_EVENT_COUNT = "10000"
 DARWIN_MAX_EVENTS_PER_STUDY = "50000"
@@ -18,6 +19,8 @@ PROJECTFLOW_BRANCH = "main"
 PROJECTFLOW_PRODUCTION_URL = "https://darwin-projectflow.pages.dev/"
 PROJECTFLOW_STUDY_URL = "https://darwin-projectflow.pages.dev/?study=true"
 PROJECTFLOW_ALLOWED_APP_VERSIONS = "baseline,1.0.0"
+PROJECTFLOW_LAB_STUDY_ID = "projectflow-darwin-lab"
+DARWIN_LAB_ALLOWED_ORIGINS = "http://localhost:5174,http://127.0.0.1:5174"
 ALLOWED_ORIGINS = "https://darwin-control-room.pages.dev,https://darwin-projectflow.pages.dev,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
 
 # Create and bind after initial deployment:

@@ -98,6 +98,8 @@ import {
   createE2EBoundaryFetch,
   e2eFixturesEnabled,
 } from './testing/e2e-fixtures';
+import { handleLabRequest } from './lab/handler';
+import { getLabRepository } from './lab/lab-repository';
 
 export interface Env {
   DB?: D1Database;
@@ -114,6 +116,7 @@ export interface Env {
   OPENAI_API_KEY?: string;
   OPENAI_API?: string;
   OPENAI_MODEL: string;
+  OPENAI_LAB_AGENT_MODEL?: string;
   OPENAI_TIMEOUT_MS: string;
   PROJECTFLOW_REPOSITORY: string;
   PROJECTFLOW_BRANCH: string;
@@ -125,6 +128,8 @@ export interface Env {
   PROJECTFLOW_STUDY_ID?: string;
   PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
   PROJECTFLOW_ALLOWED_APP_VERSIONS?: string;
+  PROJECTFLOW_LAB_STUDY_ID?: string;
+  DARWIN_LAB_ALLOWED_ORIGINS?: string;
   GITHUB_TOKEN?: string;
   DARWIN_CALLBACK_TOKEN?: string;
   DARWIN_OPERATOR_TOKEN?: string;
@@ -437,7 +442,20 @@ const allowedTargetStudies = (env?: Partial<Env>) =>
     env?.PROJECTFLOW_STUDY_ID || 'projectflow-baseline-study',
     env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
       'projectflow-baseline-automated-study',
+    env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab',
   ]);
+
+const targetStudyAllowed = (studyId: string, env?: Partial<Env>) => {
+  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
+  return (
+    allowedTargetStudies(env).has(studyId) || studyId.startsWith(`${labStudy}-`)
+  );
+};
+
+const isLabStudy = (studyId: string, env?: Partial<Env>) => {
+  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
+  return studyId === labStudy || studyId.startsWith(`${labStudy}-`);
+};
 
 const targetProvenanceAllowed = (
   event: { studyId: string; source: string },
@@ -448,9 +466,11 @@ const targetProvenanceAllowed = (
   const automatedStudy =
     env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
     'projectflow-baseline-automated-study';
+  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
   return (
     (event.studyId === measuredStudy && event.source === 'real_user') ||
-    (event.studyId === automatedStudy && event.source === 'automated')
+    (event.studyId === automatedStudy && event.source === 'automated') ||
+    (event.studyId.startsWith(`${labStudy}-`) && event.source === 'synthetic')
   );
 };
 
@@ -913,6 +933,7 @@ export const handleRequest = async (
       );
       resetSimulationStore();
       await telemetryRepository.reset({ preserveResetExecutions: true });
+      await getLabRepository(env?.DB).reset();
       await refreshVerifiedTargetSnapshot({
         commitSha: verified.commitSha,
         verifiedAt: verified.verifiedAt,
@@ -981,6 +1002,14 @@ export const handleRequest = async (
 
     return json(response);
   }
+
+  const labResponse = await handleLabRequest(
+    request,
+    env,
+    json,
+    operatorIdentity,
+  );
+  if (labResponse) return labResponse;
 
   if (request.method === 'GET' && pathname === '/api/diagnostics') {
     const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
@@ -1484,12 +1513,10 @@ export const handleRequest = async (
       studyUrl: target.studyUrl,
     });
     await telemetryRepository.saveResetExecution(execution);
-    if (
-      useE2EFixtures ||
-      (!env?.GITHUB_TOKEN && !env?.DARWIN_CALLBACK_TOKEN)
-    ) {
+    if (useE2EFixtures || (!env?.GITHUB_TOKEN && !env?.DARWIN_CALLBACK_TOKEN)) {
       resetSimulationStore();
       await telemetryRepository.reset({ preserveResetExecutions: true });
+      await getLabRepository(env?.DB).reset();
       execution = DemoResetExecutionSchema.parse({
         ...execution,
         status: 'complete',
@@ -1711,7 +1738,7 @@ export const handleRequest = async (
       (event) =>
         scopedOriginAllowed &&
         targetProvenanceAllowed(event, env) &&
-        scopedStudies.has(event.studyId) &&
+        (scopedStudies.has(event.studyId) || isLabStudy(event.studyId, env)) &&
         isAllowedTargetVersion(
           event.appVersion,
           env,
@@ -1850,6 +1877,16 @@ export const handleRequest = async (
   if (request.method === 'POST' && studyEvidenceMatch) {
     trace.beforeState = 'telemetry_ready';
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
+    if (isLabStudy(studyId, env)) {
+      return json(
+        {
+          error: 'synthetic_evidence_boundary',
+          message:
+            'Darwin Lab telemetry can be analysed only through its synthetic evidence pack.',
+        },
+        { status: 409 },
+      );
+    }
     const cycle = await telemetryRepository.getEvolutionCycle();
     const source = url.searchParams.get('source') ?? 'real_user';
     if (source !== 'real_user' && source !== 'automated') {
@@ -1997,6 +2034,16 @@ export const handleRequest = async (
   if (request.method === 'POST' && analyseEvidenceMatch) {
     trace.beforeState = 'evidence_ready';
     const studyId = decodeURIComponent(analyseEvidenceMatch[1]!);
+    if (isLabStudy(studyId, env)) {
+      return json(
+        {
+          error: 'synthetic_evidence_boundary',
+          message:
+            'Darwin Lab telemetry cannot enter the measured reasoning workflow.',
+        },
+        { status: 409 },
+      );
+    }
     const cycleStart = await currentCycleStart(studyId);
     const storedPack = await telemetryRepository.getLatestEvidence(studyId);
     const pack =
@@ -3204,7 +3251,7 @@ export const handleRequest = async (
       );
     }
     logAuthorizationDecision(trace, 'target', true);
-    if (!allowedTargetStudies(env).has(studyId)) {
+    if (!targetStudyAllowed(studyId, env)) {
       return json(
         { error: 'study_forbidden', message: 'The study is not configured.' },
         { status: 403 },

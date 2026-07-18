@@ -10,6 +10,7 @@ export type ApiRouteGroup =
   | 'Evidence and reasoning'
   | 'Manifest and execution'
   | 'Repository callbacks'
+  | 'Darwin Lab'
   | 'Synthetic scale replay';
 
 export interface ApiRouteDefinition {
@@ -349,6 +350,94 @@ export const apiRouteContract = [
     access: 'callback',
     capability: null,
     purpose: 'Apply a signed rollback execution transition.',
+  },
+  {
+    method: 'GET',
+    path: '/api/lab/experiments',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'List bounded synthetic user-population experiments.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Create a bounded synthetic ProjectFlow experiment.',
+  },
+  {
+    method: 'GET',
+    path: '/api/lab/experiments/:experimentId',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Inspect one synthetic population, evidence pack, and analysis.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/start',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Queue a draft experiment for the browser runner.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/claim',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Claim queued synthetic work for one runner.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/runs',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Start one isolated low-cost synthetic agent run.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/runs/:runId/actions',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Append one bounded semantic agent action.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/runs/:runId/finish',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Finish a run and finalize population evidence when complete.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/agent-decision',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'reason',
+    purpose: 'Ask the configured low-cost model for one bounded UI action.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/analyse',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'reason',
+    purpose: 'Run one GPT population analysis over synthetic evidence.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/mutations/select',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'execute',
+    purpose: 'Record the human-approved synthetic implementation brief.',
   },
   {
     method: 'POST',

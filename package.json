@@ -13,6 +13,8 @@
     "bootstrap": "node scripts/bootstrap.mjs",
     "dev": "concurrently -n api,darwin -c green,cyan \"npm run dev -w @darwin/api\" \"npm run dev -w @darwin/web\"",
     "simulate": "npm run simulate -w @darwin/api --",
+    "lab:runner": "npm run run -w @darwin/lab-runner --",
+    "lab:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-lab.ps1",
     "context:generate": "node scripts/generate-reasoning-context.mjs",
     "context:check": "node scripts/generate-reasoning-context.mjs --check",
     "docs:generate": "tsx scripts/generate-api-routes.ts",

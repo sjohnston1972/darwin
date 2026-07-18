@@ -82,6 +82,22 @@ Access labels distinguish public health, operator-session verification, capabili
 | POST | `/api/repository-executions/:executionId/callback` | signed callback | Apply a signed mutation execution transition. |
 | POST | `/api/repository-executions/:executionId/rollback/callback` | signed callback | Apply a signed rollback execution transition. |
 
+## Darwin Lab
+
+| Method | Route | Access | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/lab/experiments` | operator: inspect_evidence | List bounded synthetic user-population experiments. |
+| POST | `/api/lab/experiments` | operator: simulate | Create a bounded synthetic ProjectFlow experiment. |
+| GET | `/api/lab/experiments/:experimentId` | operator: inspect_evidence | Inspect one synthetic population, evidence pack, and analysis. |
+| POST | `/api/lab/experiments/:experimentId/start` | operator: simulate | Queue a draft experiment for the browser runner. |
+| POST | `/api/lab/experiments/:experimentId/claim` | operator: simulate | Claim queued synthetic work for one runner. |
+| POST | `/api/lab/experiments/:experimentId/runs` | operator: simulate | Start one isolated low-cost synthetic agent run. |
+| POST | `/api/lab/experiments/:experimentId/runs/:runId/actions` | operator: simulate | Append one bounded semantic agent action. |
+| POST | `/api/lab/experiments/:experimentId/runs/:runId/finish` | operator: simulate | Finish a run and finalize population evidence when complete. |
+| POST | `/api/lab/agent-decision` | operator: reason | Ask the configured low-cost model for one bounded UI action. |
+| POST | `/api/lab/experiments/:experimentId/analyse` | operator: reason | Run one GPT population analysis over synthetic evidence. |
+| POST | `/api/lab/experiments/:experimentId/mutations/select` | operator: execute | Record the human-approved synthetic implementation brief. |
+
 ## Synthetic scale replay
 
 | Method | Route | Access | Purpose |
@@ -90,4 +106,4 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/simulations/:runId` | operator: inspect_evidence | Return synthetic replay metadata. |
 | GET | `/api/simulations/:runId/summary` | operator: inspect_evidence | Return deterministic synthetic aggregates. |
 
-**Contract total:** 44 method/path entries.
+**Contract total:** 55 method/path entries.

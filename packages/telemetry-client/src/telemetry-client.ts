@@ -7,7 +7,7 @@ import {
   type ViewportClass,
 } from '@darwin/shared';
 
-type ClientSource = 'real_user' | 'automated';
+type ClientSource = 'real_user' | 'automated' | 'synthetic';
 type TerminalOutcome = 'success' | 'failed' | 'abandoned';
 
 export interface TelemetryClientConfig {

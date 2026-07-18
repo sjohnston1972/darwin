@@ -7,7 +7,7 @@ Base URLs:
 - local: `http://localhost:8787`
 - production: `https://darwin-api.stevie-johnston.workers.dev`
 
-All JSON request/response contracts are defined in [`packages/shared/src/contracts.ts`](https://github.com/sjohnston1972/darwin/blob/main/packages/shared/src/contracts.ts) and parsed with Zod.
+Measured-flow JSON contracts are defined in [`packages/shared/src/contracts.ts`](https://github.com/sjohnston1972/darwin/blob/main/packages/shared/src/contracts.ts). Darwin Lab contracts are kept separately in [`packages/shared/src/lab-contracts.ts`](https://github.com/sjohnston1972/darwin/blob/main/packages/shared/src/lab-contracts.ts). Both are parsed with Zod.
 
 ## Access boundaries
 
@@ -105,6 +105,33 @@ Repository execution responses contain only actual GitHub state. Candidate creat
 A release returns `202` with status `deployment_verifying` when the pull request has merged but the production HTML metadata does not yet report the merged commit and app version. Repeating the same release request rechecks production without merging again. A `200` `released` response includes the verified identity and timestamp that begin the next evidence cycle.
 
 Fitness calculation requires a released execution, its archived baseline evidence, and a distinct current measured evidence pack. Formula `1.0.0` applies deterministic 30/25/15/15/15 weights to task completion, navigation efficiency, error rate, feature discovery, and median duration. Incompatible or undersized cohorts persist an `insufficient` outcome with limitations and null scores. A released rollback invalidates the outcome and clears the comparison.
+
+## Darwin Lab
+
+Darwin Lab accepts only configured local, test, preview, or staging target
+origins. All experiment records and evidence have synthetic provenance and are
+excluded from measured study cohorts and fitness.
+
+| Method | Route                                                    | Purpose                                         |
+| ------ | -------------------------------------------------------- | ----------------------------------------------- |
+| GET    | `/api/lab/experiments`                                   | list Lab experiments and current runs           |
+| POST   | `/api/lab/experiments`                                   | create one bounded ProjectFlow experiment       |
+| GET    | `/api/lab/experiments/:experimentId`                     | inspect population, replay, evidence, and state |
+| POST   | `/api/lab/experiments/:experimentId/start`               | queue a draft experiment for a browser runner   |
+| POST   | `/api/lab/experiments/:experimentId/claim`               | claim queued work for one runner                |
+| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated synthetic agent run          |
+| POST   | `/api/lab/experiments/:experimentId/runs/:runId/actions` | append one bounded semantic action              |
+| POST   | `/api/lab/experiments/:experimentId/runs/:runId/finish`  | close a run and finalize population evidence    |
+| POST   | `/api/lab/agent-decision`                                | ask the cheap model for one UI action           |
+| POST   | `/api/lab/experiments/:experimentId/analyse`             | run one GPT-5.6 population analysis call        |
+| POST   | `/api/lab/experiments/:experimentId/mutations/select`    | record the human-approved implementation brief  |
+
+The agent-decision endpoint receives an accessibility snapshot, current URL,
+persona, compact action history, and remaining budget. It never receives the
+hidden answer oracle and returns no chain-of-thought. Typed values are used by
+the runner but only their length is persisted. A mutation selection does not
+create a diff or release: Codex execution, repository checks, PR review, and
+release remain separate controlled stages.
 
 ## Repository workflow callbacks
 

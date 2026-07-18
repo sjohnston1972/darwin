@@ -63,6 +63,18 @@ The evidence inspector shows persisted events, sessions, anonymous participants,
 
 [![Live observations](docs/assets/screenshots/observations.png)](https://darwin-control-room.pages.dev/?view=observations)
 
+### Darwin Lab
+
+Darwin Lab runs an explicitly synthetic population of 8–20 inexpensive AI
+agents against the real ProjectFlow interface. Each agent receives a fresh
+browser context, an accessibility snapshot, a persona, and strict action and
+time budgets. The hidden task oracle is evaluated by the browser runner and is
+never included in the agent prompt.
+
+Agent traces, deterministic `L-EV-*` friction records, evidence hashes, GPT-5.6
+population analysis, and operator selection live in a separate Lab section.
+They never enter measured human cohorts or measured fitness.
+
 ### Genome
 
 Genome preserves the repository mutation, evidence provenance, validation output, release state, pull request, preview, Codex report, measured fitness outcome, and rollback history.
@@ -76,6 +88,7 @@ Darwin and ProjectFlow are separate repositories and deployments. Darwin owns ob
 ```mermaid
 flowchart LR
   U[Measured ProjectFlow session] --> TC[Telemetry client]
+  LA[Darwin Lab agents] -->|synthetic provenance| TC
   TC --> API[Cloudflare Worker API]
   API --> D1[(Cloudflare D1)]
   D1 --> EE[Deterministic evidence engine]
@@ -117,7 +130,13 @@ The seeded scale replay remains separate:
 npm run simulate -- --seed=1859 --variant=baseline
 ```
 
-It produces exactly 10,000 deterministic **synthetic** events. Synthetic events are rejected by the live evidence ingestion path and are never presented as real users.
+It produces exactly 10,000 deterministic **synthetic** events. Scale-replay
+events never enter measured evidence and are never presented as real users.
+
+Darwin Lab is a separate synthetic proof path. Its browser events use a
+Lab-specific study ID and `source: synthetic`. After validated raw ingestion,
+those records are eligible only for Lab-specific `L-EV-*` detectors and remain
+excluded from measured study cohorts, evidence, and fitness.
 
 Measured fitness is calculated only by the Worker after a released mutation has a distinct, compatible evolved evidence pack. Formula `1.0.0` weights task completion (30%), navigation efficiency (25%), error rate (15%), feature discovery (15%), and median duration (15%). Each cohort must cover all three fixed tasks with at least three terminal attempts, sessions, and anonymous participants. Darwin persists both evidence hashes, cohort identity, component scores, limitations, and the aggregate 0-100 scores; it emits no score when a gate fails and invalidates the comparison after a released rollback.
 
@@ -128,6 +147,7 @@ apps/web                    Darwin React + Vite control room
 workers/api                 Cloudflare Worker API, evidence, GPT, GitHub orchestration
 packages/shared             Zod contracts and shared TypeScript types
 packages/telemetry-client   First-party semantic telemetry client
+packages/lab-runner         Playwright population runner for Darwin Lab
 prompts                     Versioned reasoning and implementation prompts
 docs                        Product, architecture, runbook, screenshots, wiki source
 scripts                     Context generation, bootstrap, and production smoke checks
@@ -168,6 +188,7 @@ Create `.env` from `.env.example` and configure the live integrations:
 ```dotenv
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-5.6
+OPENAI_LAB_AGENT_MODEL=gpt-5.6-luna
 OPENAI_TIMEOUT_MS=60000
 DARWIN_AI_MODE=live
 GITHUB_TOKEN=your_fine_grained_github_token
@@ -183,9 +204,27 @@ PROJECTFLOW_ALLOWED_APP_VERSIONS=baseline,1.0.0
 PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS=90000
 PROJECTFLOW_DEPLOYMENT_POLL_MS=5000
 PROJECTFLOW_RESET_MAX_ATTEMPTS=60
+PROJECTFLOW_LAB_STUDY_ID=projectflow-darwin-lab
+DARWIN_LAB_ALLOWED_ORIGINS=http://localhost:5174,http://127.0.0.1:5174
 ```
 
 The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. Access tokens are entered into Darwin's unlock view and retained only in browser session storage. The optional viewer token receives aggregate telemetry and connection status only; raw traces, evidence, repository artifacts, and mutation controls require the operator's evidence-inspector or stronger capabilities.
+
+### Run Darwin Lab locally
+
+Start Darwin and ProjectFlow, open **Darwin Lab**, create an experiment, and
+queue the population. In a second Darwin shell run:
+
+```powershell
+npm run lab:runner
+```
+
+The runner claims the oldest queued experiment. Set
+`DARWIN_LAB_EXPERIMENT_ID` to claim a specific experiment,
+`DARWIN_LAB_HEADLESS=false` to watch the browsers, and
+`DARWIN_OPERATOR_TOKEN` when the API is protected. Lab targets must be listed in
+`DARWIN_LAB_ALLOWED_ORIGINS`; production ProjectFlow is intentionally excluded
+by default.
 
 ## Quality checks
 
