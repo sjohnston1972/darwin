@@ -326,6 +326,7 @@ export const TelemetryReceiptSchema = z.object({
   accepted: z.number().int().nonnegative(),
   rejected: z.number().int().nonnegative(),
   duplicates: z.number().int().nonnegative().default(0),
+  sequenceConflicts: z.number().int().nonnegative().default(0),
 });
 
 export const OperationalTelemetryMetricsSchema = z.object({

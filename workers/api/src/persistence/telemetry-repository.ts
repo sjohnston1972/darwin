@@ -16,6 +16,7 @@ import {
 export interface TelemetryInsertResult {
   accepted: number;
   duplicates: number;
+  sequenceConflicts: number;
 }
 
 export interface TelemetryEventSummary {
@@ -180,15 +181,27 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   async insertEvents(events: StudyTelemetryEvent[], receivedAt: string) {
     let accepted = 0;
     let duplicates = 0;
+    let sequenceConflicts = 0;
     for (const event of events) {
       if (eventStore.has(event.eventId)) {
         duplicates += 1;
         continue;
       }
+      const sequenceConflict = [...eventStore.values()].some(
+        (stored) =>
+          stored.studyId === event.studyId &&
+          stored.participantId === event.participantId &&
+          stored.sessionId === event.sessionId &&
+          stored.sequence === event.sequence,
+      );
+      if (sequenceConflict) {
+        sequenceConflicts += 1;
+        continue;
+      }
       eventStore.set(event.eventId, { ...event, receivedAt });
       accepted += 1;
     }
-    return { accepted, duplicates };
+    return { accepted, duplicates, sequenceConflicts };
   }
 
   async listEvents(
@@ -479,7 +492,9 @@ export class D1TelemetryRepository implements TelemetryRepository {
   constructor(private readonly database: D1Database) {}
 
   async insertEvents(events: StudyTelemetryEvent[], receivedAt: string) {
-    if (!events.length) return { accepted: 0, duplicates: 0 };
+    if (!events.length) {
+      return { accepted: 0, duplicates: 0, sequenceConflicts: 0 };
+    }
     const statements = events.map((event) =>
       this.database
         .prepare(
@@ -511,7 +526,32 @@ export class D1TelemetryRepository implements TelemetryRepository {
       (count, result) => count + (result.meta.changes > 0 ? 1 : 0),
       0,
     );
-    return { accepted, duplicates: events.length - accepted };
+    const ignoredEvents = events.filter(
+      (_, index) => results[index]?.meta.changes === 0,
+    );
+    if (!ignoredEvents.length) {
+      return { accepted, duplicates: 0, sequenceConflicts: 0 };
+    }
+    const duplicateChecks = await this.database.batch(
+      ignoredEvents.map((event) =>
+        this.database
+          .prepare(
+            `SELECT event_id
+             FROM telemetry_events
+             WHERE event_id = ?
+             LIMIT 1`,
+          )
+          .bind(event.eventId),
+      ),
+    );
+    const duplicates = duplicateChecks.filter(
+      (result) => result.results.length > 0,
+    ).length;
+    return {
+      accepted,
+      duplicates,
+      sequenceConflicts: ignoredEvents.length - duplicates,
+    };
   }
 
   async listEvents(
