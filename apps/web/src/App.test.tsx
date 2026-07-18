@@ -299,12 +299,59 @@ const manifest = {
   validationCommands: ['npm run verify'],
 } as const;
 
+const makeExecution = () => ({
+  executionId: 'execution-measured-test',
+  manifestId: manifest.manifestId,
+  analysisId: analysis.analysisId,
+  repository,
+  status: 'preview_ready',
+  branch: 'darwin/evolution-measured-test',
+  baseSha: repository.baseSha,
+  headSha: 'f'.repeat(40),
+  workflowRunId: 123,
+  workflowUrl: 'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+  pullRequestNumber: 7,
+  pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
+  previewUrl:
+    'https://darwin-evolution-test.darwin-projectflow.pages.dev/?study=true',
+  patch: '@@ live repository patch @@\n-old behavior\n+measured behavior',
+  changedFiles: ['apps/projectflow/src/App.tsx'],
+  checks: [
+    {
+      name: 'npm run verify',
+      status: 'passed',
+      durationMs: 1200,
+      output: 'Typecheck, tests, and build passed.',
+    },
+  ],
+  codex: {
+    threadId: null,
+    finalMessage: 'Implemented the approved measured mutation.',
+    inputTokens: null,
+    cachedInputTokens: null,
+    outputTokens: null,
+  },
+  error: null,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  completedAt: null,
+});
+
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
+
+interface RemoteWorkflow {
+  evidence: unknown | null;
+  analysis: unknown | null;
+  manifest: unknown | null;
+  execution: unknown | null;
+  failures?: Set<string>;
+}
 
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
+  remoteWorkflow?: RemoteWorkflow,
 ) => {
   let liveExecution: Record<string, unknown> | null = null;
   let liveConnection: unknown = initialConnection;
@@ -312,6 +359,7 @@ const installApi = (
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('/events?limit=200')) {
+        if (remoteWorkflow?.failures?.has('events')) return response({}, 503);
         return response({
           studyId: 'projectflow-baseline-study',
           events: [],
@@ -322,6 +370,7 @@ const installApi = (
         });
       }
       if (url.endsWith('/api/genome')) {
+        if (remoteWorkflow?.failures?.has('genome')) return response({}, 503);
         const released = liveExecution?.status === 'released';
         return response({
           evolutionCycle: {
@@ -333,6 +382,7 @@ const installApi = (
         });
       }
       if (url.endsWith('/api/observations/archives')) {
+        if (remoteWorkflow?.failures?.has('archives')) return response({}, 503);
         const released = liveExecution?.status === 'released';
         return response({
           archives: released
@@ -353,52 +403,34 @@ const installApi = (
             : [],
         });
       }
-      if (url.includes('/evidence/latest')) return response(evidence);
-      if (url.includes('/evidence-analysis/latest'))
-        return latestAnalysis ? response(latestAnalysis) : response(null, 204);
+      if (url.includes('/evidence/latest')) {
+        if (remoteWorkflow?.failures?.has('evidence')) return response({}, 503);
+        const latestEvidence = remoteWorkflow
+          ? remoteWorkflow.evidence
+          : evidence;
+        return latestEvidence ? response(latestEvidence) : response(null, 204);
+      }
+      if (url.includes('/evidence-analysis/latest')) {
+        if (remoteWorkflow?.failures?.has('analysis')) return response({}, 503);
+        const currentAnalysis = remoteWorkflow
+          ? remoteWorkflow.analysis
+          : latestAnalysis;
+        return currentAnalysis
+          ? response(currentAnalysis)
+          : response(null, 204);
+      }
       if (url.endsWith('/analyse-evidence')) return response(analysis, 201);
       if (url.endsWith('/codex-manifest/execution')) {
+        if (init?.method !== 'POST' && remoteWorkflow) {
+          if (remoteWorkflow.failures?.has('execution'))
+            return response({}, 503);
+          return remoteWorkflow.execution
+            ? response(remoteWorkflow.execution)
+            : response(null, 204);
+        }
         if (init?.method !== 'POST' && !liveExecution)
           return response(null, 204);
-        liveExecution ??= {
-          executionId: 'execution-measured-test',
-          manifestId: manifest.manifestId,
-          analysisId: analysis.analysisId,
-          repository,
-          status: 'preview_ready',
-          branch: 'darwin/evolution-measured-test',
-          baseSha: repository.baseSha,
-          headSha: 'f'.repeat(40),
-          workflowRunId: 123,
-          workflowUrl:
-            'https://github.com/sjohnston1972/projectflow/actions/runs/123',
-          pullRequestNumber: 7,
-          pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
-          previewUrl:
-            'https://darwin-evolution-test.darwin-projectflow.pages.dev/?study=true',
-          patch:
-            '@@ live repository patch @@\n-old behavior\n+measured behavior',
-          changedFiles: ['apps/projectflow/src/App.tsx'],
-          checks: [
-            {
-              name: 'npm run verify',
-              status: 'passed',
-              durationMs: 1200,
-              output: 'Typecheck, tests, and build passed.',
-            },
-          ],
-          codex: {
-            threadId: null,
-            finalMessage: 'Implemented the approved measured mutation.',
-            inputTokens: null,
-            cachedInputTokens: null,
-            outputTokens: null,
-          },
-          error: null,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          completedAt: null,
-        };
+        liveExecution ??= makeExecution();
         return response(liveExecution, 201);
       }
       if (url.endsWith('/api/repository-executions/execution-measured-test')) {
@@ -472,6 +504,13 @@ const installApi = (
         return response(liveExecution);
       }
       if (url.includes('/codex-manifest')) {
+        if (init?.method !== 'POST' && remoteWorkflow) {
+          if (remoteWorkflow.failures?.has('manifest'))
+            return response({}, 503);
+          return remoteWorkflow.manifest
+            ? response(remoteWorkflow.manifest)
+            : response({}, 404);
+        }
         const requestBody =
           typeof init?.body === 'string' ? JSON.parse(init.body) : {};
         const candidates = [
@@ -847,6 +886,59 @@ describe('Darwin control room', () => {
       screen.queryByText('Reveal capacity context'),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ask gpt-5.6' })).toBeEnabled();
+  });
+
+  it('hydrates workflow state created by another operator on live refresh', async () => {
+    window.history.replaceState({}, '', '/?view=mutations');
+    const remoteWorkflow: RemoteWorkflow = {
+      evidence,
+      analysis: null,
+      manifest: null,
+      execution: null,
+    };
+    installApi(null, null, remoteWorkflow);
+    render(<App />);
+
+    expect(
+      await screen.findByText('Evidence pack evidence-measured-test'),
+    ).toBeVisible();
+    expect(
+      screen.queryByText('Reveal capacity context'),
+    ).not.toBeInTheDocument();
+
+    remoteWorkflow.analysis = analysis;
+    remoteWorkflow.manifest = manifest;
+    remoteWorkflow.execution = makeExecution();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh live telemetry' }),
+    );
+
+    expect(await screen.findByText('Reveal capacity context')).toBeVisible();
+    expect(
+      await screen.findByText('MANIFEST manifest-measured-test'),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Codex execution' }),
+    ).toBeVisible();
+  });
+
+  it('reports named subsystem failures without discarding healthy state', async () => {
+    window.history.replaceState({}, '', '/?view=observations');
+    installApi(null, null, {
+      evidence,
+      analysis: null,
+      manifest: null,
+      execution: null,
+      failures: new Set(['genome']),
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText('Evidence pack evidence-measured-test'),
+    ).toBeVisible();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Genome: request returned 503',
+    );
   });
 
   it('persists the light theme from the header control', () => {
