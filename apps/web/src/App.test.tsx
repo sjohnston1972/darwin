@@ -90,6 +90,24 @@ const evidence = {
     sessionCount: 1,
     participantCount: 1,
     completedAttemptCount: 1,
+    terminalAttemptCount: 1,
+    dimensions: {
+      volume: { score: 28, observedEvents: 14, minimumEvents: 50 },
+      diversity: {
+        score: 33,
+        observedParticipants: 1,
+        minimumParticipants: 3,
+        observedSessions: 1,
+        minimumSessions: 3,
+      },
+      completion: {
+        score: 33,
+        terminalAttempts: 1,
+        minimumTerminalAttempts: 3,
+      },
+      recency: { score: 100, latestEventAt: timestamp, maximumAgeDays: 7 },
+      weakestScore: 28,
+    },
     limitations: ['Fewer than three independent sessions were observed.'],
   },
   journeys: [
@@ -879,6 +897,11 @@ describe('Darwin control room', () => {
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
     expect(screen.getByText('directional')).toBeVisible();
+    expect(screen.getByText('Volume')).toBeVisible();
+    expect(screen.getByText('28/100')).toBeVisible();
+    expect(screen.getByText('Diversity')).toBeVisible();
+    expect(screen.getByText('Completion')).toBeVisible();
+    expect(screen.getByText('Recency')).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Ask gpt-5.6' }),
     ).not.toBeInTheDocument();

@@ -53,7 +53,7 @@ export async function buildEvidencePack(
   );
   const tasks = summarizeTasks(taskAttempts);
   const evidenceClass = evidenceClassFor(events);
-  const quality = assessEvidence(events, taskAttempts);
+  const quality = assessEvidence(events, taskAttempts, generatedAt);
   const journeys = buildJourneys(events);
   const appVersion = events.at(-1)?.appVersion ?? 'unknown';
   const evolved = appVersion.startsWith('1.1');
@@ -584,29 +584,77 @@ function traceEvent(event: StoredTelemetryEvent): EvidenceTraceEvent {
 function assessEvidence(
   events: StoredTelemetryEvent[],
   attempts: TaskAttempt[],
+  generatedAt: string,
 ) {
+  const minimumEvents = 50;
+  const minimumSessions = 3;
+  const minimumParticipants = 3;
+  const minimumTerminalAttempts = 3;
+  const maximumAgeDays = 7;
   const sessionCount = new Set(events.map((event) => event.sessionId)).size;
   const participantCount = new Set(events.map((event) => event.participantId))
     .size;
   const completedAttemptCount = attempts.filter(
     (attempt) => attempt.outcome === 'success',
   ).length;
-  const score = Math.min(
-    100,
-    Math.min(25, Math.floor(events.length / 4)) +
-      Math.min(30, sessionCount * 15) +
-      Math.min(30, participantCount * 15) +
-      Math.min(15, completedAttemptCount * 5),
+  const terminalAttemptCount = attempts.filter(
+    (attempt) => attempt.outcome === 'success' || attempt.outcome === 'failed',
+  ).length;
+  const volumeScore = coverageScore(events.length, minimumEvents);
+  const diversityScore = Math.min(
+    coverageScore(sessionCount, minimumSessions),
+    coverageScore(participantCount, minimumParticipants),
   );
+  const completionScore = coverageScore(
+    terminalAttemptCount,
+    minimumTerminalAttempts,
+  );
+  const latestEventAt = events.reduce(
+    (latest, event) => (event.occurredAt > latest ? event.occurredAt : latest),
+    events[0]!.occurredAt,
+  );
+  const evidenceAgeMs = Math.max(
+    0,
+    Date.parse(generatedAt) - Date.parse(latestEventAt),
+  );
+  const evidenceAgeDays = Math.floor(evidenceAgeMs / (24 * 60 * 60 * 1_000));
+  const maximumAgeMs = maximumAgeDays * 24 * 60 * 60 * 1_000;
+  const recencyScore = Math.max(
+    0,
+    Math.round(100 - (evidenceAgeDays / maximumAgeDays) * 50),
+  );
+  const dimensionScores = [
+    volumeScore,
+    diversityScore,
+    completionScore,
+    recencyScore,
+  ];
+  const weakestScore = Math.min(...dimensionScores);
+  const score = Math.round(
+    dimensionScores.reduce((total, value) => total + value, 0) /
+      dimensionScores.length,
+  );
+  const meetsSubstantialGates =
+    events.length >= minimumEvents &&
+    sessionCount >= minimumSessions &&
+    participantCount >= minimumParticipants &&
+    terminalAttemptCount >= minimumTerminalAttempts &&
+    evidenceAgeMs <= maximumAgeMs;
   const limitations: string[] = [];
-  if (events.length < 50)
-    limitations.push('Fewer than 50 semantic events were observed.');
-  if (sessionCount < 3)
+  if (events.length < minimumEvents)
+    limitations.push(
+      `Event volume is below the ${minimumEvents}-event coverage gate.`,
+    );
+  if (sessionCount < minimumSessions)
     limitations.push('Fewer than three independent sessions were observed.');
-  if (participantCount < 3)
+  if (participantCount < minimumParticipants)
     limitations.push('Fewer than three anonymous participants were observed.');
-  if (completedAttemptCount < 3)
-    limitations.push('Fewer than three completed task attempts were observed.');
+  if (terminalAttemptCount < minimumTerminalAttempts)
+    limitations.push('Fewer than three terminal task attempts were observed.');
+  if (evidenceAgeMs > maximumAgeMs)
+    limitations.push(
+      'The newest event is older than the seven-day recency gate.',
+    );
   if (events.every((event) => event.source === 'automated')) {
     limitations.push(
       'The evidence was produced by automated browser sessions, not people.',
@@ -614,7 +662,7 @@ function assessEvidence(
   }
   return {
     strength:
-      score >= 75
+      meetsSubstantialGates && score >= 75
         ? ('substantial' as const)
         : score >= 35
           ? ('directional' as const)
@@ -624,9 +672,34 @@ function assessEvidence(
     sessionCount,
     participantCount,
     completedAttemptCount,
+    terminalAttemptCount,
+    dimensions: {
+      volume: {
+        score: volumeScore,
+        observedEvents: events.length,
+        minimumEvents,
+      },
+      diversity: {
+        score: diversityScore,
+        observedParticipants: participantCount,
+        minimumParticipants,
+        observedSessions: sessionCount,
+        minimumSessions,
+      },
+      completion: {
+        score: completionScore,
+        terminalAttempts: terminalAttemptCount,
+        minimumTerminalAttempts,
+      },
+      recency: { score: recencyScore, latestEventAt, maximumAgeDays },
+      weakestScore,
+    },
     limitations,
   };
 }
+
+const coverageScore = (observed: number, minimum: number) =>
+  Math.min(100, Math.round((observed / minimum) * 100));
 
 function buildJourneys(events: StoredTelemetryEvent[]) {
   const sessions = new Map<string, StoredTelemetryEvent[]>();

@@ -23,17 +23,17 @@ Zod discriminated unions reject unknown fields and invalid ranges.
 
 ## Captured event types
 
-| Category | Events and measurements |
-| --- | --- |
-| lifecycle | session start/end, page view |
-| navigation | route change, browser Back/Forward |
-| click | target ID, pointer type, click count, normalized position |
-| hover | start/end, duration, click outcome, immediate exit, hover-to-click |
-| pointer | target transitions, direction-change count, indecision window |
-| gesture | drag attempt, draggable state, bounded distance, touch cancel |
-| readability | relative viewport/browser zoom change |
-| workflow | task start, completion, failure, abandonment |
-| form/search | error codes, query length, result count |
+| Category    | Events and measurements                                            |
+| ----------- | ------------------------------------------------------------------ |
+| lifecycle   | session start/end, page view                                       |
+| navigation  | route change, browser Back/Forward                                 |
+| click       | target ID, pointer type, click count, normalized position          |
+| hover       | start/end, duration, click outcome, immediate exit, hover-to-click |
+| pointer     | target transitions, direction-change count, indecision window      |
+| gesture     | drag attempt, draggable state, bounded distance, touch cancel      |
+| readability | relative viewport/browser zoom change                              |
+| workflow    | task start, completion, failure, abandonment                       |
+| form/search | error codes, query length, result count                            |
 
 ## Explicit exclusions
 
@@ -91,17 +91,17 @@ Signal aggregation is being improved in issue [#8](https://github.com/sjohnston1
 
 ## Evidence quality
 
-Evidence quality currently reports:
+Evidence quality reports four independent 0-100 dimensions:
 
-- event count;
-- independent session count;
-- anonymous participant count;
-- completed attempt count;
-- a 0-100 coverage score;
+- volume against a 50-event gate;
+- diversity against three independent sessions and three anonymous participants;
+- completion against three terminal task attempts;
+- recency against a seven-day gate;
+- a composite 0-100 coverage score and the weakest dimension;
 - `insufficient`, `directional`, or `substantial` strength;
 - explicit limitations.
 
-It is a coverage indicator, not statistical significance. Minimum diversity gates are tracked in issue [#9](https://github.com/sjohnston1972/darwin/issues/9).
+`substantial` is possible only when every minimum gate is met. Candidate evidence strength and confidence cannot exceed the weakest coverage dimension. This is a coverage indicator, not statistical significance.
 
 ## Measured versus synthetic
 
