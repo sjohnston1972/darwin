@@ -270,6 +270,7 @@ describe('evidence-backed reasoning v2', () => {
               ...modelOutput.evidenceAssessment.pressureClusters[0],
               affectedTargets: [
                 'invented-control',
+                'nav-projects',
                 '/study/projects/apollo',
                 'Task row',
               ],
@@ -282,6 +283,74 @@ describe('evidence-backed reasoning v2', () => {
     expect(
       normalized.evidenceAssessment.pressureClusters[0]?.affectedTargets,
     ).toEqual(['nav-projects']);
+  });
+
+  it('rejects duplicate and causally incoherent portfolio identifiers', () => {
+    const expectIncoherent = (value: unknown, evidencePack = pack) => {
+      try {
+        validateModelOutput(value, evidencePack);
+        throw new Error('Expected incoherent model output to be rejected.');
+      } catch (error) {
+        expect(error).toBeInstanceOf(EvidenceReasoningError);
+        expect(error).toMatchObject({ code: 'incoherent_model_output' });
+      }
+    };
+    const cluster = modelOutput.evidenceAssessment.pressureClusters[0]!;
+
+    expectIncoherent({
+      ...modelOutput,
+      evidenceAssessment: {
+        ...modelOutput.evidenceAssessment,
+        pressureClusters: [cluster, { ...cluster, title: 'Duplicate cluster' }],
+      },
+    });
+    expectIncoherent({
+      ...modelOutput,
+      alternatives: [
+        {
+          ...modelOutput.alternatives[0],
+          id: modelOutput.selectedMutation.id,
+        },
+        modelOutput.alternatives[1],
+      ],
+    });
+
+    const secondEventId = '00000000-0000-4000-8000-000000000002';
+    const packWithSecondEvidence = {
+      ...pack,
+      frictionSignals: [
+        ...pack.frictionSignals,
+        {
+          ...pack.frictionSignals[0]!,
+          evidenceId: 'EV-002',
+          supportingEventIds: [secondEventId],
+          trace: [
+            {
+              ...pack.frictionSignals[0]!.trace[0]!,
+              eventId: secondEventId,
+              targetId: 'task-search',
+            },
+          ],
+        },
+      ],
+    };
+    expectIncoherent(
+      {
+        ...modelOutput,
+        selectedMutation: {
+          ...modelOutput.selectedMutation,
+          evidenceIds: ['EV-002'],
+        },
+      },
+      packWithSecondEvidence,
+    );
+    expectIncoherent({
+      ...modelOutput,
+      evidenceAssessment: {
+        ...modelOutput.evidenceAssessment,
+        pressureClusters: [{ ...cluster, affectedTargets: [] }],
+      },
+    });
   });
 
   it('uses ordered journeys and returns an evidence-normalized portfolio', async () => {

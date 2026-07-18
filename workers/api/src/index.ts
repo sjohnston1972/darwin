@@ -1181,7 +1181,7 @@ export const handleRequest = async (
     } catch (error) {
       if (error instanceof EvidenceReasoningError) {
         return json(
-          { error: 'analysis_failed', message: error.message },
+          { error: error.code, message: error.message },
           { status: 422 },
         );
       }
