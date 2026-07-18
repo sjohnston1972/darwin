@@ -20,11 +20,11 @@
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,json}\" \"workers/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,js}\"",
     "typecheck": "npm run context:check && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "build": "npm run context:generate && npm run build -w @darwin/shared && npm run build -w @darwin/telemetry-client && npm run build -w @darwin/api && npm run build -w @darwin/web",
+    "build": "node scripts/build.mjs",
     "deploy:migrate": "wrangler d1 migrations apply darwin-telemetry --remote --config workers/api/wrangler.toml",
     "deploy:api": "wrangler deploy --config workers/api/wrangler.toml",
     "deploy:web": "wrangler pages deploy apps/web/dist --project-name=darwin-control-room --branch=main",
-    "deploy": "npm run build && npm run deploy:migrate && npm run deploy:api && npm run deploy:web",
+    "deploy": "node scripts/deploy.mjs",
     "smoke:production": "tsx scripts/smoke-production.ts"
   },
   "engines": {

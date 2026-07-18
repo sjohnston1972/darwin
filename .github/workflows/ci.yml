@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Resolve build metadata
+        run: node scripts/build-metadata.mjs --github-env
       - run: mkdir -p ci-logs
       - name: Install dependencies
         run: set -o pipefail; npm ci 2>&1 | tee ci-logs/install.log

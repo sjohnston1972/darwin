@@ -9,6 +9,13 @@ try {
 const apiUrl = 'https://darwin-api.stevie-johnston.workers.dev';
 const controlRoomUrl = 'https://darwin-control-room.pages.dev';
 const projectFlowUrl = 'https://darwin-projectflow.pages.dev';
+const expectedRelease = process.env.DARWIN_RELEASE?.trim();
+const expectedCommit = process.env.DARWIN_COMMIT_SHA?.trim();
+if (!expectedRelease || !expectedCommit) {
+  throw new Error(
+    'DARWIN_RELEASE and DARWIN_COMMIT_SHA are required for production smoke tests.',
+  );
+}
 const operatorToken = process.env.DARWIN_OPERATOR_TOKEN?.trim();
 if (!operatorToken) {
   throw new Error(
@@ -81,8 +88,18 @@ const fetchPageWithSecurityPolicy = async (
 
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
-).json()) as { status: string; version: string };
-if (health.status !== 'ok' || health.version !== '0.23.0') {
+).json()) as {
+  status: string;
+  version: string;
+  commitSha: string;
+  buildId: string;
+};
+if (
+  health.status !== 'ok' ||
+  health.version !== expectedRelease ||
+  health.commitSha !== expectedCommit ||
+  health.buildId !== `v${expectedRelease}@${expectedCommit.slice(0, 7)}`
+) {
   throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
 }
 

@@ -295,10 +295,28 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.23.0');
+    expect(body).toMatchObject({
+      version: '0.1.0',
+      commitSha: 'local',
+      buildId: 'v0.1.0@local',
+    });
     expect(JSON.stringify(body)).not.toMatch(
       /participant|sessionId|repository|execution|patch|eventId/,
     );
+
+    const deployedCommit = 'a'.repeat(40);
+    const deployedResponse = await handleRequest(
+      new Request('http://localhost/api/health'),
+      {
+        DARWIN_RELEASE: '1.4.0',
+        DARWIN_COMMIT_SHA: deployedCommit,
+      },
+    );
+    await expect(deployedResponse.json()).resolves.toMatchObject({
+      version: '1.4.0',
+      commitSha: deployedCommit,
+      buildId: 'v1.4.0@aaaaaaa',
+    });
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),

@@ -643,6 +643,8 @@ const installApi = (
           status: 'ok',
           service: 'darwin-api',
           version: '0.19.1',
+          commitSha: 'a'.repeat(40),
+          buildId: 'v0.19.1@aaaaaaa',
           analysis: {
             mode: 'live',
             model: 'gpt-5.6',
@@ -975,6 +977,26 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: 'Open system status' }),
     ).toHaveAttribute('aria-current', 'page');
+    const runtimePanel = screen
+      .getByRole('heading', { name: 'Runtime connected' })
+      .closest('aside');
+    expect(runtimePanel).not.toBeNull();
+    const workerStatus = within(runtimePanel!)
+      .getByText('Worker API')
+      .closest('div');
+    expect(workerStatus).not.toBeNull();
+    expect(
+      within(workerStatus!).getByText('v0.19.1 · aaaaaaa · online'),
+    ).toBeVisible();
+    const controlRoomStatus = within(runtimePanel!)
+      .getByText('Control room')
+      .closest('div');
+    expect(controlRoomStatus).not.toBeNull();
+    expect(
+      within(controlRoomStatus!).getByText(
+        /^v0\.1\.0 · (?:local|[0-9a-f]{7})$/,
+      ),
+    ).toBeVisible();
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {

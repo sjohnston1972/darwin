@@ -1015,7 +1015,15 @@ export const RepositoryRollbackCallbackSchema = RepositoryRollbackSchema.pick({
 export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
   service: z.literal('darwin-api'),
-  version: z.string().min(1),
+  version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+  commitSha: z.union([
+    z
+      .string()
+      .length(40)
+      .regex(/^[a-f0-9]+$/),
+    z.literal('local'),
+  ]),
+  buildId: z.string().min(1),
   analysis: z.object({
     mode: z.literal('live'),
     model: z.string().min(1),

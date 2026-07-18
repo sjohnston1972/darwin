@@ -195,7 +195,7 @@ The deterministic reasoning context is regenerated during `npm run build` and ve
 
 ## Deployment
 
-Configure Worker secrets, apply migrations, and deploy the API and Pages application:
+Configure the Worker and Pages secrets below. Production releases are deployed by manually dispatching **Deploy Darwin** from a semantic tag such as `v0.1.0`; the workflow rejects branch dispatches, injects that release plus the tagged 40-character commit into both builds, and runs the smoke test against the same metadata.
 
 ```powershell
 npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml
@@ -204,11 +204,9 @@ npx wrangler secret put DARWIN_CALLBACK_TOKEN --config workers/api/wrangler.toml
 npx wrangler secret put DARWIN_OPERATOR_TOKEN --config workers/api/wrangler.toml
 npx wrangler secret put PROJECTFLOW_INGESTION_SECRET --config workers/api/wrangler.toml
 npx wrangler pages secret put PROJECTFLOW_INGESTION_SECRET --project-name darwin-projectflow
-npm run deploy:migrate
-npm run deploy:api
-npm run deploy:web
-npm run smoke:production
 ```
+
+For an equivalent operator-run deployment, export `DARWIN_RELEASE` and the exact `DARWIN_COMMIT_SHA`, then run `npm run deploy` followed by `npm run smoke:production`. The smoke test fails closed unless the deployed Worker reports both expected values.
 
 ProjectFlow deploys independently from its own `main` branch. Candidate branches receive isolated Cloudflare preview deployments. Darwin never switches production to a candidate before an explicit release action.
 

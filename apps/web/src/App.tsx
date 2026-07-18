@@ -12,6 +12,7 @@ import {
   type TargetApplicationConnection,
   type TargetConnectionRequest,
 } from '@darwin/shared';
+import rootPackage from '../../../package.json';
 import {
   Activity,
   AlertTriangle,
@@ -91,6 +92,7 @@ const operatorCapabilities: DashboardCapability[] = [
 interface ApiHealthState {
   status: HealthState;
   version: string | null;
+  commitSha: string | null;
   analysis: {
     mode: 'live';
     model: string;
@@ -161,6 +163,11 @@ function getDashboardView(): DashboardView {
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
+const webBuildRelease =
+  import.meta.env.VITE_DARWIN_RELEASE || rootPackage.version;
+const webBuildCommit = import.meta.env.VITE_DARWIN_COMMIT_SHA || 'local';
+const shortCommit = (commitSha: string) =>
+  commitSha === 'local' ? commitSha : commitSha.slice(0, 7);
 const projectFlowBaseUrl =
   import.meta.env.VITE_PROJECTFLOW_BASE_URL ?? 'http://localhost:5174';
 const configuredTarget: TargetConnectionRequest = {
@@ -238,6 +245,7 @@ function DarwinDashboard({
   const [health, setHealth] = useState<ApiHealthState>({
     status: 'checking',
     version: null,
+    commitSha: null,
     analysis: null,
   });
   const [navigationOpen, setNavigationOpen] = useState(false);
@@ -495,15 +503,26 @@ function DarwinDashboard({
             ? {
                 status: 'online',
                 version: parsed.data.version,
+                commitSha: parsed.data.commitSha,
                 analysis: parsed.data.analysis,
               }
-            : { status: 'offline', version: null, analysis: null },
+            : {
+                status: 'offline',
+                version: null,
+                commitSha: null,
+                analysis: null,
+              },
         );
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError')
           return;
-        setHealth({ status: 'offline', version: null, analysis: null });
+        setHealth({
+          status: 'offline',
+          version: null,
+          commitSha: null,
+          analysis: null,
+        });
       });
 
     return () => controller.abort();
@@ -796,11 +815,18 @@ function DarwinDashboard({
                     label="Worker API"
                     value={
                       health.version
-                        ? `v${health.version} online`
+                        ? `v${health.version} · ${shortCommit(health.commitSha ?? 'local')} · online`
                         : health.status
                     }
                     ready={health.status === 'online'}
-                    help="The deployed Darwin Cloudflare Worker. Its version comes from the live /api/health response."
+                    help="The deployed Darwin Cloudflare Worker. Its semantic release and exact source commit come from the live /api/health response."
+                  />
+                  <StatusRow
+                    icon={LayoutDashboard}
+                    label="Control room"
+                    value={`v${webBuildRelease} · ${shortCommit(webBuildCommit)}`}
+                    ready
+                    help="Build metadata injected into the Vite control-room bundle from the same release tag and workflow commit as the Worker deployment."
                   />
                   <StatusRow
                     icon={Database}
@@ -1004,7 +1030,7 @@ function DarwinDashboard({
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
             <p className="font-mono">
-              DARWIN CORE {health.version ?? 'OFFLINE'}
+              DARWIN CORE v{webBuildRelease}@{shortCommit(webBuildCommit)}
             </p>
           </footer>
         </div>
@@ -1209,7 +1235,7 @@ function DashboardSidebar({
             <p className="truncate text-sm font-medium">Darwin API</p>
             <p className="mt-0.5 text-xs capitalize text-mist">
               {health.version
-                ? `v${health.version} ${health.status}`
+                ? `v${health.version} · ${shortCommit(health.commitSha ?? 'local')} · ${health.status}`
                 : health.status}
             </p>
           </div>
