@@ -20,6 +20,7 @@
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,json}\" \"workers/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,js}\"",
     "typecheck": "npm run context:check && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:ui-type": "playwright test --config playwright.type-scale.config.ts",
     "build": "npm run context:generate && npm run build -w @darwin/shared && npm run build -w @darwin/telemetry-client && npm run build -w @darwin/api && npm run build -w @darwin/web",
     "deploy:migrate": "wrangler d1 migrations apply darwin-telemetry --remote --config workers/api/wrangler.toml",
     "deploy:api": "wrangler deploy --config workers/api/wrangler.toml",
