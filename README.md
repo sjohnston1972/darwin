@@ -237,6 +237,7 @@ Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [op
 - [Wiki source in this repository](docs/wiki/Home.md)
 - [Architecture](docs/wiki/Architecture.md)
 - [Telemetry and Evidence](docs/wiki/Telemetry-and-Evidence.md)
+- [Data retention and deletion](docs/RETENTION.md)
 - [AI and Mutation Workflow](docs/wiki/AI-and-Mutation-Workflow.md)
 - [API Reference](docs/wiki/API-Reference.md)
 - [Operations and Deployment](docs/wiki/Operations-and-Deployment.md)

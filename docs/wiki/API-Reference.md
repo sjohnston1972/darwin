@@ -13,11 +13,11 @@ All JSON request/response contracts are defined in `packages/shared/src/contract
 
 ## Health and history
 
-| Method | Route                        | Purpose                                             |
-| ------ | ---------------------------- | --------------------------------------------------- |
-| GET    | `/api/health`                | service version, model, and live-model availability |
-| GET    | `/api/genome`                | evolution cycle and repository execution history    |
-| GET    | `/api/observations/archives` | evidence/analysis retained by completed executions  |
+| Method | Route                        | Purpose                                            |
+| ------ | ---------------------------- | -------------------------------------------------- |
+| GET    | `/api/health`                | service/model and aggregate retention health       |
+| GET    | `/api/genome`                | evolution cycle and repository execution history   |
+| GET    | `/api/observations/archives` | evidence/analysis retained by completed executions |
 
 ## Target connection
 
@@ -69,6 +69,17 @@ Ingestion returns:
 ```
 
 The batch body is capped at 256 KB and the event list at 50 records. Production ProjectFlow calls a same-origin Pages Function, which signs the timestamp, target, deployment origin, edge-derived client key, and exact body with `PROJECTFLOW_INGESTION_SECRET`. The Worker rejects unsigned requests, stale or invalid signatures, unsupported studies/provenance/versions, and target-origin mismatches.
+
+## Retention and targeted deletion
+
+| Method | Route                                               | Purpose                                              |
+| ------ | --------------------------------------------------- | ---------------------------------------------------- |
+| POST   | `/api/retention/sweep`                              | run the idempotent expiry/compaction sweep           |
+| DELETE | `/api/studies/:studyId/participants/:participantId` | delete a participant and invalidate derived evidence |
+| DELETE | `/api/studies/:studyId`                             | delete one study and its derived artifacts           |
+| DELETE | `/api/repository-executions/:executionId/artifacts` | delete one execution and callback material           |
+
+These routes require the `reset` capability. They return aggregate deletion counts and never return deleted content. See [Data retention and deletion](../RETENTION.md) for lifetimes and quota defaults.
 
 ## Evidence and reasoning
 

@@ -505,6 +505,25 @@ const installApi = (
           status: 'ok',
           service: 'darwin-api',
           version: '0.19.1',
+          retention: {
+            status: 'healthy',
+            policy: {
+              version: '1.0.0',
+              rawTelemetryDays: 30,
+              workspaceDays: 30,
+              derivedEvidenceDays: 90,
+              executionArtifactDays: 30,
+              fossilRecordDays: 365,
+              operationalAuditDays: 90,
+              maxEventsPerStudy: 50_000,
+              maxEventsPerTarget: 250_000,
+            },
+            eventCount: 14,
+            studyCount: 1,
+            largestStudyEventCount: 14,
+            expiredRecordCount: 0,
+            lastSweepAt: null,
+          },
           analysis: {
             mode: 'live',
             model: 'gpt-5.6',
@@ -829,6 +848,15 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: 'Open system status' }),
     ).toHaveAttribute('aria-current', 'page');
+    const retentionStatus = screen
+      .getByText('Storage retention')
+      .closest('div');
+    expect(retentionStatus).not.toBeNull();
+    expect(
+      within(retentionStatus!).getByText(
+        '14 / 250,000 events · 0 expired · awaiting first sweep',
+      ),
+    ).toBeVisible();
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {

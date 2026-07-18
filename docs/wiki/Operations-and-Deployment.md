@@ -46,6 +46,8 @@ npm run deploy:migrate
 
 Migrations are append-only SQL files under `workers/api/migrations`. Test new migrations against a disposable/local D1 database first. Never edit an already-applied production migration.
 
+The Worker runs the indexed retention sweep daily at `03:17 UTC`. System status reports aggregate quota usage, pending expiry count and the last successful sweep. An authenticated operator can run the same idempotent maintenance path with `POST /api/retention/sweep`; policy and targeted deletion details are in [Data retention and deletion](../RETENTION.md).
+
 ## Build and deploy
 
 ```powershell
@@ -79,7 +81,7 @@ Release merges the reviewed pull request. Rollback creates and validates a separ
 - authenticated D1 telemetry insertion and aggregate readback;
 - deterministic 10,000-event simulation response.
 
-Set `DARWIN_OPERATOR_TOKEN` and `PROJECTFLOW_INGESTION_SECRET` in the smoke-test environment. The smoke test does not merge code, invoke GPT, or run a live Codex mutation. Smoke-data retention is tracked in issue [#18](https://github.com/sjohnston1972/darwin/issues/18).
+Set `DARWIN_OPERATOR_TOKEN` and `PROJECTFLOW_INGESTION_SECRET` in the smoke-test environment. The smoke test verifies one deterministic automated event, deletes its participant-scoped data immediately, and does not merge code, invoke GPT, or run a live Codex mutation.
 
 ## Operational checks
 

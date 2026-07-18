@@ -25,6 +25,7 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - The 10,000-event simulation is operator-only, rate/concurrency limited, fixed to the configured seed, and retained as metadata in a four-entry TTL/LRU cache.
 - Repository workflow requests sign the execution, repository, manifest hash, timestamp, nonce, and payload digest; D1 rejects replayed signatures and terminal state rewrites.
 - Callback bodies, patches, output, checks, and changed-file arrays have explicit size limits.
+- D1 records have indexed expiries, nightly deletion/compaction, per-study and per-target event quotas, and operator-only targeted deletion. See [Data retention and deletion](../RETENTION.md).
 
 ## Privacy boundary
 
@@ -39,7 +40,6 @@ The July 2026 repository audit identified these priority items:
 | Issue                                                    | Priority | Risk                                     |
 | -------------------------------------------------------- | -------- | ---------------------------------------- |
 | [#4](https://github.com/sjohnston1972/darwin/issues/4)   | medium   | missing CSP and complete browser headers |
-| [#18](https://github.com/sjohnston1972/darwin/issues/18) | medium   | no retention/deletion policy             |
 | [#30](https://github.com/sjohnston1972/darwin/issues/30) | medium   | mutable GitHub Action references         |
 
 ## Deployment guidance

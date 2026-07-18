@@ -23,17 +23,17 @@ Zod discriminated unions reject unknown fields and invalid ranges.
 
 ## Captured event types
 
-| Category | Events and measurements |
-| --- | --- |
-| lifecycle | session start/end, page view |
-| navigation | route change, browser Back/Forward |
-| click | target ID, pointer type, click count, normalized position |
-| hover | start/end, duration, click outcome, immediate exit, hover-to-click |
-| pointer | target transitions, direction-change count, indecision window |
-| gesture | drag attempt, draggable state, bounded distance, touch cancel |
-| readability | relative viewport/browser zoom change |
-| workflow | task start, completion, failure, abandonment |
-| form/search | error codes, query length, result count |
+| Category    | Events and measurements                                            |
+| ----------- | ------------------------------------------------------------------ |
+| lifecycle   | session start/end, page view                                       |
+| navigation  | route change, browser Back/Forward                                 |
+| click       | target ID, pointer type, click count, normalized position          |
+| hover       | start/end, duration, click outcome, immediate exit, hover-to-click |
+| pointer     | target transitions, direction-change count, indecision window      |
+| gesture     | drag attempt, draggable state, bounded distance, touch cancel      |
+| readability | relative viewport/browser zoom change                              |
+| workflow    | task start, completion, failure, abandonment                       |
+| form/search | error codes, query length, result count                            |
 
 ## Explicit exclusions
 
@@ -51,6 +51,8 @@ Darwin does not collect:
 ## Browser delivery
 
 The telemetry client keeps a local outbox, batches at most 50 events, posts to `/api/telemetry/events`, and uses event IDs for idempotency. D1 stores the original validated event JSON plus indexed study/session fields and a server receipt timestamp.
+
+Raw records expire after 30 days and ingestion is bounded to 50,000 events per study and 250,000 for the configured target by default. The full data-class matrix, nightly compaction and operator deletion behavior are defined in [Data retention and deletion](../RETENTION.md).
 
 Delivery reliability and ingestion authentication are active hardening items. See issues [#2](https://github.com/sjohnston1972/darwin/issues/2) and [#11](https://github.com/sjohnston1972/darwin/issues/11).
 
