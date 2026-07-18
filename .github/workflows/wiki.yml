@@ -31,9 +31,14 @@ jobs:
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
 
           if ! git clone --depth 1 "$remote" .wiki; then
-            mkdir .wiki
-            git -C .wiki init --initial-branch=master
-            git -C .wiki remote add origin "$remote"
+            {
+              echo '### Wiki initialization required'
+              echo
+              echo 'GitHub requires an owner to create the first Wiki page in the web UI.'
+              echo 'Create that page once, then rerun this workflow to replace it with docs/wiki.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo '::warning::Create the first GitHub Wiki page, then rerun Publish Wiki.'
+            exit 0
           fi
 
           rsync --archive --delete --exclude='.git/' docs/wiki/ .wiki/
