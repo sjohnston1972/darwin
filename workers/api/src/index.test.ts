@@ -613,6 +613,50 @@ describe('Darwin API', () => {
     expect(events.count).toBe(1);
     expect(events.sessionCounts).toEqual({ 'session-api-test': 1 });
     expect(events.participantCount).toBe(1);
+    expect(events.cursor).not.toBeNull();
+    expect(events.hasMore).toBe(false);
+
+    const emptyDeltaResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/studies/projectflow-baseline-study/events?limit=20&cursor=${encodeURIComponent(events.cursor!)}`,
+      ),
+    );
+    const emptyDelta = StudyEventsResponseSchema.parse(
+      await emptyDeltaResponse.json(),
+    );
+    expect(emptyDelta.events).toEqual([]);
+    expect(emptyDelta.cursor).toBe(events.cursor);
+    expect(emptyDelta.count).toBe(1);
+
+    const nextEvent = {
+      ...studyEvent,
+      eventId: 'ffffffff-ffff-4fff-bfff-ffffffffffff',
+      sequence: 1,
+      occurredAt: '2026-07-16T12:00:01.000Z',
+    };
+    await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({ events: [nextEvent] }),
+      }),
+    );
+    const deltaResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/studies/projectflow-baseline-study/events?limit=20&cursor=${encodeURIComponent(events.cursor!)}`,
+      ),
+    );
+    const delta = StudyEventsResponseSchema.parse(await deltaResponse.json());
+    expect(delta.events.map((event) => event.eventId)).toEqual([
+      nextEvent.eventId,
+    ]);
+    expect(delta.count).toBe(2);
+
+    const invalidCursor = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/events?cursor=not-a-cursor',
+      ),
+    );
+    expect(invalidCursor.status).toBe(400);
 
     const sessionResponse = await handleRequest(
       new Request(
@@ -622,7 +666,7 @@ describe('Darwin API', () => {
     const session = StudySessionResponseSchema.parse(
       await sessionResponse.json(),
     );
-    expect(session.events.map((event) => event.sequence)).toEqual([0]);
+    expect(session.events.map((event) => event.sequence)).toEqual([0, 1]);
   });
 
   it('persists participant-specific ProjectFlow workspaces', async () => {

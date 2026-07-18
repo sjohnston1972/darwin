@@ -12,6 +12,7 @@ import {
   type ObservationArchive,
   type RepositoryMutationExecution,
   type StoredTelemetryEvent,
+  type StudyEventsResponse,
 } from '@darwin/shared';
 import { apiFetch } from '../api';
 import { useEffect, useRef, useState } from 'react';
@@ -19,6 +20,27 @@ import { useEffect, useRef, useState } from 'react';
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const studyId = 'projectflow-baseline-study';
 const eventWindowLimit = 200;
+const eventPollBaseMs = 2_000;
+const eventPollMaximumMs = 30_000;
+const executionPollBaseMs = 3_000;
+const retryJitterMs = 500;
+
+export interface LiveTelemetryOptions {
+  eventPollingEnabled?: boolean;
+  executionPollingEnabled?: boolean;
+}
+
+export const shouldPollRepositoryExecution = (
+  execution: Pick<RepositoryMutationExecution, 'status' | 'rollback'> | null,
+) => {
+  if (!execution) return false;
+  const rollbackComplete =
+    !execution.rollback ||
+    ['failed', 'released'].includes(execution.rollback.status);
+  return !(
+    ['failed', 'released'].includes(execution.status) && rollbackComplete
+  );
+};
 
 export interface LiveTelemetryState {
   behaviorSignalCount: number;
@@ -38,6 +60,8 @@ export interface LiveTelemetryState {
   observationArchives: ObservationArchive[];
   execution: RepositoryMutationExecution | null;
   implementing: boolean;
+  lastUpdatedAt: string | null;
+  pollingState: 'fresh' | 'stale' | 'paused';
   preparingManifest: boolean;
   releasingExecution: boolean;
   releasingRollback: boolean;
@@ -55,7 +79,10 @@ export interface LiveTelemetryState {
   startRollback: (executionId?: string) => Promise<void>;
 }
 
-export function useLiveTelemetry(): LiveTelemetryState {
+export function useLiveTelemetry({
+  eventPollingEnabled = true,
+  executionPollingEnabled = true,
+}: LiveTelemetryOptions = {}): LiveTelemetryState {
   const [events, setEvents] = useState<StoredTelemetryEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
@@ -87,7 +114,33 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [releasingRollback, setReleasingRollback] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const [pollingState, setPollingState] =
+    useState<LiveTelemetryState['pollingState']>('stale');
   const resetGeneration = useRef(0);
+  const eventCursor = useRef<string | null>(null);
+
+  const applyEventResponse = (
+    result: StudyEventsResponse,
+    incremental: boolean,
+  ) => {
+    setEvents((current) => {
+      if (!incremental) return result.events;
+      const known = new Set(current.map((event) => event.eventId));
+      return [
+        ...current,
+        ...result.events.filter((event) => !known.has(event.eventId)),
+      ].slice(-eventWindowLimit);
+    });
+    eventCursor.current = result.cursor;
+    setCount(result.count);
+    setSessionCounts(result.sessionCounts);
+    setParticipantCount(result.participantCount);
+    setBehaviorSignalCount(result.behaviorSignalCount);
+    setLastUpdatedAt(new Date().toISOString());
+    setPollingState('fresh');
+    setStatus('live');
+  };
 
   const refreshGenome = async () => {
     const response = await apiFetch(`${apiBaseUrl}/api/genome`);
@@ -107,6 +160,8 @@ export function useLiveTelemetry(): LiveTelemetryState {
   };
 
   const resetCurrentCycleMeasurements = () => {
+    resetGeneration.current += 1;
+    eventCursor.current = null;
     setEvents([]);
     setCount(0);
     setSessionCounts({});
@@ -115,6 +170,12 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setEvidence(null);
     setAnalysis(null);
     setManifest(null);
+    setLastUpdatedAt(null);
+    setPollingState(
+      eventPollingEnabled && document.visibilityState === 'visible'
+        ? 'stale'
+        : 'paused',
+    );
   };
 
   const refresh = async () => {
@@ -126,15 +187,11 @@ export function useLiveTelemetry(): LiveTelemetryState {
       );
       if (!response.ok) throw new Error('Live telemetry request failed.');
       const result = StudyEventsResponseSchema.parse(await response.json());
-      setEvents(result.events);
-      setCount(result.count);
-      setSessionCounts(result.sessionCounts);
-      setParticipantCount(result.participantCount);
-      setBehaviorSignalCount(result.behaviorSignalCount);
-      setStatus('live');
+      applyEventResponse(result, false);
       await Promise.all([refreshGenome(), refreshObservationArchives()]);
     } catch (error) {
       setStatus('offline');
+      setPollingState('stale');
       setError(
         error instanceof Error
           ? error.message
@@ -149,28 +206,6 @@ export function useLiveTelemetry(): LiveTelemetryState {
     let active = true;
     void refreshGenome().catch(() => undefined);
     void refreshObservationArchives().catch(() => undefined);
-    const load = async () => {
-      const generation = resetGeneration.current;
-      try {
-        const response = await apiFetch(
-          `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}`,
-        );
-        if (!response.ok) throw new Error('Live telemetry request failed.');
-        const result = StudyEventsResponseSchema.parse(await response.json());
-        if (active && generation === resetGeneration.current) {
-          setEvents(result.events);
-          setCount(result.count);
-          setSessionCounts(result.sessionCounts);
-          setParticipantCount(result.participantCount);
-          setBehaviorSignalCount(result.behaviorSignalCount);
-          setStatus('live');
-        }
-      } catch {
-        if (active && generation === resetGeneration.current)
-          setStatus('offline');
-      }
-    };
-    void load();
     const initialGeneration = resetGeneration.current;
     const loadDerivedState = async () => {
       setEvidence(null);
@@ -227,25 +262,123 @@ export function useLiveTelemetry(): LiveTelemetryState {
       }
     };
     void loadDerivedState().catch(() => undefined);
-    const interval = window.setInterval(() => void load(), 2_000);
     return () => {
       active = false;
-      window.clearInterval(interval);
     };
   }, []);
 
   useEffect(() => {
-    const rollbackComplete =
-      !execution?.rollback ||
-      ['failed', 'released'].includes(execution.rollback.status);
+    let active = true;
+    let timeout: number | null = null;
+    let emptyPollCount = 0;
+    let failureCount = 0;
+
+    const clearScheduled = () => {
+      if (timeout !== null) window.clearTimeout(timeout);
+      timeout = null;
+    };
+    const schedule = (delayMs: number) => {
+      clearScheduled();
+      if (!active || !eventPollingEnabled) return;
+      timeout = window.setTimeout(() => void poll(), delayMs);
+    };
+    const poll = async () => {
+      if (
+        !active ||
+        !eventPollingEnabled ||
+        document.visibilityState !== 'visible'
+      ) {
+        setPollingState('paused');
+        return;
+      }
+      const generation = resetGeneration.current;
+      const cursor = eventCursor.current;
+      const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+      try {
+        const response = await apiFetch(
+          `${apiBaseUrl}/api/studies/${studyId}/events?limit=${eventWindowLimit}${cursorQuery}`,
+        );
+        if (!response.ok) throw new Error('Live telemetry request failed.');
+        const result = StudyEventsResponseSchema.parse(await response.json());
+        if (!active) return;
+        if (generation !== resetGeneration.current) {
+          schedule(0);
+          return;
+        }
+        applyEventResponse(result, cursor !== null);
+        failureCount = 0;
+        emptyPollCount = result.events.length
+          ? 0
+          : Math.min(emptyPollCount + 1, 4);
+        schedule(
+          result.hasMore
+            ? 50
+            : Math.min(
+                eventPollMaximumMs,
+                eventPollBaseMs * 2 ** emptyPollCount,
+              ),
+        );
+      } catch {
+        if (!active) return;
+        if (generation !== resetGeneration.current) {
+          schedule(0);
+          return;
+        }
+        failureCount = Math.min(failureCount + 1, 5);
+        setStatus('offline');
+        setPollingState('stale');
+        schedule(
+          Math.min(
+            eventPollMaximumMs,
+            eventPollBaseMs * 2 ** (failureCount - 1),
+          ) + Math.round(Math.random() * retryJitterMs),
+        );
+      }
+    };
+    const handleVisibility = () => {
+      clearScheduled();
+      if (document.visibilityState === 'visible') {
+        void poll();
+      } else {
+        setPollingState('paused');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    if (eventPollingEnabled && document.visibilityState === 'visible') {
+      void poll();
+    } else {
+      setPollingState('paused');
+    }
+    return () => {
+      active = false;
+      clearScheduled();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [eventPollingEnabled]);
+
+  useEffect(() => {
     if (
       !execution ||
-      (['failed', 'released'].includes(execution.status) && rollbackComplete)
+      !executionPollingEnabled ||
+      !shouldPollRepositoryExecution(execution)
     ) {
       return;
     }
     let active = true;
+    let timeout: number | null = null;
+    let failureCount = 0;
+    const clearScheduled = () => {
+      if (timeout !== null) window.clearTimeout(timeout);
+      timeout = null;
+    };
+    const schedule = (delayMs: number) => {
+      clearScheduled();
+      if (!active) return;
+      timeout = window.setTimeout(() => void poll(), delayMs);
+    };
     const poll = async () => {
+      if (document.visibilityState !== 'visible') return;
       try {
         const response = await apiFetch(
           `${apiBaseUrl}/api/repository-executions/${execution.executionId}`,
@@ -254,18 +387,40 @@ export function useLiveTelemetry(): LiveTelemetryState {
         const latest = RepositoryMutationExecutionSchema.parse(
           await response.json(),
         );
-        if (active) setExecution(latest);
+        if (!active) return;
+        setExecution(latest);
+        failureCount = 0;
+        if (shouldPollRepositoryExecution(latest)) {
+          schedule(executionPollBaseMs);
+        }
       } catch {
-        // The telemetry poll will surface broad API availability separately.
+        if (!active) return;
+        failureCount = Math.min(failureCount + 1, 5);
+        schedule(
+          Math.min(
+            eventPollMaximumMs,
+            executionPollBaseMs * 2 ** (failureCount - 1),
+          ) + Math.round(Math.random() * retryJitterMs),
+        );
       }
     };
-    const interval = window.setInterval(() => void poll(), 3_000);
-    void poll();
+    const handleVisibility = () => {
+      clearScheduled();
+      if (document.visibilityState === 'visible') void poll();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    if (document.visibilityState === 'visible') void poll();
     return () => {
       active = false;
-      window.clearInterval(interval);
+      clearScheduled();
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [execution?.executionId, execution?.status, execution?.rollback?.status]);
+  }, [
+    execution?.executionId,
+    execution?.status,
+    execution?.rollback?.status,
+    executionPollingEnabled,
+  ]);
 
   const generateEvidence = async () => {
     setGenerating(true);
@@ -494,6 +649,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
 
   const resetState = () => {
     resetGeneration.current += 1;
+    eventCursor.current = null;
     setEvents([]);
     setCount(0);
     setSessionCounts({});
@@ -506,6 +662,12 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setGenomeEvolutionCount(0);
     setGenomeExecutions([]);
     setObservationArchives([]);
+    setLastUpdatedAt(null);
+    setPollingState(
+      eventPollingEnabled && document.visibilityState === 'visible'
+        ? 'stale'
+        : 'paused',
+    );
     setError(null);
     setGenerating(false);
     setAnalysing(false);
@@ -553,10 +715,12 @@ export function useLiveTelemetry(): LiveTelemetryState {
     genomeEvolutionCount,
     genomeExecutions,
     implementing,
+    lastUpdatedAt,
     manifest,
     observationArchives,
     participantCount,
     preparingManifest,
+    pollingState,
     releaseExecution,
     releasingExecution,
     releaseRollback,

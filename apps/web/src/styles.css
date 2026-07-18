@@ -646,6 +646,37 @@ a:focus-visible {
   gap: 10px;
 }
 
+.live-update-stack {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.live-update-indicator {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--mist);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.live-update-indicator span {
+  text-transform: uppercase;
+}
+
+.live-update-indicator.is-fresh span {
+  color: #68d4a4;
+}
+
+.live-update-indicator.is-stale span {
+  color: #df7865;
+}
+
+.live-update-indicator.is-paused span {
+  color: #d1a85b;
+}
+
 @media (min-width: 640px) {
   .live-evidence-heading .evidence-action[data-explain]::after {
     top: calc(100% + 9px);

@@ -53,7 +53,7 @@ Reset completion verification is tracked in issue #10.
 | Method | Route                                                         | Purpose                             |
 | ------ | ------------------------------------------------------------- | ----------------------------------- |
 | POST   | `/api/telemetry/events`                                       | ingest 1-50 strict semantic events  |
-| GET    | `/api/studies/:studyId/events?limit=200`                      | recent events plus aggregate counts |
+| GET    | `/api/studies/:studyId/events?limit=200&cursor=...`           | recent events or an incremental delta plus aggregate counts |
 | GET    | `/api/studies/:studyId/sessions/:sessionId`                   | ordered session trace               |
 | GET    | `/api/studies/:studyId/participants/:participantId/workspace` | get anonymous ProjectFlow workspace |
 | PUT    | `/api/studies/:studyId/participants/:participantId/workspace` | replace validated workspace         |
@@ -67,6 +67,8 @@ Ingestion returns:
   "duplicates": 0
 }
 ```
+
+The initial event response returns the most recent bounded window and an opaque `cursor`. Reuse that cursor to receive only later events. `hasMore: true` means another immediate delta is available; an empty delta retains the same cursor. Cursors combine receive time and event ID so events received in the same millisecond are not dropped.
 
 The batch body is capped at 256 KB and the event list at 50 records. Production ProjectFlow calls a same-origin Pages Function, which signs the timestamp, target, deployment origin, edge-derived client key, and exact body with `PROJECTFLOW_INGESTION_SECRET`. The Worker rejects unsigned requests, stale or invalid signatures, unsupported studies/provenance/versions, and target-origin mismatches.
 

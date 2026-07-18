@@ -23,6 +23,16 @@ export interface TelemetryEventSummary {
   behaviorSignalCount: number;
 }
 
+export interface EventPageCursor {
+  receivedAt: string;
+  eventId: string;
+}
+
+export interface TelemetryEventPage {
+  events: StoredTelemetryEvent[];
+  hasMore: boolean;
+}
+
 export interface ExecutionCallbackCredential {
   executionId: string;
   nonceHash: string;
@@ -40,6 +50,12 @@ export interface TelemetryRepository {
     limit: number,
     receivedAfter?: string | null,
   ): Promise<StoredTelemetryEvent[]>;
+  listEventPage(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+    cursor?: EventPageCursor | null,
+  ): Promise<TelemetryEventPage>;
   summarizeEvents(
     studyId: string,
     receivedAfter?: string | null,
@@ -171,6 +187,36 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
           : left.receivedAt.localeCompare(right.receivedAt),
       )
       .slice(-limit);
+  }
+
+  async listEventPage(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+    cursor?: EventPageCursor | null,
+  ) {
+    const ordered = [...eventStore.values()]
+      .filter(
+        (event) =>
+          event.studyId === studyId &&
+          (!receivedAfter || event.receivedAt > receivedAfter),
+      )
+      .sort((left, right) =>
+        left.receivedAt === right.receivedAt
+          ? left.eventId.localeCompare(right.eventId)
+          : left.receivedAt.localeCompare(right.receivedAt),
+      );
+    if (!cursor) return { events: ordered.slice(-limit), hasMore: false };
+    const eligible = ordered.filter(
+      (event) =>
+        event.receivedAt > cursor.receivedAt ||
+        (event.receivedAt === cursor.receivedAt &&
+          event.eventId > cursor.eventId),
+    );
+    return {
+      events: eligible.slice(0, limit),
+      hasMore: eligible.length > limit,
+    };
   }
 
   async listSession(
@@ -429,6 +475,62 @@ export class D1TelemetryRepository implements TelemetryRepository {
         receivedAt: row.received_at,
       }))
       .reverse();
+  }
+
+  async listEventPage(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+    cursor?: EventPageCursor | null,
+  ) {
+    const statement = cursor
+      ? this.database.prepare(
+          `SELECT event_id, event_json, received_at
+           FROM telemetry_events
+           WHERE study_id = ?
+             AND (? IS NULL OR received_at > ?)
+             AND (received_at > ? OR (received_at = ? AND event_id > ?))
+           ORDER BY received_at ASC, event_id ASC
+           LIMIT ?`,
+        )
+      : this.database.prepare(
+          `SELECT event_id, event_json, received_at
+           FROM telemetry_events
+           WHERE study_id = ? AND (? IS NULL OR received_at > ?)
+           ORDER BY received_at DESC, event_id DESC
+           LIMIT ?`,
+        );
+    const result = cursor
+      ? await statement
+          .bind(
+            studyId,
+            receivedAfter ?? null,
+            receivedAfter ?? null,
+            cursor.receivedAt,
+            cursor.receivedAt,
+            cursor.eventId,
+            limit + 1,
+          )
+          .all<{
+            event_id: string;
+            event_json: string;
+            received_at: string;
+          }>()
+      : await statement
+          .bind(studyId, receivedAfter ?? null, receivedAfter ?? null, limit)
+          .all<{
+            event_id: string;
+            event_json: string;
+            received_at: string;
+          }>();
+    const mapped = result.results.map((row) => ({
+      ...(JSON.parse(row.event_json) as StudyTelemetryEvent),
+      receivedAt: row.received_at,
+    }));
+    return {
+      events: cursor ? mapped.slice(0, limit) : mapped.reverse(),
+      hasMore: Boolean(cursor && mapped.length > limit),
+    };
   }
 
   async listSession(

@@ -315,6 +315,8 @@ const installApi = (
         return response({
           studyId: 'projectflow-baseline-study',
           events: [],
+          cursor: 'cursor-test',
+          hasMore: false,
           count: 14,
           sessionCounts: { 'session-test': 14 },
           participantCount: 1,
@@ -875,6 +877,8 @@ describe('Darwin control room', () => {
     expect(
       await screen.findByRole('heading', { name: 'Live study evidence' }),
     ).toBeVisible();
+    expect(await screen.findByText('incremental updates')).toBeVisible();
+    expect(screen.getByText(/Last update/)).toBeVisible();
     expect(
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
