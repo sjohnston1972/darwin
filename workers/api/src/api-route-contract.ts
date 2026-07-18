@@ -279,6 +279,22 @@ export const apiRouteContract = [
     purpose: 'Poll the real repository execution state.',
   },
   {
+    method: 'GET',
+    path: '/api/repository-executions/:executionId/fitness',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'inspect_evidence',
+    purpose: 'Return the persisted measured fitness outcome or 204.',
+  },
+  {
+    method: 'POST',
+    path: '/api/repository-executions/:executionId/fitness',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'reason',
+    purpose: 'Calculate and persist fitness from compatible measured cohorts.',
+  },
+  {
     method: 'POST',
     path: '/api/repository-executions/:executionId/release',
     group: 'Manifest and execution',

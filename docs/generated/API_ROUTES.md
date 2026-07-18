@@ -67,6 +67,8 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | operator: inspect_evidence | Return the manifest execution or 204. |
 | POST | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | operator: execute | Dispatch the bounded ProjectFlow mutation workflow. |
 | GET | `/api/repository-executions/:executionId` | operator: inspect_evidence | Poll the real repository execution state. |
+| GET | `/api/repository-executions/:executionId/fitness` | operator: inspect_evidence | Return the persisted measured fitness outcome or 204. |
+| POST | `/api/repository-executions/:executionId/fitness` | operator: reason | Calculate and persist fitness from compatible measured cohorts. |
 | POST | `/api/repository-executions/:executionId/release` | operator: release | Merge the reviewed mutation pull request. |
 | POST | `/api/repository-executions/:executionId/rollback` | operator: execute | Dispatch the controlled rollback workflow. |
 | POST | `/api/repository-executions/:executionId/rollback/release` | operator: release | Merge the reviewed rollback pull request. |
@@ -88,4 +90,4 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/simulations/:runId` | operator: inspect_evidence | Return synthetic replay metadata. |
 | GET | `/api/simulations/:runId/summary` | operator: inspect_evidence | Return deterministic synthetic aggregates. |
 
-**Contract total:** 42 method/path entries.
+**Contract total:** 44 method/path entries.

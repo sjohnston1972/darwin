@@ -79,7 +79,7 @@ Dispatch ProjectFlow's authenticated workflow. Codex proposes a patch in a read-
 
 ### FR-7 Honest validation and fitness
 
-Display genuine automated checks and human evidence with explicit evidence classes. Do not predict or display an invented post-mutation fitness result. User fitness requires a compatible measured post-release cohort.
+Display genuine automated checks and human evidence with explicit evidence classes. Calculate evolved fitness on the server only from compatible baseline and post-release measured cohorts, and persist the versioned component scores, evidence hashes, cohort metadata, and limitations with the Genome artifact. Never emit a numeric comparison for an undersized, incompatible, or rolled-back cohort.
 
 ### FR-8 Genome and revert
 

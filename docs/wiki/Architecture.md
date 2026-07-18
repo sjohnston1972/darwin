@@ -91,7 +91,7 @@ D1 tables currently store:
 | `codex_manifests`        | immutable approved implementation manifests            |
 | `repository_executions`  | workflow, diff, checks, PR, preview, release, rollback |
 | `reset_executions`       | baseline workflow, validation, deployment verification |
-| `outcome_validations`    | reserved measured outcome records                      |
+| `outcome_validations`    | versioned measured fitness outcomes and cohort hashes  |
 | `demo_state`             | evolution cycle state                                  |
 | `target_connections`     | verified target snapshot and checks                    |
 | `operational_events`     | 30-day redacted audit transitions and provider metrics |

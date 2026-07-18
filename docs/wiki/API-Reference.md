@@ -87,6 +87,8 @@ The evidence endpoint builds deterministic measured evidence before GPT is avail
 | POST   | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | dispatch controlled evolution  |
 | GET    | `/api/repository-executions/:executionId`                     | poll execution                 |
 | POST   | `/api/repository-executions/:executionId/release`             | merge PR and verify production |
+| GET    | `/api/repository-executions/:executionId/fitness`             | get persisted fitness or 204   |
+| POST   | `/api/repository-executions/:executionId/fitness`             | calculate/persist fitness      |
 | POST   | `/api/repository-executions/:executionId/rollback`            | dispatch rollback workflow     |
 | POST   | `/api/repository-executions/:executionId/rollback/release`    | merge reviewed rollback PR     |
 
@@ -101,6 +103,8 @@ Manifest selection accepts one or more supported mutation IDs:
 Repository execution responses contain only actual GitHub state. Candidate creation, release, rollback, and rollback release are distinct controlled actions.
 
 A release returns `202` with status `deployment_verifying` when the pull request has merged but the production HTML metadata does not yet report the merged commit and app version. Repeating the same release request rechecks production without merging again. A `200` `released` response includes the verified identity and timestamp that begin the next evidence cycle.
+
+Fitness calculation requires a released execution, its archived baseline evidence, and a distinct current measured evidence pack. Formula `1.0.0` applies deterministic 30/25/15/15/15 weights to task completion, navigation efficiency, error rate, feature discovery, and median duration. Incompatible or undersized cohorts persist an `insufficient` outcome with limitations and null scores. A released rollback invalidates the outcome and clears the comparison.
 
 ## Repository workflow callbacks
 

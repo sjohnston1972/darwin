@@ -38,7 +38,8 @@ Darwin demonstrates one complete, inspectable evolution cycle:
 6. Dispatch a bounded Codex workflow in the target repository.
 7. Review the real patch, checks, pull request, and isolated deployment preview.
 8. Release or reject the mutation; after merge, verify the exact production commit before opening the next evidence cycle.
-9. Retain the complete record in Genome and prepare a separate rollback when a retained mutation should be reverted.
+9. Measure a compatible post-release cohort and retain the versioned 0-100 fitness outcome with the mutation in Genome.
+10. Prepare a separate rollback when a retained mutation should be reverted; a released rollback stops the comparison.
 
 The repository does **not** contain a prebuilt evolved ProjectFlow variant. A candidate exists only after a live manifest has been executed against the verified target commit.
 
@@ -64,7 +65,7 @@ The evidence inspector shows persisted events, sessions, anonymous participants,
 
 ### Genome
 
-Genome preserves the repository mutation, evidence provenance, validation output, release state, pull request, preview, Codex report, and rollback history.
+Genome preserves the repository mutation, evidence provenance, validation output, release state, pull request, preview, Codex report, measured fitness outcome, and rollback history.
 
 [![Genome history](docs/assets/screenshots/genome.png)](https://darwin-control-room.pages.dev/?view=genome)
 
@@ -117,6 +118,8 @@ npm run simulate -- --seed=1859 --variant=baseline
 ```
 
 It produces exactly 10,000 deterministic **synthetic** events. Synthetic events are rejected by the live evidence ingestion path and are never presented as real users.
+
+Measured fitness is calculated only by the Worker after a released mutation has a distinct, compatible evolved evidence pack. Formula `1.0.0` weights task completion (30%), navigation efficiency (25%), error rate (15%), feature discovery (15%), and median duration (15%). Each cohort must cover all three fixed tasks with at least three terminal attempts, sessions, and anonymous participants. Darwin persists both evidence hashes, cohort identity, component scores, limitations, and the aggregate 0-100 scores; it emits no score when a gate fails and invalidates the comparison after a released rollback.
 
 ## Repository layout
 

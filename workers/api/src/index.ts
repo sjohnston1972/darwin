@@ -7,6 +7,7 @@ import {
   DiagnosticsResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  FitnessOutcomeSchema,
   GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
   ObservationArchiveDetailResponseSchema,
@@ -47,6 +48,7 @@ import {
 } from './persistence/telemetry-repository';
 import { retentionPolicy } from './persistence/retention';
 import { EvidenceVersionMismatchError, buildEvidencePack } from './evidence';
+import { calculateFitnessOutcome, invalidateFitnessOutcome } from './fitness';
 import {
   EvidenceReasoningError,
   analyseEvidence,
@@ -809,6 +811,53 @@ export const handleRequest = async (
     const cycle = await telemetryRepository.getEvolutionCycle();
     return cycle.studyId === studyId ? cycle.startedAt : null;
   };
+  const refreshVerifiedTargetSnapshot = async ({
+    commitSha,
+    verifiedAt,
+  }: {
+    commitSha: string;
+    verifiedAt: string;
+  }) => {
+    const current = await telemetryRepository.getTargetConnection();
+    if (!current) return;
+    const snapshot = await observeProvider(
+      trace,
+      'github',
+      'capture_deployed_snapshot',
+      () =>
+        captureRepositorySnapshot({
+          fullName: current.repository.fullName,
+          branch: current.repository.branch,
+          commitSha,
+          githubToken: env?.GITHUB_TOKEN,
+          productionUrl: current.repository.productionUrl,
+          studyUrl: current.repository.studyUrl,
+        }),
+    );
+    await telemetryRepository.saveTargetConnection(
+      TargetApplicationConnectionSchema.parse({
+        ...current,
+        connectionId: `target-${commitSha.slice(0, 12)}`,
+        verifiedAt,
+        target: snapshot.target,
+        repository: snapshot.context,
+        applicationMap: snapshot.applicationMap,
+        checks: current.checks.map((check) =>
+          check.id === 'repository'
+            ? {
+                ...check,
+                detail: `${snapshot.context.fullName} at ${commitSha.slice(0, 12)}`,
+              }
+            : check.id === 'contract'
+              ? {
+                  ...check,
+                  detail: `${snapshot.context.mutablePaths.length} mutable paths, ${snapshot.context.validationCommands.length} validation commands`,
+                }
+              : check,
+        ),
+      }),
+    );
+  };
   const reconcileResetDeployment = async (rawExecution: DemoResetExecution) => {
     let execution = DemoResetExecutionSchema.parse(rawExecution);
     if (execution.status !== 'deploying' || !execution.baselineCommit) {
@@ -848,6 +897,10 @@ export const handleRequest = async (
       );
       resetSimulationStore();
       await telemetryRepository.reset({ preserveResetExecutions: true });
+      await refreshVerifiedTargetSnapshot({
+        commitSha: verified.commitSha,
+        verifiedAt: verified.verifiedAt,
+      });
       await telemetryRepository.resetEvolutionCycle({
         startedAt: verified.verifiedAt,
         measuredCommit: verified.commitSha,
@@ -1045,6 +1098,7 @@ export const handleRequest = async (
         GenomeHistoryResponseSchema.parse({
           evolutionCycle: await telemetryRepository.getEvolutionCycle(),
           executions: page.executions.map(summarizeExecution),
+          fitnessOutcomes: await telemetryRepository.listFitnessOutcomes(),
           page: { limit: options.limit, nextCursor: page.nextCursor },
         }),
       );
@@ -2403,6 +2457,72 @@ export const handleRequest = async (
         );
   }
 
+  const repositoryFitnessMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/fitness$/,
+  );
+  if (
+    (request.method === 'GET' || request.method === 'POST') &&
+    repositoryFitnessMatch
+  ) {
+    const executionId = decodeURIComponent(repositoryFitnessMatch[1]!);
+    const execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    const existing = await telemetryRepository.getFitnessOutcome(executionId);
+    if (request.method === 'GET') {
+      return existing
+        ? json(FitnessOutcomeSchema.parse(existing))
+        : new Response(null, { status: 204, headers: corsHeaders });
+    }
+    if (execution.rollback?.status === 'released' && existing) {
+      const invalidated = invalidateFitnessOutcome(existing);
+      await telemetryRepository.saveFitnessOutcome(invalidated);
+      return json(FitnessOutcomeSchema.parse(invalidated));
+    }
+    const analysis = await telemetryRepository.getEvidenceAnalysis(
+      execution.analysisId,
+    );
+    const baselinePack = analysis
+      ? await telemetryRepository.getEvidence(analysis.evidenceId)
+      : null;
+    const evolvedPack = baselinePack
+      ? await telemetryRepository.getLatestEvidence(baselinePack.study.studyId)
+      : null;
+    if (
+      !baselinePack ||
+      !evolvedPack ||
+      evolvedPack.evidenceHash === baselinePack.evidenceHash
+    ) {
+      return json(
+        {
+          error: 'fitness_cohort_unavailable',
+          message:
+            'A distinct post-release evidence pack is required for fitness validation.',
+        },
+        { status: 409 },
+      );
+    }
+    if (
+      existing &&
+      existing.evolved.evidenceHash === evolvedPack.evidenceHash &&
+      existing.status !== 'rolled_back'
+    ) {
+      return json(FitnessOutcomeSchema.parse(existing));
+    }
+    const outcome = calculateFitnessOutcome({
+      execution,
+      baselinePack,
+      evolvedPack,
+    });
+    await telemetryRepository.saveFitnessOutcome(outcome);
+    return json(FitnessOutcomeSchema.parse(outcome), { status: 201 });
+  }
+
   const repositoryManifestMatch = pathname.match(
     /^\/api\/repository-executions\/([^/]+)\/manifest$/,
   );
@@ -2734,6 +2854,14 @@ export const handleRequest = async (
       }
       execution = released;
       trace.afterState = 'rollback:released';
+      const fitnessOutcome = await telemetryRepository.getFitnessOutcome(
+        execution.executionId,
+      );
+      if (fitnessOutcome) {
+        await telemetryRepository.saveFitnessOutcome(
+          invalidateFitnessOutcome(fitnessOutcome),
+        );
+      }
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
       return json(
@@ -2905,6 +3033,10 @@ export const handleRequest = async (
               : 5_000,
           }),
       );
+      await refreshVerifiedTargetSnapshot({
+        commitSha: verified.commitSha,
+        verifiedAt: verified.verifiedAt,
+      });
       const released = updateRepositoryExecution(execution, {
         status: 'released',
         previewUrl: execution.repository.studyUrl,

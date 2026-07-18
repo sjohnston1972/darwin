@@ -4,6 +4,7 @@ import {
   DiagnosticsResponseSchema,
   EvidencePackSchema,
   EvidenceAnalysisSchema,
+  FitnessOutcomeSchema,
   GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
   HealthResponseSchema,
@@ -259,12 +260,15 @@ const installOpenAIResponse = (output: unknown) => {
       if (url.includes('api.github.com/repos/') && url.includes('/commits/')) {
         return Response.json({ sha: repositorySha });
       }
-      if (url.endsWith(`/${repositorySha}/darwin.target.json`)) {
+      if (
+        url.endsWith(`/${repositorySha}/darwin.target.json`) ||
+        url.endsWith(`/${'f'.repeat(40)}/darwin.target.json`)
+      ) {
         return new Response(JSON.stringify(repositoryTarget));
       }
       if (
         url.includes(`raw.githubusercontent.com/`) &&
-        url.includes(repositorySha)
+        (url.includes(repositorySha) || url.includes('f'.repeat(40)))
       ) {
         return new Response(
           url.endsWith('/AGENTS.md')
@@ -1575,6 +1579,11 @@ describe('Darwin API', () => {
     expect((await connectTargetApplication()).status).toBe(201);
     const attemptId = 'attempt-analysis-test';
     const taskId = 'find-assigned-task';
+    const fitnessTaskIds = [
+      'find-assigned-task',
+      'create-project',
+      'create-assigned-task',
+    ];
     const event = (
       sequence: number,
       eventType: string,
@@ -1592,7 +1601,7 @@ describe('Darwin API', () => {
       eventType,
       ...details,
     });
-    const events = [
+    const baselineJourney = [
       event(0, 'task_started', { taskAttemptId: attemptId, taskId }),
       event(1, 'element_clicked', {
         targetId: 'nav-projects',
@@ -1637,6 +1646,22 @@ describe('Darwin API', () => {
         outcome: 'success',
       }),
     ];
+    const events = [0, 1, 2].flatMap((cohortIndex) =>
+      baselineJourney.map((journeyEvent, index) => ({
+        ...journeyEvent,
+        eventId: `00000000-0000-4000-8000-${(401 + cohortIndex * 20 + index)
+          .toString()
+          .padStart(12, '0')}`,
+        sessionId: `session-analysis-${cohortIndex}`,
+        participantId: `participant-analysis-${cohortIndex}`,
+        ...('taskAttemptId' in journeyEvent
+          ? { taskAttemptId: `${attemptId}-${cohortIndex}` }
+          : {}),
+        ...('taskId' in journeyEvent
+          ? { taskId: fitnessTaskIds[cohortIndex] }
+          : {}),
+      })),
+    );
     await ingestConnectedTelemetry(events);
     const evidenceResponse = await handleRequest(
       new Request(
@@ -2063,6 +2088,110 @@ describe('Darwin API', () => {
         .count,
     ).toBe(0);
 
+    const evolvedEvents = [0, 1, 2].flatMap((cohortIndex) => {
+      const evolvedAttemptId = `attempt-evolved-${cohortIndex}`;
+      const evolvedTaskId = fitnessTaskIds[cohortIndex]!;
+      const evolvedBase = {
+        ...studyEvent,
+        sessionId: `session-evolved-${cohortIndex}`,
+        participantId: `participant-evolved-${cohortIndex}`,
+        appVersion: 'f'.repeat(12),
+      };
+      return [
+        {
+          ...evolvedBase,
+          eventId: `00000000-0000-4000-8000-${(601 + cohortIndex * 10)
+            .toString()
+            .padStart(12, '0')}`,
+          sequence: 0,
+          occurredAt: `2026-07-18T12:0${cohortIndex}:00.000Z`,
+          eventType: 'task_started',
+          taskAttemptId: evolvedAttemptId,
+          taskId: evolvedTaskId,
+        },
+        {
+          ...evolvedBase,
+          eventId: `00000000-0000-4000-8000-${(602 + cohortIndex * 10)
+            .toString()
+            .padStart(12, '0')}`,
+          sequence: 1,
+          occurredAt: `2026-07-18T12:0${cohortIndex}:02.000Z`,
+          eventType: 'element_clicked',
+          targetId: 'nav-tasks',
+          taskAttemptId: evolvedAttemptId,
+          taskId: evolvedTaskId,
+        },
+        {
+          ...evolvedBase,
+          eventId: `00000000-0000-4000-8000-${(603 + cohortIndex * 10)
+            .toString()
+            .padStart(12, '0')}`,
+          sequence: 2,
+          occurredAt: `2026-07-18T12:0${cohortIndex}:04.000Z`,
+          eventType: 'element_clicked',
+          targetId: 'task-open-apl-241',
+          taskAttemptId: evolvedAttemptId,
+          taskId: evolvedTaskId,
+        },
+        {
+          ...evolvedBase,
+          eventId: `00000000-0000-4000-8000-${(604 + cohortIndex * 10)
+            .toString()
+            .padStart(12, '0')}`,
+          sequence: 3,
+          occurredAt: `2026-07-18T12:0${cohortIndex}:06.000Z`,
+          eventType: 'task_completed',
+          taskAttemptId: evolvedAttemptId,
+          taskId: evolvedTaskId,
+          durationMs: 6_000,
+          outcome: 'success',
+        },
+      ];
+    });
+    const evolvedIngestResponse =
+      await ingestConnectedTelemetry(evolvedEvents);
+    expect(evolvedIngestResponse.status).toBe(202);
+    const evolvedEvidenceResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence',
+        { method: 'POST' },
+      ),
+    );
+    expect(evolvedEvidenceResponse.status).toBe(201);
+    const evolvedEvidence = EvidencePackSchema.parse(
+      await evolvedEvidenceResponse.json(),
+    );
+    expect(evolvedEvidence.study).toMatchObject({
+      appVersion: 'f'.repeat(12),
+      measuredCommit: 'f'.repeat(40),
+      sessions: 3,
+      participants: 3,
+      attempts: 3,
+    });
+    const fitnessResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/repository-executions/${execution.executionId}/fitness`,
+        { method: 'POST' },
+      ),
+    );
+    const fitness = FitnessOutcomeSchema.parse(await fitnessResponse.json());
+    expect(fitnessResponse.status).toBe(201);
+    expect(fitness).toMatchObject({
+      executionId: execution.executionId,
+      status: 'measured',
+      formulaVersion: '1.0.0',
+      baseline: { evidenceHash: first.evidenceHash },
+      evolved: { evidenceHash: evolvedEvidence.evidenceHash },
+    });
+    expect(fitness.delta).toBeGreaterThan(0);
+    const genomeWithFitnessResponse = await handleRequest(
+      new Request('http://localhost/api/genome'),
+    );
+    expect(
+      GenomeHistoryResponseSchema.parse(await genomeWithFitnessResponse.json())
+        .fitnessOutcomes[0],
+    ).toEqual(fitness);
+
     const rollbackResponse = await handleRequest(
       new Request(
         `http://localhost/api/repository-executions/${execution.executionId}/rollback`,
@@ -2206,6 +2335,19 @@ describe('Darwin API', () => {
         .mock.calls.filter(([input]) => String(input).endsWith('/merge'))
         .length,
     ).toBe(mergeCallsBeforeRollback + 1);
+    const stoppedFitnessResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/repository-executions/${execution.executionId}/fitness`,
+      ),
+    );
+    expect(
+      FitnessOutcomeSchema.parse(await stoppedFitnessResponse.json()),
+    ).toMatchObject({
+      status: 'rolled_back',
+      baselineScore: null,
+      evolvedScore: null,
+      delta: null,
+    });
   });
 
   it('creates and retrieves an exactly 10,000-event simulation summary', async () => {

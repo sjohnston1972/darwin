@@ -3,6 +3,7 @@ import {
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  FitnessOutcomeSchema,
   GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
   ObservationArchiveDetailResponseSchema,
@@ -15,6 +16,7 @@ import {
   type EvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
+  type FitnessOutcome,
   type ObservationArchive,
   type ObservationArchiveSummary,
   type RepositoryMutationExecution,
@@ -100,6 +102,7 @@ export interface LiveTelemetryState {
     executionId: string,
   ) => Promise<RepositoryMutationExecution>;
   loadMoreGenome: () => Promise<void>;
+  fitnessOutcomes: FitnessOutcome[];
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
@@ -164,6 +167,7 @@ export function useLiveTelemetry({
   const [genomeExecutions, setGenomeExecutions] = useState<
     RepositoryExecutionSummary[]
   >([]);
+  const [fitnessOutcomes, setFitnessOutcomes] = useState<FitnessOutcome[]>([]);
   const [observationArchives, setObservationArchives] = useState<
     ObservationArchiveSummary[]
   >([]);
@@ -240,6 +244,7 @@ export function useLiveTelemetry({
     setEvolutionCycle(history.evolutionCycle);
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
     setGenomeExecutions(history.executions);
+    setFitnessOutcomes(history.fitnessOutcomes);
     setGenomeNextCursor(history.page.nextCursor);
     const deepLinkedId = artifactDeepLink('fossil');
     if (
@@ -845,12 +850,34 @@ export function useLiveTelemetry({
       if (!response.ok) {
         throw new Error(payload.message ?? 'Evidence generation failed.');
       }
+      const nextEvidence = EvidencePackSchema.parse(payload);
       setWorkflow({
-        evidence: EvidencePackSchema.parse(payload),
+        evidence: nextEvidence,
         analysis: null,
         manifest: null,
         execution: null,
       });
+      const retainedExecution = genomeExecutions.find(
+        (item) =>
+          item.status === 'released' && item.rollback?.status !== 'released',
+      );
+      if (retainedExecution) {
+        const fitnessResponse = await apiFetch(
+          `${apiBaseUrl}/api/repository-executions/${retainedExecution.executionId}/fitness`,
+          { method: 'POST' },
+        );
+        if (fitnessResponse.ok) {
+          const outcome = FitnessOutcomeSchema.parse(
+            await fitnessResponse.json(),
+          );
+          setFitnessOutcomes((current) => [
+            outcome,
+            ...current.filter(
+              (item) => item.executionId !== outcome.executionId,
+            ),
+          ]);
+        }
+      }
     } catch (error) {
       setError(
         error instanceof Error
@@ -1104,6 +1131,7 @@ export function useLiveTelemetry({
       deploymentVerifiedAt: null,
     });
     setGenomeExecutions([]);
+    setFitnessOutcomes([]);
     setObservationArchives([]);
     setGenomeNextCursor(null);
     setObservationArchivesNextCursor(null);
@@ -1181,6 +1209,7 @@ export function useLiveTelemetry({
     error,
     events,
     execution,
+    fitnessOutcomes,
     generateEvidence,
     generating,
     genomeEvolutionCount,
