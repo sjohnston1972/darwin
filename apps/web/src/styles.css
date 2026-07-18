@@ -49,6 +49,11 @@
   mix-blend-mode: multiply;
 }
 
+html[data-theme='light'] .lab-trace-visual {
+  opacity: 0.58;
+  filter: saturate(0.8) contrast(1.08);
+}
+
 .lab-hero .section-label {
   display: flex;
   align-items: center;
@@ -58,17 +63,17 @@
 .lab-hero h1 {
   margin-top: 18px;
   color: #18201d;
-  font-size: clamp(42px, 5vw, 70px);
-  font-weight: 620;
-  letter-spacing: -0.055em;
-  line-height: 0.95;
+  font-size: 56px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
 }
 
 .lab-tagline {
   margin-top: 15px;
   color: #18201d;
-  font-size: clamp(20px, 2.2vw, 30px);
-  letter-spacing: -0.02em;
+  font-size: 24px;
+  letter-spacing: normal;
 }
 
 .lab-copy {
@@ -1437,6 +1442,7 @@ a:focus-visible {
 
 .live-update-stack {
   display: grid;
+  min-width: max-content;
   justify-items: end;
   gap: 6px;
 }
@@ -1445,6 +1451,7 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 7px;
+  white-space: nowrap;
   color: var(--mist);
   font-family: var(--font-mono);
   font-size: 10px;
