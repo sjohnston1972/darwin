@@ -178,33 +178,40 @@ export function DarwinLabView({
 
   return (
     <div className="lab-workspace">
-      <section className="lab-hero" aria-labelledby="lab-title">
+      <section className="hero-band lab-hero" aria-labelledby="lab-title">
         <img
-          className="lab-trace-visual"
+          className="hero-dna-visual lab-trace-visual"
           src="/assets/darwin-behavioural-trace-wireframe.png"
           alt=""
           aria-hidden="true"
         />
-        <div>
-          <p className="section-label">
+        <div className="relative z-10 max-w-3xl">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
             <FlaskConical size={14} /> Synthetic telemetry laboratory
           </p>
-          <h1 id="lab-title">Darwin Lab</h1>
-          <p className="lab-tagline">
+          <h1
+            id="lab-title"
+            className="mt-5 text-4xl font-semibold sm:text-5xl lg:text-[56px] lg:leading-[1.05]"
+          >
+            Darwin Lab
+          </h1>
+          <p className="mt-3 text-xl text-white sm:text-2xl lab-tagline">
             Evolve software before real users arrive.
           </p>
-          <p className="lab-copy">
+          <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base lab-copy">
             A bounded population of inexpensive AI agents operates the real
             ProjectFlow interface in isolated browsers. Their traces stay
             synthetic, reproducible, and separate from measured human evidence.
           </p>
         </div>
-        <div className="lab-boundary-card">
-          <span>
-            <ShieldCheck size={15} /> Evidence boundary
-          </span>
-          <strong>SYNTHETIC ONLY</strong>
-          <small>Never included in human cohorts or measured fitness.</small>
+        <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
+          <div className="lab-boundary-card">
+            <span>
+              <ShieldCheck size={15} /> Evidence boundary
+            </span>
+            <strong>SYNTHETIC ONLY</strong>
+            <small>Never included in human cohorts or measured fitness.</small>
+          </div>
         </div>
       </section>
 
