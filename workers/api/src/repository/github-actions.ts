@@ -11,6 +11,123 @@ const headers = (token: string) => ({
   'X-GitHub-Api-Version': '2022-11-28',
 });
 
+const commitShaPattern = /^[a-f0-9]{40}$/;
+
+export class GitHubMergeStateUnknownError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'GitHubMergeStateUnknownError';
+  }
+}
+
+const readMergedCommit = async ({
+  token,
+  repository,
+  pullRequestNumber,
+  fetcher,
+}: {
+  token: string;
+  repository: string;
+  pullRequestNumber: number;
+  fetcher: typeof fetch;
+}) => {
+  const response = await fetcher(
+    `https://api.github.com/repos/${repository}/pulls/${pullRequestNumber}`,
+    { headers: headers(token) },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `GitHub pull request reconciliation failed with HTTP ${response.status}.`,
+    );
+  }
+  const payload = (await response.json()) as {
+    merged?: boolean;
+    merge_commit_sha?: string | null;
+  };
+  if (payload.merged !== true) return null;
+  if (!payload.merge_commit_sha?.match(commitShaPattern)) {
+    throw new Error('GitHub returned a merged pull request without a commit.');
+  }
+  return payload.merge_commit_sha;
+};
+
+const mergePullRequest = async ({
+  token,
+  repository,
+  pullRequestNumber,
+  headSha,
+  commitTitle,
+  failureLabel,
+  fetcher,
+}: {
+  token: string;
+  repository: string;
+  pullRequestNumber: number;
+  headSha: string;
+  commitTitle: string;
+  failureLabel: string;
+  fetcher: typeof fetch;
+}) => {
+  let response: Response | null = null;
+  let requestError: Error | null = null;
+  try {
+    response = await fetcher(
+      `https://api.github.com/repos/${repository}/pulls/${pullRequestNumber}/merge`,
+      {
+        method: 'PUT',
+        headers: headers(token),
+        body: JSON.stringify({
+          sha: headSha,
+          merge_method: 'squash',
+          commit_title: commitTitle,
+        }),
+      },
+    );
+    const payload = (await response.json().catch(() => null)) as {
+      merged?: boolean;
+      sha?: string;
+    } | null;
+    if (
+      response.ok &&
+      payload?.merged === true &&
+      payload.sha?.match(commitShaPattern)
+    ) {
+      return payload.sha;
+    }
+    requestError = new Error(
+      `GitHub ${failureLabel} merge failed with HTTP ${response.status}.`,
+    );
+  } catch (error) {
+    requestError =
+      error instanceof Error
+        ? error
+        : new Error(`GitHub ${failureLabel} merge request failed.`);
+  }
+
+  try {
+    const reconciledSha = await readMergedCommit({
+      token,
+      repository,
+      pullRequestNumber,
+      fetcher,
+    });
+    if (reconciledSha) return reconciledSha;
+  } catch (reconciliationError) {
+    throw new GitHubMergeStateUnknownError(
+      `GitHub ${failureLabel} merge state could not be reconciled.`,
+      { cause: reconciliationError },
+    );
+  }
+
+  if (!response || response.status >= 500) {
+    throw new GitHubMergeStateUnknownError(
+      `GitHub ${failureLabel} merge result is ambiguous.`,
+      { cause: requestError },
+    );
+  }
+  throw requestError;
+};
+
 export interface DispatchEvolutionWorkflowOptions {
   token: string;
   execution: RepositoryMutationExecution;
@@ -115,32 +232,15 @@ export async function mergeEvolutionPullRequest({
       'Repository execution does not have a reviewable pull request.',
     );
   }
-  const response = await fetcher(
-    `https://api.github.com/repos/${execution.repository.fullName}/pulls/${execution.pullRequestNumber}/merge`,
-    {
-      method: 'PUT',
-      headers: headers(token),
-      body: JSON.stringify({
-        sha: execution.headSha,
-        merge_method: 'squash',
-        commit_title: `Darwin evolution: ${execution.manifestId}`,
-      }),
-    },
-  );
-  const payload = (await response.json().catch(() => null)) as {
-    merged?: boolean;
-    sha?: string;
-  } | null;
-  if (
-    !response.ok ||
-    payload?.merged !== true ||
-    !payload.sha?.match(/^[a-f0-9]{40}$/)
-  ) {
-    throw new Error(
-      `GitHub pull request merge failed with HTTP ${response.status}.`,
-    );
-  }
-  return payload.sha;
+  return mergePullRequest({
+    token,
+    repository: execution.repository.fullName,
+    pullRequestNumber: execution.pullRequestNumber,
+    headSha: execution.headSha,
+    commitTitle: `Darwin evolution: ${execution.manifestId}`,
+    failureLabel: 'pull request',
+    fetcher,
+  });
 }
 
 export interface MergeRollbackPullRequestOptions {
@@ -161,32 +261,15 @@ export async function mergeRollbackPullRequest({
       'Repository rollback does not have a reviewable pull request.',
     );
   }
-  const response = await fetcher(
-    `https://api.github.com/repos/${execution.repository.fullName}/pulls/${rollback.pullRequestNumber}/merge`,
-    {
-      method: 'PUT',
-      headers: headers(token),
-      body: JSON.stringify({
-        sha: rollback.headSha,
-        merge_method: 'squash',
-        commit_title: `Darwin rollback: ${execution.manifestId}`,
-      }),
-    },
-  );
-  const payload = (await response.json().catch(() => null)) as {
-    merged?: boolean;
-    sha?: string;
-  } | null;
-  if (
-    !response.ok ||
-    payload?.merged !== true ||
-    !payload.sha?.match(/^[a-f0-9]{40}$/)
-  ) {
-    throw new Error(
-      `GitHub rollback pull request merge failed with HTTP ${response.status}.`,
-    );
-  }
-  return payload.sha;
+  return mergePullRequest({
+    token,
+    repository: execution.repository.fullName,
+    pullRequestNumber: rollback.pullRequestNumber,
+    headSha: rollback.headSha,
+    commitTitle: `Darwin rollback: ${execution.manifestId}`,
+    failureLabel: 'rollback pull request',
+    fetcher,
+  });
 }
 
 export interface DispatchResetWorkflowOptions {

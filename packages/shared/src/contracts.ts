@@ -844,6 +844,7 @@ export const RepositoryRollbackSchema = z.object({
 
 export const RepositoryMutationExecutionSchema = z.object({
   executionId: StudyIdentifierSchema,
+  revision: z.number().int().nonnegative().default(0),
   manifestId: StudyIdentifierSchema,
   analysisId: StudyIdentifierSchema,
   repository: RepositoryContextSchema,

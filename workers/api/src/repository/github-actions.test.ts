@@ -5,6 +5,7 @@ import {
   createRepositoryRollback,
 } from './execution';
 import {
+  GitHubMergeStateUnknownError,
   dispatchRollbackWorkflow,
   dispatchEvolutionWorkflow,
   dispatchResetWorkflow,
@@ -148,6 +149,120 @@ describe('dispatchEvolutionWorkflow', () => {
     expect(String(fetcher.mock.calls[1]?.[0])).toContain(
       '/darwin-reset.yml/dispatches',
     );
+  });
+
+  it('reconciles an ambiguous merge request from the GitHub pull request', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error('connection closed after request'))
+      .mockResolvedValueOnce(
+        Response.json({
+          merged: true,
+          merge_commit_sha: 'e'.repeat(40),
+        }),
+      );
+    const execution = {
+      ...createRepositoryExecution({
+        manifestId: 'manifest-reconcile',
+        manifestHash: '1'.repeat(64),
+        analysisId: 'analysis-reconcile',
+        mutationId: 'mutation-reconcile',
+        evidenceHash: '2'.repeat(64),
+        promptVersion: '3.0.0',
+        repositoryCommit: '3'.repeat(40),
+        repository: {
+          owner: 'sjohnston1972',
+          name: 'projectflow',
+          fullName: 'sjohnston1972/projectflow',
+          url: 'https://github.com/sjohnston1972/projectflow',
+          branch: 'main',
+          baseSha: '3'.repeat(40),
+          sourceHash: '4'.repeat(64),
+          capturedAt: '2026-07-17T10:00:00.000Z',
+          mutablePaths: ['apps/projectflow/src/**'],
+          protectedPaths: ['.github/**'],
+          contextPaths: ['apps/projectflow/src/App.tsx'],
+          validationCommands: ['npm run verify'],
+          maximumChangedFiles: 8,
+          maximumChangedLines: 700,
+          productionUrl: 'https://darwin-projectflow.pages.dev/',
+          studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+        },
+        createdAt: '2026-07-17T10:01:00.000Z',
+        brief: 'Implement mutation.',
+        evidenceCitations: ['EV-001'],
+        allowedPaths: ['apps/projectflow/src/**'],
+        protectedPaths: ['.github/**'],
+        acceptanceCriteria: ['Mutation works.'],
+        validationCommands: ['npm run verify'],
+      } satisfies CodexImplementationManifest),
+      pullRequestNumber: 31,
+      headSha: 'a'.repeat(40),
+    };
+
+    await expect(
+      mergeEvolutionPullRequest({
+        token: 'github-token',
+        execution,
+        fetch: fetcher,
+      }),
+    ).resolves.toBe('e'.repeat(40));
+    expect(String(fetcher.mock.calls[0]?.[0]).endsWith('/merge')).toBe(true);
+    expect(String(fetcher.mock.calls[1]?.[0]).endsWith('/pulls/31')).toBe(true);
+    expect(fetcher.mock.calls[1]?.[1]?.method).toBeUndefined();
+  });
+
+  it('reports an unknown merge state when GitHub cannot be reconciled', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({}, { status: 502 }))
+      .mockResolvedValueOnce(Response.json({}, { status: 503 }));
+    const execution = {
+      ...createRepositoryExecution({
+        manifestId: 'manifest-unknown',
+        manifestHash: '1'.repeat(64),
+        analysisId: 'analysis-unknown',
+        mutationId: 'mutation-unknown',
+        evidenceHash: '2'.repeat(64),
+        promptVersion: '3.0.0',
+        repositoryCommit: '3'.repeat(40),
+        repository: {
+          owner: 'sjohnston1972',
+          name: 'projectflow',
+          fullName: 'sjohnston1972/projectflow',
+          url: 'https://github.com/sjohnston1972/projectflow',
+          branch: 'main',
+          baseSha: '3'.repeat(40),
+          sourceHash: '4'.repeat(64),
+          capturedAt: '2026-07-17T10:00:00.000Z',
+          mutablePaths: ['apps/projectflow/src/**'],
+          protectedPaths: ['.github/**'],
+          contextPaths: ['apps/projectflow/src/App.tsx'],
+          validationCommands: ['npm run verify'],
+          maximumChangedFiles: 8,
+          maximumChangedLines: 700,
+          productionUrl: 'https://darwin-projectflow.pages.dev/',
+          studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+        },
+        createdAt: '2026-07-17T10:01:00.000Z',
+        brief: 'Implement mutation.',
+        evidenceCitations: ['EV-001'],
+        allowedPaths: ['apps/projectflow/src/**'],
+        protectedPaths: ['.github/**'],
+        acceptanceCriteria: ['Mutation works.'],
+        validationCommands: ['npm run verify'],
+      } satisfies CodexImplementationManifest),
+      pullRequestNumber: 32,
+      headSha: 'a'.repeat(40),
+    };
+
+    await expect(
+      mergeEvolutionPullRequest({
+        token: 'github-token',
+        execution,
+        fetch: fetcher,
+      }),
+    ).rejects.toBeInstanceOf(GitHubMergeStateUnknownError);
   });
 
   it('dispatches and merges a separately reviewable rollback', async () => {
