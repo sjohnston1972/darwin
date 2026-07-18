@@ -1,5 +1,7 @@
 import {
+  EvidenceApplicationMapSchema,
   RepositoryContextSchema,
+  type EvidenceApplicationMap,
   type RepositoryContext,
 } from '@darwin/shared';
 import { z } from 'zod';
@@ -10,6 +12,25 @@ const targetConfigSchema = z.object({
   name: z.string().min(1),
   purpose: z.string().min(1),
   defaultBranch: z.string().min(1),
+  application: z.object({
+    primaryUser: z.string().min(1),
+    domainEntities: z.array(z.string().min(1)).min(1),
+    primaryGoals: z.array(z.string().min(1)).min(1),
+    navigation: z.array(z.string().min(1)).min(1),
+    capabilities: z.array(z.string().min(1)).min(1),
+    interfaceInventory: z
+      .array(
+        z.object({
+          area: z.string().min(1),
+          purpose: z.string().min(1),
+          primaryActions: z.array(z.string().min(1)).min(1),
+        }),
+      )
+      .min(1),
+    routes: z.array(z.string().min(1).startsWith('/')).min(1),
+    mutableAreas: z.array(z.string().min(1)),
+    protectedAreas: z.array(z.string().min(1)),
+  }),
   mutablePaths: z.array(z.string().min(1)).min(1),
   protectedPaths: z.array(z.string().min(1)).min(1),
   contextPaths: z.array(z.string().min(1)).min(1),
@@ -50,6 +71,7 @@ const assertPath = (path: string) => {
 
 export interface RepositorySnapshot {
   context: RepositoryContext;
+  applicationMap: EvidenceApplicationMap;
   developerContext: string;
   target: {
     targetId: string;
@@ -62,6 +84,7 @@ export interface RepositorySnapshot {
 export interface RepositorySnapshotOptions {
   fullName?: string;
   branch?: string;
+  commitSha?: string;
   githubToken?: string;
   productionUrl?: string;
   studyUrl?: string;
@@ -78,18 +101,21 @@ export async function captureRepositorySnapshot(
   const branch = options.branch || 'main';
   const fetcher = options.fetch ?? fetch;
   const headers = repositoryHeaders(options.githubToken);
-  const commitResponse = await fetcher(
-    `https://api.github.com/repos/${fullName}/commits/${encodeURIComponent(branch)}`,
-    { headers },
-  );
-  if (!commitResponse.ok) {
-    throw new Error(
-      `GitHub commit lookup failed with ${commitResponse.status}.`,
+  let baseSha: string;
+  if (options.commitSha) {
+    baseSha = commitResponseSchema.parse({ sha: options.commitSha }).sha;
+  } else {
+    const commitResponse = await fetcher(
+      `https://api.github.com/repos/${fullName}/commits/${encodeURIComponent(branch)}`,
+      { headers },
     );
+    if (!commitResponse.ok) {
+      throw new Error(
+        `GitHub commit lookup failed with ${commitResponse.status}.`,
+      );
+    }
+    baseSha = commitResponseSchema.parse(await commitResponse.json()).sha;
   }
-  const { sha: baseSha } = commitResponseSchema.parse(
-    await commitResponse.json(),
-  );
   const raw = async (path: string) => {
     const safePath = assertPath(path);
     const response = await fetcher(
@@ -138,6 +164,25 @@ export async function captureRepositorySnapshot(
     studyUrl:
       options.studyUrl || 'https://darwin-projectflow.pages.dev/?study=true',
   });
+  const applicationMap = EvidenceApplicationMapSchema.parse({
+    source: { repositorySha: baseSha, sourceHash },
+    product: {
+      name: targetConfig.name,
+      purpose: targetConfig.purpose,
+      primaryUser: targetConfig.application.primaryUser,
+      domainEntities: targetConfig.application.domainEntities,
+      primaryGoals: targetConfig.application.primaryGoals,
+    },
+    activeGenome: {
+      version: baseSha.slice(0, 12),
+      navigation: targetConfig.application.navigation,
+      capabilities: targetConfig.application.capabilities,
+    },
+    interfaceInventory: targetConfig.application.interfaceInventory,
+    routes: targetConfig.application.routes,
+    mutableAreas: targetConfig.application.mutableAreas,
+    protectedAreas: targetConfig.application.protectedAreas,
+  });
   const developerContext = [
     '# Live ProjectFlow repository snapshot',
     '',
@@ -159,6 +204,7 @@ export async function captureRepositorySnapshot(
   ].join('\n');
   return {
     context,
+    applicationMap,
     developerContext,
     target: {
       targetId: targetConfig.targetId,

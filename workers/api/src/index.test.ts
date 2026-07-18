@@ -34,7 +34,7 @@ const studyEvent = {
   sessionId: 'session-api-test',
   participantId: 'participant-api-test',
   studyId: 'projectflow-baseline-study',
-  appVersion: '1.0.0',
+  appVersion: 'dddddddddddd',
   source: 'real_user',
   occurredAt: '2026-07-16T12:00:00.000Z',
   sequence: 0,
@@ -116,6 +116,23 @@ const repositoryTarget = {
   name: 'ProjectFlow',
   purpose: 'Task management',
   defaultBranch: 'main',
+  application: {
+    primaryUser: 'Knowledge worker',
+    domainEntities: ['project', 'task'],
+    primaryGoals: ['find assigned work'],
+    navigation: ['Dashboard', 'Projects'],
+    capabilities: ['project task search'],
+    interfaceInventory: [
+      {
+        area: 'projects',
+        purpose: 'Browse projects',
+        primaryActions: ['open project'],
+      },
+    ],
+    routes: ['/dashboard', '/projects'],
+    mutableAreas: ['navigation', 'search'],
+    protectedAreas: ['telemetry-history'],
+  },
   mutablePaths: ['apps/projectflow/src/**'],
   protectedPaths: ['.github/**'],
   contextPaths: ['AGENTS.md', 'apps/projectflow/src/App.tsx'],
@@ -238,6 +255,20 @@ const installOpenAIResponse = (output: unknown) =>
         }),
         { status: 200 },
       );
+    }),
+  );
+
+const connectTargetApplication = () =>
+  handleRequest(
+    new Request('http://localhost/api/target-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: 'sjohnston1972/projectflow',
+        branch: 'main',
+        productionUrl: 'https://darwin-projectflow.pages.dev/',
+        studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+      }),
     }),
   );
 
@@ -456,6 +487,13 @@ describe('Darwin API', () => {
       productionUrl: request.productionUrl,
       studyUrl: request.studyUrl,
     });
+    expect(connection.applicationMap).toMatchObject({
+      source: {
+        repositorySha,
+        sourceHash: connection.repository.sourceHash,
+      },
+      activeGenome: { version: repositorySha.slice(0, 12) },
+    });
     expect(connection.checks.map((check) => check.id)).toEqual([
       'repository',
       'contract',
@@ -659,6 +697,8 @@ describe('Darwin API', () => {
   });
 
   it('generates and persists a hashed evidence pack from real events', async () => {
+    installOpenAIResponse(evidenceModelOutput);
+    expect((await connectTargetApplication()).status).toBe(201);
     const attemptId = 'attempt-api-evidence';
     const taskId = 'find-assigned-task';
     const start = {
@@ -697,6 +737,13 @@ describe('Darwin API', () => {
     expect(generated.evidenceClass).toBe('measured');
     expect(generated.study.attempts).toBe(1);
     expect(generated.evidenceHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(generated.applicationMap).toMatchObject({
+      source: {
+        repositorySha,
+        sourceHash: generated.applicationMap.source.sourceHash,
+      },
+      activeGenome: { version: repositorySha.slice(0, 12) },
+    });
 
     const latestResponse = await handleRequest(
       new Request(
@@ -729,7 +776,64 @@ describe('Darwin API', () => {
     ).toMatchObject({ count: 0, events: [] });
   });
 
+  it('rejects stale and mixed application versions before evidence generation', async () => {
+    installOpenAIResponse(evidenceModelOutput);
+    expect((await connectTargetApplication()).status).toBe(201);
+    const telemetryRequest = (events: unknown[]) =>
+      handleRequest(
+        new Request('http://localhost/api/telemetry/events', {
+          method: 'POST',
+          body: JSON.stringify({ events }),
+        }),
+      );
+    const evidenceRequest = () =>
+      handleRequest(
+        new Request(
+          'http://localhost/api/studies/projectflow-baseline-study/evidence',
+          { method: 'POST' },
+        ),
+      );
+
+    await telemetryRequest([
+      {
+        ...studyEvent,
+        eventId: '00000000-0000-4000-8000-000000000181',
+        appVersion: 'cccccccccccc',
+      },
+    ]);
+    const stale = await evidenceRequest();
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({
+      error: 'telemetry_version_mismatch',
+      appVersion: 'cccccccccccc',
+      repositorySha,
+    });
+
+    await resetInMemoryTelemetry();
+    expect((await connectTargetApplication()).status).toBe(201);
+    await telemetryRequest([
+      {
+        ...studyEvent,
+        eventId: '00000000-0000-4000-8000-000000000182',
+      },
+      {
+        ...studyEvent,
+        eventId: '00000000-0000-4000-8000-000000000183',
+        sessionId: 'session-api-mixed-version',
+        appVersion: 'cccccccccccc',
+      },
+    ]);
+    const mixed = await evidenceRequest();
+    expect(mixed.status).toBe(409);
+    await expect(mixed.json()).resolves.toMatchObject({
+      error: 'mixed_app_versions',
+      appVersions: ['cccccccccccc', 'dddddddddddd'],
+    });
+  });
+
   it('caches evidence analysis and creates a bounded Codex manifest', async () => {
+    installOpenAIResponse(evidenceModelOutput);
+    expect((await connectTargetApplication()).status).toBe(201);
     const attemptId = 'attempt-analysis-test';
     const taskId = 'find-assigned-task';
     const event = (

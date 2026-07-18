@@ -251,6 +251,9 @@ const isAllowedTargetVersion = (appVersion: string) =>
   /^\d+\.\d+\.\d+$/.test(appVersion) ||
   /^[a-f0-9]{7,40}(?:-candidate)?$/.test(appVersion);
 
+const versionMatchesCommit = (appVersion: string, commitSha: string) =>
+  /^[a-f0-9]{7,40}$/.test(appVersion) && commitSha.startsWith(appVersion);
+
 export const resetSimulationStore = () => {
   simulationStore.clear();
 };
@@ -461,6 +464,7 @@ export const handleRequest = async (
         verifiedAt: timestamp,
         target: snapshot.target,
         repository: snapshot.context,
+        applicationMap: snapshot.applicationMap,
         checks: [
           {
             id: 'repository',
@@ -728,8 +732,55 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
+    const targetConnection = await telemetryRepository.getTargetConnection();
+    if (!targetConnection) {
+      return json(
+        {
+          error: 'target_connection_required',
+          message:
+            'Connect and verify the ProjectFlow repository before generating evidence.',
+        },
+        { status: 409 },
+      );
+    }
+    const appVersions = [...new Set(events.map((event) => event.appVersion))];
+    if (appVersions.length !== 1) {
+      return json(
+        {
+          error: 'mixed_app_versions',
+          message:
+            'Evidence must contain telemetry from exactly one application version.',
+          appVersions: appVersions.sort(),
+        },
+        { status: 409 },
+      );
+    }
+    const [appVersion] = appVersions;
+    if (
+      !appVersion ||
+      !versionMatchesCommit(appVersion, targetConnection.repository.baseSha) ||
+      targetConnection.applicationMap.source.repositorySha !==
+        targetConnection.repository.baseSha ||
+      targetConnection.applicationMap.source.sourceHash !==
+        targetConnection.repository.sourceHash
+    ) {
+      return json(
+        {
+          error: 'telemetry_version_mismatch',
+          message:
+            'Telemetry version does not match the connected repository snapshot.',
+          appVersion: appVersion ?? null,
+          repositorySha: targetConnection.repository.baseSha,
+        },
+        { status: 409 },
+      );
+    }
     try {
-      const pack = await buildEvidencePack(studyId, events);
+      const pack = await buildEvidencePack(
+        studyId,
+        events,
+        targetConnection.applicationMap,
+      );
       await telemetryRepository.saveEvidence(pack);
       return json(EvidencePackSchema.parse(pack), { status: 201 });
     } catch (error) {
@@ -810,6 +861,7 @@ export const handleRequest = async (
           configuredTarget(env).fullName,
         branch:
           targetConnection?.repository.branch || configuredTarget(env).branch,
+        commitSha: pack.applicationMap.source.repositorySha,
         githubToken: env?.GITHUB_TOKEN,
         productionUrl:
           targetConnection?.repository.productionUrl ||

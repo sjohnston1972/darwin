@@ -67,13 +67,14 @@ When a target is verified, Darwin:
 
 1. resolves the configured branch to a 40-character commit SHA;
 2. reads `darwin.target.json` from that exact SHA;
-3. validates mutable paths, protected paths, context paths, commands, and budgets;
+3. validates the application inventory, mutable/protected areas, source paths, commands, and budgets;
 4. reads only approved context files from the same SHA;
 5. canonicalizes and hashes the source context;
 6. verifies that the configured study deployment responds as ProjectFlow;
-7. stores the connection and verification checks.
+7. stores the repository-derived application map with the SHA and source hash;
+8. admits evidence only when every event reports the connected commit-derived application version.
 
-The GPT analysis and Codex manifest retain the base SHA and source hash. A changed target requires a new repository snapshot and analysis.
+The evidence pack, GPT analysis, and Codex manifest retain the base SHA and source hash. Mixed-version cohorts and stale telemetry fail closed. A changed target requires a new repository snapshot and analysis.
 
 ## Durable data
 
