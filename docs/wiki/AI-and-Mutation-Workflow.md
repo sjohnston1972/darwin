@@ -98,4 +98,8 @@ Rollback never rewrites history with `git reset`; it produces another reviewable
 
 ## Fitness
 
-Repository checks establish technical validity. They do not establish product fitness. Fitness requires a new, compatible measured cohort against the deployed mutation. A complete persisted server-side fitness outcome is tracked in issue [#21](https://github.com/sjohnston1972/darwin/issues/21).
+Repository checks establish technical validity. They do not establish product fitness. Fitness requires a distinct, compatible measured cohort against the verified deployed mutation.
+
+The Worker calculates formula `1.0.0` on a 0-100 scale from task completion (30%), navigation efficiency (25%), error rate (15%), feature discovery (15%), and median duration (15%). Baseline and evolved evidence must use the same study and task set, refer to compatible commits and different application versions, cover all three fixed tasks, and contain at least three terminal attempts, sessions, and anonymous participants per cohort. A failed gate produces an auditable `insufficient` outcome without numeric scores.
+
+The persisted outcome contains both evidence hashes, cohort metadata, formula version, component scores, aggregate scores, delta, and limitations. Genome attaches it to the repository execution that produced the deployment. Releasing a rollback marks that outcome `rolled_back`, clears its numeric comparison, and retains the invalidation in the fossil record.

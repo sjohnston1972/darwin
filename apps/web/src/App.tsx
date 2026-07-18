@@ -4,7 +4,7 @@ import {
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
-  type EvidencePack,
+  type FitnessOutcome,
   type ObservationArchive,
   type RepositoryMutationExecution,
   type RepositoryRollback,
@@ -140,59 +140,6 @@ const configuredTarget: TargetConnectionRequest = {
   studyUrl: `${projectFlowBaseUrl}/?study=true`,
 };
 
-interface FitnessDelta {
-  completionPoints: number;
-  interactionDelta: number | null;
-}
-
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const ordered = [...values].sort((left, right) => left - right);
-  const midpoint = Math.floor(ordered.length / 2);
-  return ordered.length % 2
-    ? ordered[midpoint]!
-    : (ordered[midpoint - 1]! + ordered[midpoint]!) / 2;
-}
-
-function compareFitness(
-  baseline: EvidencePack | null,
-  current: EvidencePack | null,
-): FitnessDelta | null {
-  if (!baseline || !current || baseline.evidenceId === current.evidenceId) {
-    return null;
-  }
-
-  const terminalOutcomes = new Set(['success', 'failed', 'abandoned']);
-  const baselineTerminal = baseline.taskAttempts.filter((attempt) =>
-    terminalOutcomes.has(attempt.outcome),
-  );
-  const currentTerminal = current.taskAttempts.filter((attempt) =>
-    terminalOutcomes.has(attempt.outcome),
-  );
-  if (!baselineTerminal.length || !currentTerminal.length) return null;
-
-  const completionRate = (attempts: typeof baselineTerminal) =>
-    attempts.filter((attempt) => attempt.outcome === 'success').length /
-    attempts.length;
-  const baselineInteractions = median(
-    baselineTerminal.map((attempt) => attempt.interactionCount),
-  );
-  const currentInteractions = median(
-    currentTerminal.map((attempt) => attempt.interactionCount),
-  );
-
-  return {
-    completionPoints: Math.round(
-      (completionRate(currentTerminal) - completionRate(baselineTerminal)) *
-        100,
-    ),
-    interactionDelta:
-      baselineInteractions === null || currentInteractions === null
-        ? null
-        : Math.round((currentInteractions - baselineInteractions) * 10) / 10,
-  };
-}
-
 function signedNumber(value: number): string {
   return `${value > 0 ? '+' : ''}${value}`;
 }
@@ -291,9 +238,8 @@ function DarwinDashboard() {
           archive.execution.executionId === latestReleasedExecution.executionId,
       )?.evidence ?? null)
     : null;
-  const fitnessDelta = compareFitness(
-    latestArchivedEvidence,
-    liveTelemetry.evidence,
+  const latestFitnessOutcome = liveTelemetry.fitnessOutcomes.find(
+    (outcome) => outcome.executionId === latestReleasedExecution?.executionId,
   );
   const pressureClusters =
     liveTelemetry.analysis?.evidenceAssessment.pressureClusters ?? [];
@@ -412,26 +358,35 @@ function DarwinDashboard() {
     },
     {
       label: 'Fitness delta',
-      help: 'A measured post-release comparison between the archived evidence that informed the retained mutation and the current evidence cycle. Darwin reports completion-rate change only when both samples contain completed task attempts.',
-      value: fitnessDelta
-        ? `${signedNumber(fitnessDelta.completionPoints)} pp`
-        : latestArchivedEvidence
-          ? 'PENDING'
-          : '--',
-      meta: fitnessDelta
-        ? fitnessDelta.interactionDelta === null
-          ? 'Task completion versus archived baseline'
-          : `Median path ${signedNumber(fitnessDelta.interactionDelta)} actions versus baseline`
-        : latestArchivedEvidence
-          ? 'Awaiting completed task attempts in the new cycle'
-          : 'Retain a mutation to establish a baseline',
-      tone: fitnessDelta
-        ? fitnessDelta.completionPoints > 0
-          ? 'signal'
-          : fitnessDelta.completionPoints < 0
+      help: 'The persisted server-side 0-100 fitness outcome. Formula 1.0.0 weights task completion, navigation efficiency, error rate, feature discovery, and median duration after compatibility and sample gates pass.',
+      value:
+        latestFitnessOutcome?.status === 'measured'
+          ? signedNumber(latestFitnessOutcome.delta!)
+          : latestFitnessOutcome?.status === 'insufficient'
+            ? 'GATED'
+            : latestFitnessOutcome?.status === 'rolled_back'
+              ? 'STOPPED'
+              : latestArchivedEvidence
+                ? 'PENDING'
+                : '--',
+      meta:
+        latestFitnessOutcome?.status === 'measured'
+          ? `${latestFitnessOutcome.baselineScore}/100 → ${latestFitnessOutcome.evolvedScore}/100 · formula ${latestFitnessOutcome.formulaVersion}`
+          : (latestFitnessOutcome?.limitations[0] ??
+            (latestArchivedEvidence
+              ? 'Awaiting a compatible post-release cohort'
+              : 'Retain a mutation to establish a baseline')),
+      tone:
+        latestFitnessOutcome?.status === 'measured'
+          ? latestFitnessOutcome.delta! > 0
+            ? 'signal'
+            : latestFitnessOutcome.delta! < 0
+              ? 'amber'
+              : 'neutral'
+          : latestFitnessOutcome?.status === 'insufficient' ||
+              latestFitnessOutcome?.status === 'rolled_back'
             ? 'amber'
-            : 'neutral'
-        : 'neutral',
+            : 'neutral',
     },
     {
       label: 'Release confidence',
@@ -924,6 +879,12 @@ function DarwinDashboard() {
                 <FossilExecutionArtifact
                   key={genomeExecution.executionId}
                   execution={genomeExecution}
+                  fitnessOutcome={
+                    liveTelemetry.fitnessOutcomes.find(
+                      (outcome) =>
+                        outcome.executionId === genomeExecution.executionId,
+                    ) ?? null
+                  }
                   mutationTitle={
                     liveTelemetry.observationArchives.find(
                       (archive) =>
@@ -2655,6 +2616,7 @@ function ObservationArchiveArtifact({
 
 function FossilExecutionArtifact({
   execution,
+  fitnessOutcome,
   mutationTitle,
   manifest,
   releasing,
@@ -2667,6 +2629,7 @@ function FossilExecutionArtifact({
   onRetry,
 }: {
   execution: RepositoryMutationExecution;
+  fitnessOutcome: FitnessOutcome | null;
   mutationTitle: string | null;
   manifest: CodexImplementationManifest | null;
   releasing: boolean;
@@ -2720,7 +2683,17 @@ function FossilExecutionArtifact({
           </div>
           <div>
             <span>Fitness</span>
-            <strong>{retained ? 'Measurement pending' : '--'}</strong>
+            <strong>
+              {fitnessOutcome?.status === 'measured'
+                ? `${fitnessOutcome.evolvedScore}/100 · ${signedNumber(fitnessOutcome.delta!)}`
+                : fitnessOutcome?.status === 'insufficient'
+                  ? 'Sample gated'
+                  : fitnessOutcome?.status === 'rolled_back'
+                    ? 'Stopped after rollback'
+                    : retained
+                      ? 'Measurement pending'
+                      : '--'}
+            </strong>
           </div>
           <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
             {artifactState}
@@ -2729,6 +2702,7 @@ function FossilExecutionArtifact({
         <ChevronRight className="fossil-artifact-chevron" size={18} />
       </summary>
       <div className="fossil-artifact-detail">
+        {fitnessOutcome && <FitnessOutcomePanel outcome={fitnessOutcome} />}
         <RepositoryExecutionWorkspace
           embedded
           archived
@@ -2745,6 +2719,61 @@ function FossilExecutionArtifact({
         />
       </div>
     </details>
+  );
+}
+
+function FitnessOutcomePanel({ outcome }: { outcome: FitnessOutcome }) {
+  return (
+    <section
+      className="fitness-outcome-panel"
+      aria-label="Persisted fitness outcome"
+    >
+      <div className="fitness-outcome-heading">
+        <div>
+          <span className="section-label">Measured fitness</span>
+          <strong>
+            {outcome.status === 'measured'
+              ? `${outcome.baselineScore}/100 → ${outcome.evolvedScore}/100`
+              : outcome.status === 'rolled_back'
+                ? 'Comparison stopped after rollback'
+                : 'Minimum sample gate not met'}
+          </strong>
+        </div>
+        <code>formula {outcome.formulaVersion}</code>
+      </div>
+      {outcome.components.length > 0 && (
+        <div className="fitness-component-grid">
+          {outcome.components.map((component) => (
+            <div key={component.metric}>
+              <span>{component.metric.replaceAll('_', ' ')}</span>
+              <strong>
+                {component.baselineScore} → {component.evolvedScore}
+              </strong>
+              <code>{component.weight}%</code>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="fitness-cohort-line">
+        <span>
+          Baseline <code>{outcome.baseline.appVersion}</code> ·{' '}
+          {outcome.baseline.terminalAttempts} attempts ·{' '}
+          {outcome.baseline.sessions} sessions
+        </span>
+        <span>
+          Evolved <code>{outcome.evolved.appVersion}</code> ·{' '}
+          {outcome.evolved.terminalAttempts} attempts ·{' '}
+          {outcome.evolved.sessions} sessions
+        </span>
+      </div>
+      {outcome.limitations.length > 0 && (
+        <ul className="fitness-limitations">
+          {outcome.limitations.map((limitation) => (
+            <li key={limitation}>{limitation}</li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

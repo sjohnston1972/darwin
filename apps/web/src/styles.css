@@ -2978,6 +2978,96 @@ a:focus-visible {
   border-top: 1px solid #2b302d;
 }
 
+.fitness-outcome-panel {
+  display: grid;
+  gap: 18px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--line);
+  background: rgb(104 212 164 / 4%);
+}
+
+.fitness-outcome-heading,
+.fitness-cohort-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.fitness-outcome-heading > div {
+  display: grid;
+  gap: 6px;
+}
+
+.fitness-outcome-heading > code,
+.fitness-cohort-line {
+  color: var(--mist);
+  font-size: 11px;
+}
+
+.fitness-component-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid var(--line);
+}
+
+.fitness-component-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border-right: 1px solid var(--line);
+}
+
+.fitness-component-grid > div:last-child {
+  border-right: 0;
+}
+
+.fitness-component-grid span {
+  color: var(--mist);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.fitness-component-grid strong,
+.fitness-component-grid code {
+  font-family: var(--font-mono);
+}
+
+.fitness-component-grid code {
+  color: #68d4a4;
+  font-size: 10px;
+}
+
+.fitness-limitations {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--mist);
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .fitness-component-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fitness-component-grid > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .fitness-component-grid > div:last-child {
+    border-bottom: 0;
+  }
+
+  .fitness-outcome-heading,
+  .fitness-cohort-line {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .execution-panel-embedded {
   background: #181b19;
 }

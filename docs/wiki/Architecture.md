@@ -87,7 +87,7 @@ D1 tables currently store:
 | `evidence_analyses`      | validated GPT portfolios and cache metadata            |
 | `codex_manifests`        | immutable approved implementation manifests            |
 | `repository_executions`  | workflow, diff, checks, PR, preview, release, rollback |
-| `outcome_validations`    | reserved measured outcome records                      |
+| `outcome_validations`    | versioned measured fitness outcomes and cohort hashes  |
 | `demo_state`             | evolution cycle state                                  |
 | `target_connections`     | verified target snapshot and checks                    |
 

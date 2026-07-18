@@ -912,9 +912,64 @@ export const EvolutionCycleSchema = z.object({
   deploymentVerifiedAt: z.string().datetime().nullable().default(null),
 });
 
+export const FitnessFormulaVersionSchema = z.literal('1.0.0');
+
+export const FitnessCohortSchema = z.object({
+  evidenceId: StudyIdentifierSchema,
+  evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  appVersion: z.string().min(1).max(32),
+  measuredCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  participants: z.number().int().nonnegative(),
+  sessions: z.number().int().nonnegative(),
+  terminalAttempts: z.number().int().nonnegative(),
+  taskIds: z.array(StudyIdentifierSchema),
+});
+
+export const FitnessComponentSchema = z.object({
+  metric: z.enum([
+    'task_completion',
+    'navigation_efficiency',
+    'error_rate',
+    'feature_discovery',
+    'median_duration',
+  ]),
+  weight: z.number().int().positive().max(100),
+  baselineScore: z.number().int().min(0).max(100),
+  evolvedScore: z.number().int().min(0).max(100),
+  delta: z.number().int().min(-100).max(100),
+});
+
+export const FitnessOutcomeSchema = z.object({
+  outcomeId: StudyIdentifierSchema,
+  executionId: StudyIdentifierSchema,
+  studyId: StudyIdentifierSchema,
+  formulaVersion: FitnessFormulaVersionSchema,
+  status: z.enum(['measured', 'insufficient', 'rolled_back']),
+  generatedAt: z.string().datetime(),
+  invalidatedAt: z.string().datetime().nullable(),
+  baseline: FitnessCohortSchema,
+  evolved: FitnessCohortSchema,
+  minimumSample: z.object({
+    terminalAttempts: z.number().int().positive(),
+    sessions: z.number().int().positive(),
+    participants: z.number().int().positive(),
+    tasks: z.number().int().positive(),
+    matchingTaskSet: z.literal(true),
+  }),
+  components: z.array(FitnessComponentSchema).max(5),
+  baselineScore: z.number().int().min(0).max(100).nullable(),
+  evolvedScore: z.number().int().min(0).max(100).nullable(),
+  delta: z.number().int().min(-100).max(100).nullable(),
+  limitations: z.array(z.string().min(1).max(500)).max(30),
+});
+
 export const GenomeHistoryResponseSchema = z.object({
   evolutionCycle: EvolutionCycleSchema,
   executions: z.array(RepositoryMutationExecutionSchema),
+  fitnessOutcomes: z.array(FitnessOutcomeSchema).default([]),
 });
 
 export const ObservationArchiveSchema = z.object({
@@ -1025,6 +1080,9 @@ export type CodexImplementationManifest = z.infer<
 >;
 export type CodexManifestRequest = z.infer<typeof CodexManifestRequestSchema>;
 export type EvolutionCycle = z.infer<typeof EvolutionCycleSchema>;
+export type FitnessCohort = z.infer<typeof FitnessCohortSchema>;
+export type FitnessComponent = z.infer<typeof FitnessComponentSchema>;
+export type FitnessOutcome = z.infer<typeof FitnessOutcomeSchema>;
 export type GenomeHistoryResponse = z.infer<typeof GenomeHistoryResponseSchema>;
 export type ObservationArchive = z.infer<typeof ObservationArchiveSchema>;
 export type ObservationArchivesResponse = z.infer<

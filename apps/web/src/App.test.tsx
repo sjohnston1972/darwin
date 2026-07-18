@@ -304,6 +304,60 @@ const manifest = {
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
 
+const measuredFitnessOutcome = {
+  outcomeId: 'fitness-execution-measured-test',
+  executionId: 'execution-measured-test',
+  studyId: 'projectflow-baseline-study',
+  formulaVersion: '1.0.0',
+  status: 'measured',
+  generatedAt: timestamp,
+  invalidatedAt: null,
+  baseline: {
+    evidenceId: evidence.evidenceId,
+    evidenceHash: evidence.evidenceHash,
+    appVersion: '1.0.0',
+    measuredCommit: repository.baseSha,
+    participants: 3,
+    sessions: 3,
+    terminalAttempts: 3,
+    taskIds: ['find-assigned-task', 'create-project', 'create-assigned-task'],
+  },
+  evolved: {
+    evidenceId: 'evidence-evolved-test',
+    evidenceHash: '9'.repeat(64),
+    appVersion: '1'.repeat(12),
+    measuredCommit: '1'.repeat(40),
+    participants: 3,
+    sessions: 3,
+    terminalAttempts: 3,
+    taskIds: ['find-assigned-task', 'create-project', 'create-assigned-task'],
+  },
+  minimumSample: {
+    terminalAttempts: 3,
+    sessions: 3,
+    participants: 3,
+    tasks: 3,
+    matchingTaskSet: true,
+  },
+  components: [
+    ['task_completion', 30, 67, 100],
+    ['navigation_efficiency', 25, 60, 88],
+    ['error_rate', 15, 75, 100],
+    ['feature_discovery', 15, 100, 100],
+    ['median_duration', 15, 70, 90],
+  ].map(([metric, weight, baselineScore, evolvedScore]) => ({
+    metric,
+    weight,
+    baselineScore,
+    evolvedScore,
+    delta: Number(evolvedScore) - Number(baselineScore),
+  })),
+  baselineScore: 73,
+  evolvedScore: 94,
+  delta: 21,
+  limitations: [],
+};
+
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
@@ -335,6 +389,7 @@ const installApi = (
             deploymentVerifiedAt: released ? timestamp : null,
           },
           executions: liveExecution ? [liveExecution] : [],
+          fitnessOutcomes: released ? [measuredFitnessOutcome] : [],
         });
       }
       if (url.endsWith('/api/observations/archives')) {
@@ -749,6 +804,8 @@ describe('Darwin control room', () => {
     fireEvent.click(
       executionArtifact!.querySelector(':scope > summary') as HTMLElement,
     );
+    expect(screen.getByText('73/100 → 94/100')).toBeVisible();
+    expect(screen.getByText('formula 1.0.0')).toBeVisible();
     expect(
       await screen.findByRole('heading', { name: 'Codex execution record' }),
     ).toBeVisible();

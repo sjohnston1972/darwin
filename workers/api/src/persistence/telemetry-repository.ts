@@ -1,9 +1,11 @@
 import {
   EvolutionCycleSchema,
+  FitnessOutcomeSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
+  type FitnessOutcome,
   type ProjectFlowWorkspace,
   type RepositoryMutationExecution,
   type StoredTelemetryEvent,
@@ -87,6 +89,9 @@ export interface TelemetryRepository {
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
   listRepositoryExecutions(): Promise<RepositoryMutationExecution[]>;
+  saveFitnessOutcome(outcome: FitnessOutcome): Promise<void>;
+  getFitnessOutcome(executionId: string): Promise<FitnessOutcome | null>;
+  listFitnessOutcomes(): Promise<FitnessOutcome[]>;
   saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ): Promise<void>;
@@ -121,6 +126,7 @@ const evidenceAnalysisStore = new Map<
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
+const fitnessOutcomeStore = new Map<string, FitnessOutcome>();
 const callbackCredentialStore = new Map<string, ExecutionCallbackCredential>();
 const callbackSignatureStore = new Set<string>();
 let targetConnectionStore: TargetApplicationConnection | null = null;
@@ -310,6 +316,20 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     );
   }
 
+  async saveFitnessOutcome(outcome: FitnessOutcome) {
+    fitnessOutcomeStore.set(outcome.executionId, outcome);
+  }
+
+  async getFitnessOutcome(executionId: string) {
+    return fitnessOutcomeStore.get(executionId) ?? null;
+  }
+
+  async listFitnessOutcomes() {
+    return [...fitnessOutcomeStore.values()].sort((left, right) =>
+      right.generatedAt.localeCompare(left.generatedAt),
+    );
+  }
+
   async saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ) {
@@ -375,6 +395,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     evidenceAnalysisStore.clear();
     manifestStore.clear();
     repositoryExecutionStore.clear();
+    fitnessOutcomeStore.clear();
     callbackCredentialStore.clear();
     callbackSignatureStore.clear();
     evolutionCycleStore = defaultEvolutionCycle();
@@ -744,6 +765,52 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .all<{ execution_json: string }>();
     return result.results.map(
       (row) => JSON.parse(row.execution_json) as RepositoryMutationExecution,
+    );
+  }
+
+  async saveFitnessOutcome(outcome: FitnessOutcome) {
+    await this.database
+      .prepare(
+        `INSERT INTO outcome_validations (
+          validation_id, generated_at, baseline_evidence_hash,
+          evolved_evidence_hash, validation_json
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(validation_id) DO UPDATE SET
+          generated_at = excluded.generated_at,
+          baseline_evidence_hash = excluded.baseline_evidence_hash,
+          evolved_evidence_hash = excluded.evolved_evidence_hash,
+          validation_json = excluded.validation_json`,
+      )
+      .bind(
+        outcome.outcomeId,
+        outcome.generatedAt,
+        outcome.baseline.evidenceHash,
+        outcome.evolved.evidenceHash,
+        JSON.stringify(outcome),
+      )
+      .run();
+  }
+
+  async getFitnessOutcome(executionId: string) {
+    const row = await this.database
+      .prepare(
+        'SELECT validation_json FROM outcome_validations WHERE validation_id = ? LIMIT 1',
+      )
+      .bind(`fitness-${executionId}`)
+      .first<{ validation_json: string }>();
+    return row
+      ? FitnessOutcomeSchema.parse(JSON.parse(row.validation_json))
+      : null;
+  }
+
+  async listFitnessOutcomes() {
+    const result = await this.database
+      .prepare(
+        'SELECT validation_json FROM outcome_validations ORDER BY generated_at DESC',
+      )
+      .all<{ validation_json: string }>();
+    return result.results.map((row) =>
+      FitnessOutcomeSchema.parse(JSON.parse(row.validation_json)),
     );
   }
 

@@ -2,6 +2,7 @@ import {
   CodexImplementationManifestSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  FitnessOutcomeSchema,
   GenomeHistoryResponseSchema,
   ObservationArchivesResponseSchema,
   RepositoryMutationExecutionSchema,
@@ -10,6 +11,7 @@ import {
   type EvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
+  type FitnessOutcome,
   type ObservationArchive,
   type RepositoryMutationExecution,
   type StoredTelemetryEvent,
@@ -34,6 +36,7 @@ export interface LiveTelemetryState {
   events: StoredTelemetryEvent[];
   genomeEvolutionCount: number;
   genomeExecutions: RepositoryMutationExecution[];
+  fitnessOutcomes: FitnessOutcome[];
   generateEvidence: () => Promise<void>;
   generating: boolean;
   manifest: CodexImplementationManifest | null;
@@ -88,6 +91,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [genomeExecutions, setGenomeExecutions] = useState<
     RepositoryMutationExecution[]
   >([]);
+  const [fitnessOutcomes, setFitnessOutcomes] = useState<FitnessOutcome[]>([]);
   const [observationArchives, setObservationArchives] = useState<
     ObservationArchive[]
   >([]);
@@ -106,6 +110,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setEvolutionCycle(history.evolutionCycle);
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
     setGenomeExecutions(history.executions);
+    setFitnessOutcomes(history.fitnessOutcomes);
   };
 
   const refreshObservationArchives = async () => {
@@ -290,10 +295,32 @@ export function useLiveTelemetry(): LiveTelemetryState {
       if (!response.ok) {
         throw new Error(payload.message ?? 'Evidence generation failed.');
       }
-      setEvidence(EvidencePackSchema.parse(payload));
+      const nextEvidence = EvidencePackSchema.parse(payload);
+      setEvidence(nextEvidence);
       setAnalysis(null);
       setManifest(null);
       setExecution(null);
+      const retainedExecution = genomeExecutions.find(
+        (item) =>
+          item.status === 'released' && item.rollback?.status !== 'released',
+      );
+      if (retainedExecution) {
+        const fitnessResponse = await apiFetch(
+          `${apiBaseUrl}/api/repository-executions/${retainedExecution.executionId}/fitness`,
+          { method: 'POST' },
+        );
+        if (fitnessResponse.ok) {
+          const outcome = FitnessOutcomeSchema.parse(
+            await fitnessResponse.json(),
+          );
+          setFitnessOutcomes((current) => [
+            outcome,
+            ...current.filter(
+              (item) => item.executionId !== outcome.executionId,
+            ),
+          ]);
+        }
+      }
     } catch (error) {
       setError(
         error instanceof Error
@@ -524,6 +551,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
       deploymentVerifiedAt: null,
     });
     setGenomeExecutions([]);
+    setFitnessOutcomes([]);
     setObservationArchives([]);
     setError(null);
     setGenerating(false);
@@ -568,6 +596,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     error,
     events,
     execution,
+    fitnessOutcomes,
     generateEvidence,
     generating,
     genomeEvolutionCount,

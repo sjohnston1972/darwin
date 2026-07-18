@@ -4,6 +4,7 @@ import {
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  FitnessOutcomeSchema,
   GenomeHistoryResponseSchema,
   ObservationArchivesResponseSchema,
   ParticipantWorkspaceResponseSchema,
@@ -25,6 +26,7 @@ import {
 import { simulate } from './simulation';
 import { getTelemetryRepository } from './persistence/telemetry-repository';
 import { EvidenceVersionMismatchError, buildEvidencePack } from './evidence';
+import { calculateFitnessOutcome, invalidateFitnessOutcome } from './fitness';
 import {
   EvidenceReasoningError,
   analyseEvidence,
@@ -341,7 +343,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.24.0',
+      version: '0.25.0',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -359,6 +361,7 @@ export const handleRequest = async (
       GenomeHistoryResponseSchema.parse({
         evolutionCycle: await telemetryRepository.getEvolutionCycle(),
         executions: await telemetryRepository.listRepositoryExecutions(),
+        fitnessOutcomes: await telemetryRepository.listFitnessOutcomes(),
       }),
     );
   }
@@ -1187,6 +1190,72 @@ export const handleRequest = async (
         );
   }
 
+  const repositoryFitnessMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/fitness$/,
+  );
+  if (
+    (request.method === 'GET' || request.method === 'POST') &&
+    repositoryFitnessMatch
+  ) {
+    const executionId = decodeURIComponent(repositoryFitnessMatch[1]!);
+    const execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    const existing = await telemetryRepository.getFitnessOutcome(executionId);
+    if (request.method === 'GET') {
+      return existing
+        ? json(FitnessOutcomeSchema.parse(existing))
+        : new Response(null, { status: 204, headers: corsHeaders });
+    }
+    if (execution.rollback?.status === 'released' && existing) {
+      const invalidated = invalidateFitnessOutcome(existing);
+      await telemetryRepository.saveFitnessOutcome(invalidated);
+      return json(FitnessOutcomeSchema.parse(invalidated));
+    }
+    const analysis = await telemetryRepository.getEvidenceAnalysis(
+      execution.analysisId,
+    );
+    const baselinePack = analysis
+      ? await telemetryRepository.getEvidence(analysis.evidenceId)
+      : null;
+    const evolvedPack = baselinePack
+      ? await telemetryRepository.getLatestEvidence(baselinePack.study.studyId)
+      : null;
+    if (
+      !baselinePack ||
+      !evolvedPack ||
+      evolvedPack.evidenceHash === baselinePack.evidenceHash
+    ) {
+      return json(
+        {
+          error: 'fitness_cohort_unavailable',
+          message:
+            'A distinct post-release evidence pack is required for fitness validation.',
+        },
+        { status: 409 },
+      );
+    }
+    if (
+      existing &&
+      existing.evolved.evidenceHash === evolvedPack.evidenceHash &&
+      existing.status !== 'rolled_back'
+    ) {
+      return json(FitnessOutcomeSchema.parse(existing));
+    }
+    const outcome = calculateFitnessOutcome({
+      execution,
+      baselinePack,
+      evolvedPack,
+    });
+    await telemetryRepository.saveFitnessOutcome(outcome);
+    return json(FitnessOutcomeSchema.parse(outcome), { status: 201 });
+  }
+
   const repositoryManifestMatch = pathname.match(
     /^\/api\/repository-executions\/([^/]+)\/manifest$/,
   );
@@ -1452,6 +1521,14 @@ export const handleRequest = async (
         previewUrl: execution.repository.studyUrl,
       });
       await telemetryRepository.saveRepositoryExecution(execution);
+      const fitnessOutcome = await telemetryRepository.getFitnessOutcome(
+        execution.executionId,
+      );
+      if (fitnessOutcome) {
+        await telemetryRepository.saveFitnessOutcome(
+          invalidateFitnessOutcome(fitnessOutcome),
+        );
+      }
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
       execution = updateRepositoryRollback(execution, {
