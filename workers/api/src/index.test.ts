@@ -280,7 +280,9 @@ describe('Darwin API', () => {
   });
 
   it('requires capability-scoped operator authorization on every control-plane route', async () => {
+    const audit = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const protectedRoutes = [
+      ['GET', '/api/auth/session'],
       ['GET', '/api/target-connection'],
       ['POST', '/api/target-connection'],
       ['POST', '/api/target-connection/disconnect'],
@@ -296,7 +298,9 @@ describe('Darwin API', () => {
         '/api/studies/projectflow-baseline-study/evidence-analysis/latest',
       ],
       ['POST', '/api/evidence-analyses/analysis-test/codex-manifest'],
+      ['GET', '/api/evidence-analyses/analysis-test/codex-manifest'],
       ['POST', '/api/evidence-analyses/analysis-test/codex-manifest/execution'],
+      ['GET', '/api/evidence-analyses/analysis-test/codex-manifest/execution'],
       ['GET', '/api/repository-executions/execution-test'],
       ['POST', '/api/repository-executions/execution-test/rollback'],
       ['POST', '/api/repository-executions/execution-test/release'],
@@ -304,6 +308,7 @@ describe('Darwin API', () => {
       ['GET', '/api/studies/projectflow-baseline-study/sessions/session-test'],
       ['POST', '/api/simulations'],
       ['GET', '/api/simulations/sim-baseline-1859'],
+      ['GET', '/api/simulations/sim-baseline-1859/summary'],
     ] as const;
 
     for (const [method, path] of protectedRoutes) {
@@ -327,6 +332,17 @@ describe('Darwin API', () => {
     );
     expect(viewerDenied.status).toBe(403);
 
+    const viewerAllowed = await handleRequest(
+      new Request('https://darwin-api.example/api/target-connection', {
+        headers: { Authorization: 'Bearer viewer-test-token' },
+      }),
+      {
+        DARWIN_OPERATOR_TOKEN: 'operator-test-token',
+        DARWIN_VIEWER_TOKEN: 'viewer-test-token',
+      },
+    );
+    expect(viewerAllowed.status).toBe(204);
+
     const operatorSession = await handleRequest(
       new Request('https://darwin-api.example/api/auth/session', {
         headers: { Authorization: 'Bearer operator-test-token' },
@@ -338,6 +354,45 @@ describe('Darwin API', () => {
       authenticated: true,
       actor: 'operator',
     });
+
+    const auditRecords = audit.mock.calls
+      .filter(([prefix]) => prefix === '[darwin:audit]')
+      .map(
+        ([, record]) => JSON.parse(String(record)) as Record<string, string>,
+      );
+    expect(auditRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actor: 'anonymous',
+          action: 'POST /api/demo/reset',
+          target: '/api/demo/reset',
+          capability: 'reset',
+          outcome: 'denied',
+          reason: 'unauthorized',
+        }),
+        expect.objectContaining({
+          actor: 'viewer',
+          action: 'GET /api/studies/projectflow-baseline-study/events',
+          capability: 'inspect_evidence',
+          outcome: 'denied',
+          reason: 'forbidden',
+        }),
+        expect.objectContaining({
+          actor: 'viewer',
+          action: 'GET /api/target-connection',
+          capability: 'observe',
+          outcome: 'authorized',
+        }),
+        expect.objectContaining({
+          actor: 'operator',
+          action: 'GET /api/auth/session',
+          capability: 'observe',
+          outcome: 'authorized',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(auditRecords)).not.toContain('operator-test-token');
+    expect(JSON.stringify(auditRecords)).not.toContain('viewer-test-token');
   });
 
   it('accepts only signed ProjectFlow telemetry with configured provenance', async () => {
@@ -905,8 +960,13 @@ describe('Darwin API', () => {
 
     const manifestAccessPath = `http://localhost/api/repository-executions/${execution.executionId}/manifest`;
     const deniedManifestResponse = await handleRequest(
-      new Request(manifestAccessPath),
-      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+      new Request(manifestAccessPath, {
+        headers: { Authorization: 'Bearer operator-test-token' },
+      }),
+      {
+        DARWIN_CALLBACK_TOKEN: 'callback-test-token',
+        DARWIN_OPERATOR_TOKEN: 'operator-test-token',
+      },
     );
     expect(deniedManifestResponse.status).toBe(401);
     const actionManifestResponse = await handleRequest(
