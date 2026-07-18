@@ -22,6 +22,7 @@
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "playwright test",
     "test:e2e:update": "playwright test --update-snapshots",
+    "test:ui-type": "playwright test --config playwright.type-scale.config.ts",
     "build": "node scripts/build.mjs",
     "deploy:migrate": "wrangler d1 migrations apply darwin-telemetry --remote --config workers/api/wrangler.toml",
     "deploy:api": "wrangler deploy --config workers/api/wrangler.toml",

@@ -7,6 +7,11 @@
   --mist: #a9b2ac;
   --white: #fff;
   --accent: #b9f36b;
+  --type-caption: 0.75rem;
+  --type-supporting: 0.875rem;
+  --type-body: 1rem;
+  --leading-caption: 1.5;
+  --leading-supporting: 1.55;
   color-scheme: dark;
   font-family:
     Inter,
@@ -34,6 +39,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: #101211;
+  font-size: var(--type-body);
+  line-height: 1.5;
 }
 
 button,
@@ -73,7 +80,7 @@ a:focus-visible {
 }
 
 .section-label {
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -88,7 +95,7 @@ a:focus-visible {
   border-left: 2px solid transparent;
   padding: 0 12px;
   color: #8e9791;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   transition:
     background 150ms ease,
     color 150ms ease,
@@ -124,7 +131,7 @@ a:focus-visible {
   background: #202522;
   border: 1px solid #485149;
   box-shadow: 0 10px 28px rgb(0 0 0 / 35%);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: 0;
@@ -159,7 +166,7 @@ a:focus-visible {
   background: #202522;
   border: 1px solid #485149;
   box-shadow: 0 10px 28px rgb(0 0 0 / 35%);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 400;
   line-height: 1.5;
   text-align: left;
@@ -249,7 +256,7 @@ a:focus-visible {
   border: 1px solid #485149;
   box-shadow: 0 10px 28px rgb(0 0 0 / 35%);
   font-family: Inter, sans-serif;
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 400;
   line-height: 1.55;
   letter-spacing: 0;
@@ -395,7 +402,7 @@ a:focus-visible {
   padding: 0 17px;
   background: #b9f36b;
   color: #101211;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -420,7 +427,7 @@ a:focus-visible {
   align-items: center;
   gap: 8px;
   color: #a9b2ac;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .demo-status.status-approved,
@@ -462,7 +469,7 @@ a:focus-visible {
   gap: 5px;
   color: #d6ff9e;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 600;
   text-transform: uppercase;
   white-space: nowrap;
@@ -503,7 +510,7 @@ a:focus-visible {
 }
 
 .guide-heading strong {
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .guide-model {
@@ -514,7 +521,7 @@ a:focus-visible {
   background: #1c211e;
   border: 1px solid #343b36;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   cursor: help;
 }
 
@@ -537,7 +544,7 @@ a:focus-visible {
   min-height: 58px;
   gap: 9px;
   padding: 10px 12px;
-  color: #69736c;
+  color: #818a84;
   border: 1px solid #2b302d;
   border-right: 0;
 }
@@ -565,7 +572,7 @@ a:focus-visible {
   color: #758078;
   background: #202421;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .is-active .guide-index,
@@ -591,12 +598,12 @@ a:focus-visible {
 }
 
 .guide-step strong {
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .guide-step small {
-  color: #717b74;
-  font-size: 10px;
+  color: #818a84;
+  font-size: var(--type-caption);
 }
 
 .metric-grid {
@@ -686,7 +693,7 @@ a:focus-visible {
   background: transparent;
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -745,7 +752,7 @@ a:focus-visible {
   padding: 0 16px;
   color: var(--mist);
   border-right: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .evidence-stats > div:last-child {
@@ -784,7 +791,7 @@ a:focus-visible {
   border: 0;
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
   cursor: pointer;
 }
 
@@ -817,7 +824,7 @@ a:focus-visible {
   min-height: 38px;
   color: #87969d;
   border-bottom: 1px solid rgb(126 144 151 / 10%);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .event-sequence {
@@ -868,18 +875,18 @@ a:focus-visible {
 
 .empty-evidence strong {
   color: #c5d1cd;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .empty-evidence span {
   color: var(--mist);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .evidence-action {
   min-height: 34px;
   padding: 0 12px;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .evidence-pack {
@@ -905,14 +912,14 @@ a:focus-visible {
 }
 
 .evidence-pack-header strong {
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .evidence-pack-header code {
   grid-column: span 2;
   overflow: hidden;
   color: #789087;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -924,7 +931,7 @@ a:focus-visible {
   border: 1px solid rgb(104 212 164 / 20%);
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -942,14 +949,14 @@ a:focus-visible {
 
 .evidence-pack-header dt {
   color: var(--mist);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
 .evidence-pack-header dd {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .signal-pressure-overview,
@@ -1211,19 +1218,19 @@ a:focus-visible {
 .validation-plan > span {
   color: #7f8e94;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
 .evidence-quality-band strong {
   color: #e7b85b;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   text-transform: capitalize;
 }
 
 .evidence-quality-band code {
   color: #c3cbd0;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .evidence-dimensions {
@@ -1270,7 +1277,7 @@ a:focus-visible {
   flex-wrap: wrap;
   gap: 6px 18px;
   color: #9ba7ac;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .reasoning-workspace {
@@ -1299,12 +1306,12 @@ a:focus-visible {
 }
 
 .reasoning-heading strong {
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .reasoning-heading p {
   color: var(--mist);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .reasoning-title {
@@ -1317,7 +1324,7 @@ a:focus-visible {
   background: #202522;
   border: 1px solid #3c443e;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1333,7 +1340,7 @@ a:focus-visible {
 
 .model-context > span {
   color: #758078;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1342,7 +1349,7 @@ a:focus-visible {
   color: #9aa59e;
   background: #1b201d;
   border: 1px solid #313733;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .analysis-result {
@@ -1357,7 +1364,7 @@ a:focus-visible {
   background: rgb(10 20 23 / 55%);
   border-bottom: 1px solid var(--line);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1384,13 +1391,13 @@ a:focus-visible {
 
 .reasoning-assessment strong {
   color: #68d4a4;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   text-transform: capitalize;
 }
 
 .reasoning-assessment p {
   color: #b3bec2;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   line-height: 1.6;
 }
 
@@ -1441,19 +1448,19 @@ a:focus-visible {
 
 .pressure-clusters summary strong {
   color: #d2dcdf;
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .pressure-clusters summary code {
   color: #68d4a4;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .pressure-clusters details > p,
 .pressure-clusters dl {
   margin: 0 0 12px;
   color: #9ba8ad;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.55;
 }
 
@@ -1465,7 +1472,7 @@ a:focus-visible {
 
 .pressure-clusters dt {
   color: #718188;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1486,7 +1493,7 @@ a:focus-visible {
   gap: 10px;
   color: #68d4a4;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .mutation-choice-control {
@@ -1495,7 +1502,7 @@ a:focus-visible {
   gap: 6px;
   color: #a9b8bd;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.4;
   text-transform: none;
 }
@@ -1514,7 +1521,7 @@ a:focus-visible {
   max-width: 740px;
   margin-top: 7px;
   color: #9fadb2;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   line-height: 1.6;
 }
 
@@ -1529,7 +1536,7 @@ a:focus-visible {
 .mutation-causal-change span {
   color: #68d4a4;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1551,7 +1558,7 @@ a:focus-visible {
   border: 1px solid rgb(114 132 139 / 18%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1589,7 +1596,7 @@ a:focus-visible {
   margin-bottom: 5px;
   color: #68d4a4;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1612,14 +1619,14 @@ a:focus-visible {
 
 .mutation-scorecard span {
   color: #728188;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
 .mutation-scorecard strong {
   color: #d8e2df;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--type-supporting);
 }
 
 .validation-plan {
@@ -1634,7 +1641,7 @@ a:focus-visible {
   display: block;
   margin-top: 5px;
   color: #d1dde4;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .mutation-alternatives {
@@ -1646,7 +1653,7 @@ a:focus-visible {
   margin-bottom: 7px;
   color: #64777e;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1659,7 +1666,7 @@ a:focus-visible {
   color: #84949a;
   border-top: 1px solid rgb(126 144 151 / 10%);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .mutation-alternatives > .alternative-choice.is-selected {
@@ -1683,7 +1690,7 @@ a:focus-visible {
   border: 1px solid rgb(104 212 164 / 14%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .mutation-alternatives p {
@@ -1720,18 +1727,18 @@ a:focus-visible {
 .portfolio-targets > span {
   color: #718188;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
 .mutation-portfolio-heading strong {
   color: #d5dedb;
-  font-size: 14px;
+  font-size: var(--type-supporting);
 }
 
 .mutation-portfolio-heading > code {
   color: #8e9da2;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .mutation-portfolio-row {
@@ -1776,7 +1783,7 @@ a:focus-visible {
 .portfolio-rank {
   color: hsl(var(--preference-heat) 74% 67%);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -1800,14 +1807,14 @@ a:focus-visible {
   border: 1px solid hsl(var(--preference-heat) 70% 55% / 24%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
 .portfolio-title strong {
   overflow: hidden;
   color: #d9e2df;
-  font-size: 14px;
+  font-size: var(--type-supporting);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1815,7 +1822,7 @@ a:focus-visible {
 .portfolio-title > span {
   overflow: hidden;
   color: #85959b;
-  font-size: 11px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1835,7 +1842,7 @@ a:focus-visible {
 
 .portfolio-preference > span {
   color: #75868c;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -1872,7 +1879,7 @@ a:focus-visible {
   border-left: 1px solid rgb(126 144 151 / 14%);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .portfolio-select input {
@@ -1894,7 +1901,7 @@ a:focus-visible {
 .portfolio-implementation-context p {
   margin: 5px 0 0;
   color: #a8b5b9;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.6;
 }
 
@@ -1913,18 +1920,18 @@ a:focus-visible {
 
 .portfolio-pressure-analysis > div:first-child code {
   color: hsl(var(--preference-heat) 78% 67%);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .portfolio-pressure-analysis > div:first-child strong {
   color: #d2dcdf;
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .portfolio-pressure-analysis > p {
   margin: 9px 0 13px;
   color: #9fadb2;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.6;
 }
 
@@ -1943,7 +1950,7 @@ a:focus-visible {
   border: 1px solid hsl(var(--preference-heat) 68% 55% / 18%);
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .portfolio-pressure-analysis dl {
@@ -1955,14 +1962,14 @@ a:focus-visible {
 
 .portfolio-pressure-analysis dt {
   color: #718188;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
 .portfolio-pressure-analysis dd {
   margin: 4px 0 0;
   color: #a9b5b9;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 
@@ -1981,14 +1988,14 @@ a:focus-visible {
   color: #91a5ad;
   background: rgb(92 116 128 / 9%);
   border-radius: 3px;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .validation-plan small {
   display: block;
   margin-top: 7px;
   color: #7f929a;
-  font-size: 10px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 
@@ -2019,12 +2026,12 @@ a:focus-visible {
 
 .codex-handoff strong {
   color: #ddd5c9;
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .codex-handoff span {
   color: #8e8981;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .manifest-audit {
@@ -2035,7 +2042,7 @@ a:focus-visible {
   padding: 0 20px;
   color: #6f8288;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .manifest-audit code {
@@ -2070,19 +2077,19 @@ a:focus-visible {
 }
 
 .outcome-heading strong {
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .outcome-heading p {
   flex-basis: 100%;
   color: var(--mist);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .outcome-provenance {
   color: #d7a968;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -2106,7 +2113,7 @@ a:focus-visible {
 .outcome-comparison span,
 .outcome-comparison small {
   color: #829198;
-  font-size: 11px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -2119,7 +2126,7 @@ a:focus-visible {
 .outcome-comparison code {
   margin-top: 5px;
   color: #5f747a;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .outcome-comparison .outcome-delta {
@@ -2146,7 +2153,7 @@ a:focus-visible {
   color: #b9c7c1;
   background: rgb(104 212 164 / 5%);
   border-top: 1px solid rgb(104 212 164 / 12%);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .outcome-conclusion svg {
@@ -2156,7 +2163,7 @@ a:focus-visible {
 .outcome-conclusion code {
   margin-left: auto;
   color: #68d4a4;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .evidence-signals details {
@@ -2183,7 +2190,7 @@ a:focus-visible {
 .evidence-signals .evidence-signal-id {
   color: #75d6ad;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .evidence-signal-title {
@@ -2193,7 +2200,7 @@ a:focus-visible {
 }
 
 .evidence-signal-title strong {
-  font-size: 12px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -2202,7 +2209,7 @@ a:focus-visible {
   overflow: hidden;
   color: #71848a;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2219,7 +2226,7 @@ a:focus-visible {
   margin: 0;
   padding: 12px 66px 8px;
   color: #aab8bd;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .signal-provenance {
@@ -2229,7 +2236,7 @@ a:focus-visible {
   padding: 0 66px 12px;
   color: #728087;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .signal-detail-grid {
@@ -2260,7 +2267,7 @@ a:focus-visible {
 .signal-trace code {
   overflow: hidden;
   color: #84959c;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2326,7 +2333,7 @@ a:focus-visible {
 .no-signals {
   margin: 10px 0 0;
   color: var(--mist);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .metric-indicator {
@@ -2360,7 +2367,7 @@ a:focus-visible {
   padding: 6px 9px;
   color: #a9b2ac;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2403,7 +2410,7 @@ a:focus-visible {
 .observation-count span {
   margin-left: 8px;
   color: #667069;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .progress-track {
@@ -2445,7 +2452,7 @@ a:focus-visible {
 .observation-stats span {
   overflow: hidden;
   color: #818a84;
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2474,7 +2481,7 @@ a:focus-visible {
   padding: 0 0 10px;
   color: #667069;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2484,7 +2491,7 @@ a:focus-visible {
   border-bottom: 1px solid #242925;
   color: #a9b2ac;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   text-transform: capitalize;
 }
 
@@ -2495,7 +2502,7 @@ a:focus-visible {
 
 .stream-index {
   color: #59615c;
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .stream-placeholder {
@@ -2506,7 +2513,7 @@ a:focus-visible {
   gap: 9px;
   color: #667069;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .persona-strip {
@@ -2523,7 +2530,7 @@ a:focus-visible {
   gap: 8px;
   overflow: hidden;
   color: #7d8680;
-  font-size: 9px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   text-transform: capitalize;
   white-space: nowrap;
@@ -2542,7 +2549,7 @@ a:focus-visible {
   padding: 22px 24px;
   background: #241b19;
   color: #ef9a89;
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .mutation-layout {
@@ -2565,7 +2572,7 @@ a:focus-visible {
   padding-bottom: 11px;
   color: #818a84;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2582,19 +2589,19 @@ a:focus-visible {
   padding-top: 2px;
   color: #667069;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .pressure-row h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 600;
 }
 
 .pressure-row p {
   margin: 7px 0 0;
   color: #a9b2ac;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.55;
 }
 
@@ -2603,7 +2610,7 @@ a:focus-visible {
   margin-top: 8px;
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -2644,7 +2651,7 @@ a:focus-visible {
 .proposal-hypothesis {
   margin: 12px 0 0;
   color: #a9b2ac;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   line-height: 1.7;
 }
 
@@ -2663,7 +2670,7 @@ a:focus-visible {
   gap: 10px;
   min-height: 28px;
   color: #89928c;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .fitness-row > div {
@@ -2701,7 +2708,7 @@ a:focus-visible {
 
 .fitness-delta span {
   color: #778078;
-  font-size: 9px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -2712,7 +2719,7 @@ a:focus-visible {
 .implementation-brief > p:nth-child(2) {
   margin: 10px 0 0;
   color: #a9b2ac;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.65;
 }
 
@@ -2728,7 +2735,7 @@ a:focus-visible {
   border: 1px solid #343a36;
   padding: 5px 7px;
   color: #909a93;
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .decision-bar,
@@ -2743,7 +2750,7 @@ a:focus-visible {
   gap: 8px;
   margin: 0;
   color: #a9b2ac;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .decision-bar > div {
@@ -2764,7 +2771,7 @@ a:focus-visible {
   padding: 0 14px;
   background: #1b1f1c;
   color: #c6ccc8;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -2794,12 +2801,12 @@ a:focus-visible {
 
 .decision-outcome strong {
   color: #fff;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .decision-outcome span {
   color: #89928c;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .decision-outcome.outcome-rejected {
@@ -2814,7 +2821,7 @@ a:focus-visible {
   padding: 6px 9px;
   color: #a7ca7f;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2846,12 +2853,12 @@ a:focus-visible {
   place-items: center;
   border: 1px solid #3b423e;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .execution-step strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 600;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -2900,7 +2907,7 @@ a:focus-visible {
 .manifest-execution-brief > span {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2914,7 +2921,7 @@ a:focus-visible {
   overflow-wrap: anywhere;
   color: #c5ccc7;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .repository-links {
@@ -2933,7 +2940,7 @@ a:focus-visible {
   border: 1px solid #39433d;
   padding: 0 10px;
   color: #9fc47a;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 650;
 }
 
@@ -2958,12 +2965,12 @@ a:focus-visible {
 }
 
 .execution-error strong {
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .execution-error span {
   color: #c69a91;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 
@@ -2995,7 +3002,7 @@ a:focus-visible {
 .artifact-heading span {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -3004,7 +3011,7 @@ a:focus-visible {
   overflow-wrap: anywhere;
   color: #c5ccc7;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   font-weight: 500;
 }
 
@@ -3016,7 +3023,7 @@ a:focus-visible {
   background: #101311;
   color: #a7b0aa;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.65;
 }
 
@@ -3083,13 +3090,13 @@ a:focus-visible {
 
 .validation-ready strong {
   color: #c5ccc7;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .validation-ready span {
   max-width: 260px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 
@@ -3119,13 +3126,13 @@ a:focus-visible {
 
 .validation-checks summary span {
   color: #c5ccc7;
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .validation-checks summary strong {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 500;
 }
 
@@ -3138,7 +3145,7 @@ a:focus-visible {
   background: #101311;
   color: #8d9690;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -3158,12 +3165,12 @@ a:focus-visible {
   overflow-wrap: anywhere;
   color: #a7b0aa;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .manifest-execution-brief p {
   color: #c5ccc7;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.6;
 }
 
@@ -3181,7 +3188,7 @@ a:focus-visible {
   padding: 0 12px;
   color: #a7ca7f;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 650;
 }
 
@@ -3192,7 +3199,7 @@ a:focus-visible {
   padding: 12px;
   color: #a7b0aa;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -3231,13 +3238,13 @@ a:focus-visible {
 
 .fitness-evidence-grid span {
   color: #89928c;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .fitness-evidence-grid strong {
   color: #89928c;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 500;
   text-align: right;
 }
@@ -3261,7 +3268,7 @@ a:focus-visible {
   align-items: center;
   gap: 9px;
   color: #a7ca7f;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .mutation-reset-panel {
@@ -3315,7 +3322,7 @@ a:focus-visible {
 .fossil-artifact-summary > div > span {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -3324,7 +3331,7 @@ a:focus-visible {
   overflow: hidden;
   color: #c5ccc7;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3375,7 +3382,7 @@ a:focus-visible {
 .observation-archive-signals > .section-label {
   color: #778078;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -3383,7 +3390,7 @@ a:focus-visible {
 .observation-archive-stats strong,
 .observation-archive-copy strong {
   color: #c5ccc7;
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .observation-archive-copy {
@@ -3393,7 +3400,7 @@ a:focus-visible {
 .observation-archive-copy p {
   margin: 0;
   color: #9aa39d;
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.55;
 }
 
@@ -3419,7 +3426,7 @@ a:focus-visible {
 
 .observation-archive-signals strong {
   color: #c5ccc7;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 500;
   line-height: 1.5;
 }
@@ -3427,7 +3434,7 @@ a:focus-visible {
 .observation-archive-signals > div > span {
   color: #84918a;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 
@@ -3452,7 +3459,7 @@ a:focus-visible {
   border-top: 1px solid #2b302d;
   padding: 18px 24px 24px;
   color: #9aa39d;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .rollback-empty code {
@@ -3541,7 +3548,7 @@ a:focus-visible {
   padding: 4px 8px;
   color: #b9f36b;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 0.08em;
 }
 
@@ -3557,7 +3564,7 @@ a:focus-visible {
   min-height: 34px;
   padding: 0 13px;
   color: #89928c;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -3565,7 +3572,7 @@ a:focus-visible {
   margin-left: 4px;
   color: #667069;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .variant-control button.is-active {
@@ -3593,9 +3600,9 @@ a:focus-visible {
   min-height: 35px;
   align-items: center;
   border-bottom: 1px solid #2b302d;
-  color: #717b74;
+  color: #818a84;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -3629,14 +3636,14 @@ a:focus-visible {
 
 .genome-comparison-row > span {
   color: #8f9992;
-  font-size: 9px;
+  font-size: var(--type-caption);
 }
 
 .genome-comparison-row code {
   overflow-wrap: anywhere;
   color: #9da69f;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--type-caption);
   line-height: 1.5;
   white-space: normal;
 }
@@ -3651,9 +3658,9 @@ a:focus-visible {
   align-items: center;
   gap: 7px;
   padding-top: 11px;
-  color: #69736c;
+  color: #818a84;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 8px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -3664,7 +3671,7 @@ a:focus-visible {
 }
 
 .target-connect-main .section-label {
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .target-connect-intro {
@@ -3704,7 +3711,7 @@ a:focus-visible {
   padding: 8px 11px;
   color: #8f9993;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
@@ -3753,7 +3760,7 @@ a:focus-visible {
   border: 1px solid #404741;
   color: #737d77;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .connection-steps li div {
@@ -3763,12 +3770,12 @@ a:focus-visible {
 
 .connection-steps strong {
   color: #d7ded9;
-  font-size: 14px;
+  font-size: var(--type-supporting);
 }
 
 .connection-steps small {
-  color: #69736d;
-  font-size: 12px;
+  color: #758079;
+  font-size: var(--type-caption);
   line-height: 1.4;
 }
 
@@ -3817,7 +3824,7 @@ a:focus-visible {
 
 .connection-form label > span {
   color: #b5beb8;
-  font-size: 14px;
+  font-size: var(--type-supporting);
   font-weight: 600;
 }
 
@@ -3831,7 +3838,7 @@ a:focus-visible {
   background: #151816;
   color: #dce4df;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--type-supporting);
 }
 
 .connection-input-with-link {
@@ -3859,8 +3866,8 @@ a:focus-visible {
 }
 
 .connection-form label small {
-  color: #68716c;
-  font-size: 12px;
+  color: #758079;
+  font-size: var(--type-caption);
 }
 
 .connection-field-grid {
@@ -3878,7 +3885,7 @@ a:focus-visible {
   padding: 9px 12px;
   color: #efad9f;
   background: rgb(239 140 120 / 7%);
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .connection-actions {
@@ -3894,7 +3901,7 @@ a:focus-visible {
 }
 
 .target-connect-main .secondary-action {
-  font-size: 14px;
+  font-size: var(--type-supporting);
 }
 
 .connection-purpose {
@@ -3913,15 +3920,15 @@ a:focus-visible {
 }
 
 .connection-identity span {
-  color: #727c76;
-  font-size: 12px;
+  color: #758079;
+  font-size: var(--type-caption);
   text-transform: uppercase;
 }
 
 .connection-identity code {
   color: #b9f36b;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .connection-check-list {
@@ -3946,14 +3953,14 @@ a:focus-visible {
 
 .connection-check-list strong {
   color: #d7ded9;
-  font-size: 13px;
+  font-size: var(--type-supporting);
 }
 
 .connection-check-list span {
   overflow-wrap: anywhere;
   color: #758079;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 
@@ -3976,7 +3983,7 @@ a:focus-visible {
 .connection-empty-state p {
   max-width: 310px;
   color: #707a74;
-  font-size: 13px;
+  font-size: var(--type-supporting);
   line-height: 1.6;
 }
 
@@ -4004,7 +4011,7 @@ html[data-theme='light'] .text-mist {
 }
 
 html[data-theme='light'] .text-signal {
-  color: #0284c7 !important;
+  color: #0369a1 !important;
 }
 
 html[data-theme='light'] .bg-signal {
@@ -4085,6 +4092,17 @@ html[data-theme='light'] .connection-empty-state {
   border-color: #cbd8e2;
 }
 
+html[data-theme='light'] .connection-steps small,
+html[data-theme='light'] .connection-form label small,
+html[data-theme='light'] .connection-identity span,
+html[data-theme='light'] .connection-check-list span {
+  color: #536574;
+}
+
+html[data-theme='light'] .connection-state-live {
+  color: #087f5b;
+}
+
 html[data-theme='light'] .connection-identity code,
 html[data-theme='light'] .connection-steps li.is-complete > span {
   color: #087f5b;
@@ -4101,6 +4119,10 @@ html[data-theme='light'] .pressure-row p,
 html[data-theme='light'] .proposal-hypothesis,
 html[data-theme='light'] .implementation-brief > p:nth-child(2) {
   color: #5f6f7c;
+}
+
+html[data-theme='light'] .empty-evidence strong {
+  color: #34495a;
 }
 
 html[data-theme='light'] .nav-item {
@@ -4135,14 +4157,14 @@ html[data-theme='light'] .secondary-action:hover {
 html[data-theme='light'] .primary-action,
 html[data-theme='light'] .approve-action {
   border-color: #0369a1;
-  background: #0284c7;
+  background: #0369a1;
   color: #fff;
 }
 
 html[data-theme='light'] .primary-action:hover:not(:disabled),
 html[data-theme='light'] .approve-action:hover:not(:disabled) {
   border-color: #075985;
-  background: #0369a1;
+  background: #075985;
 }
 
 html[data-theme='light'] .primary-action:disabled {
@@ -4566,6 +4588,17 @@ html[data-theme='light'] .genome-surface {
   background: #eef5f9;
 }
 
+html[data-theme='light'] .genome-comparison-header,
+html[data-theme='light'] .genome-comparison-row > span,
+html[data-theme='light'] .genome-comparison-source {
+  color: #536574;
+}
+
+html[data-theme='light'] .genome-comparison-header strong.is-active {
+  color: #087f5b;
+  background: #ecfdf5;
+}
+
 html[data-theme='light'] .genome-grid span {
   border-color: #cbd8e2;
   background: #f8fbfd;
@@ -4943,7 +4976,7 @@ html[data-theme='light'] .error-band {
   }
 
   .portfolio-preference > strong {
-    font-size: 14px;
+    font-size: var(--type-supporting);
   }
 
   .portfolio-preference > div {
