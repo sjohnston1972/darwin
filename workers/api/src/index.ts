@@ -1,6 +1,8 @@
 import {
   CodexImplementationManifestSchema,
   CodexManifestRequestSchema,
+  DemoResetCallbackSchema,
+  DemoResetExecutionSchema,
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
@@ -19,6 +21,7 @@ import {
   TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
   type HealthResponse,
+  type DemoResetExecution,
   type SimulationResult,
 } from '@darwin/shared';
 
@@ -59,6 +62,11 @@ import {
   DeploymentVerificationPendingError,
   verifyProjectFlowDeployment,
 } from './repository/deployment-verification';
+import {
+  completeResetExecution,
+  createResetExecution,
+  updateResetExecution,
+} from './repository/reset-execution';
 
 export interface Env {
   DB?: D1Database;
@@ -78,6 +86,7 @@ export interface Env {
   PROJECTFLOW_STUDY_URL: string;
   PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS?: string;
   PROJECTFLOW_DEPLOYMENT_POLL_MS?: string;
+  PROJECTFLOW_RESET_MAX_ATTEMPTS?: string;
   PROJECTFLOW_STUDY_ID?: string;
   PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
   GITHUB_TOKEN?: string;
@@ -151,7 +160,7 @@ const requiredOperatorCapability = (
 const isCallbackRoute = (pathname: string) =>
   /^\/api\/repository-executions\/[^/]+\/(?:manifest|callback|rollback\/callback)$/.test(
     pathname,
-  );
+  ) || /^\/api\/demo\/reset\/[^/]+\/callback$/.test(pathname);
 
 const isTargetRoute = (pathname: string) =>
   pathname === '/api/telemetry/events' ||
@@ -336,12 +345,90 @@ export const handleRequest = async (
     const cycle = await telemetryRepository.getEvolutionCycle();
     return cycle.studyId === studyId ? cycle.startedAt : null;
   };
+  const reconcileResetDeployment = async (rawExecution: DemoResetExecution) => {
+    let execution = DemoResetExecutionSchema.parse(rawExecution);
+    if (execution.status !== 'deploying' || !execution.baselineCommit) {
+      return execution;
+    }
+    const deployment = execution.deploymentVerification ?? {
+      status: 'verifying' as const,
+      expectedCommit: execution.baselineCommit,
+      expectedAppVersion: execution.baselineCommit.slice(0, 12),
+      observedCommit: null,
+      observedAppVersion: null,
+      attempts: 0,
+      verifiedAt: null,
+      lastError: null,
+    };
+    try {
+      const verified = await verifyProjectFlowDeployment({
+        studyUrl: execution.repository.studyUrl,
+        expectedCommit: execution.baselineCommit,
+        expectedAppVersion: execution.baselineCommit.slice(0, 12),
+        timeoutMs: 500,
+        pollIntervalMs: 0,
+      });
+      const verifiedDeployment = {
+        ...deployment,
+        status: 'verified' as const,
+        observedCommit: verified.commitSha,
+        observedAppVersion: verified.appVersion,
+        attempts: deployment.attempts + verified.attempts,
+        verifiedAt: verified.verifiedAt,
+        lastError: null,
+      };
+      const completed = completeResetExecution(
+        execution,
+        verifiedDeployment,
+        verified.verifiedAt,
+      );
+      resetSimulationStore();
+      await telemetryRepository.reset({ preserveResetExecutions: true });
+      await telemetryRepository.resetEvolutionCycle({
+        startedAt: verified.verifiedAt,
+        measuredCommit: verified.commitSha,
+        appVersion: verified.appVersion,
+        deploymentVerifiedAt: verified.verifiedAt,
+      });
+      await telemetryRepository.saveResetExecution(completed);
+      return completed;
+    } catch (error) {
+      if (!(error instanceof DeploymentVerificationPendingError)) throw error;
+      const pending = DemoResetExecutionSchema.parse({
+        ...execution,
+        deploymentVerification: {
+          ...deployment,
+          observedCommit: error.observed?.commitSha ?? null,
+          observedAppVersion: error.observed?.appVersion ?? null,
+          attempts: deployment.attempts + error.attempts,
+          lastError: error.errorCode,
+        },
+        updatedAt: new Date().toISOString(),
+      });
+      const configuredMaximum = Number(
+        env?.PROJECTFLOW_RESET_MAX_ATTEMPTS ?? 60,
+      );
+      const maximumAttempts = Number.isFinite(configuredMaximum)
+        ? Math.max(2, Math.min(600, Math.trunc(configuredMaximum)))
+        : 60;
+      execution =
+        pending.deploymentVerification!.attempts >= maximumAttempts
+          ? updateResetExecution(pending, {
+              status: 'failed',
+              error:
+                'ProjectFlow production did not report the restored baseline before the verification limit.',
+            })
+          : pending;
+      await telemetryRepository.saveResetExecution(execution);
+      return execution;
+    }
+  };
 
   if (request.method === 'GET' && pathname === '/api/health') {
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.24.0',
+      version: '0.25.0',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -518,39 +605,171 @@ export const handleRequest = async (
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  if (request.method === 'POST' && pathname === '/api/demo/reset') {
-    const targetConnection = await telemetryRepository.getTargetConnection();
-    if (env?.GITHUB_TOKEN) {
-      try {
-        await dispatchResetWorkflow({
-          token: env.GITHUB_TOKEN,
-          fullName:
-            targetConnection?.repository.fullName ||
-            configuredTarget(env).fullName,
-          branch:
-            targetConnection?.repository.branch || configuredTarget(env).branch,
-        });
-      } catch (error) {
+  if (request.method === 'GET' && pathname === '/api/demo/reset') {
+    const latest = await telemetryRepository.getLatestResetExecution();
+    if (!latest)
+      return new Response(null, { status: 204, headers: corsHeaders });
+    const reconciled = await reconcileResetDeployment(latest);
+    return json(DemoResetResponseSchema.parse(reconciled));
+  }
+
+  const resetCallbackMatch = pathname.match(
+    /^\/api\/demo\/reset\/([^/]+)\/callback$/,
+  );
+  if (request.method === 'POST' && resetCallbackMatch) {
+    const resetId = decodeURIComponent(resetCallbackMatch[1]!);
+    const execution = await telemetryRepository.getResetExecution(resetId);
+    if (!execution) {
+      return json(
+        { error: 'not_found', message: 'Reset execution not found.' },
+        { status: 404 },
+      );
+    }
+    const body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > 32_000) {
+      return json(
+        { error: 'payload_too_large', message: 'Callback body is too large.' },
+        { status: 413 },
+      );
+    }
+    const verification = await verifyExecutionCallback({
+      request,
+      body,
+      callbackSecret: env?.DARWIN_CALLBACK_TOKEN,
+      credential:
+        await telemetryRepository.getExecutionCallbackCredential(resetId),
+      executionId: resetId,
+      repository: execution.repository.fullName,
+      manifestHash: execution.policyHash,
+    });
+    if (!verification.ok) {
+      return json(
+        { error: verification.error, message: verification.message },
+        { status: verification.status },
+      );
+    }
+    const parsed = DemoResetCallbackSchema.safeParse(
+      (() => {
+        try {
+          return JSON.parse(body);
+        } catch {
+          return null;
+        }
+      })(),
+    );
+    if (!parsed.success) {
+      return json(
+        { error: 'invalid_callback', message: 'Callback payload is invalid.' },
+        { status: 400 },
+      );
+    }
+    try {
+      const signatureAccepted =
+        await telemetryRepository.consumeExecutionCallbackSignature(
+          resetId,
+          verification.signature,
+          new Date().toISOString(),
+        );
+      if (!signatureAccepted) {
         return json(
-          {
-            error: 'repository_reset_failed',
-            message:
-              error instanceof Error
-                ? error.message
-                : 'ProjectFlow reset dispatch failed.',
-          },
-          { status: 502 },
+          { error: 'callback_replayed', message: 'Callback replay rejected.' },
+          { status: 409 },
         );
       }
+      let updated = updateResetExecution(execution, parsed.data);
+      await telemetryRepository.saveResetExecution(updated);
+      if (updated.status === 'deploying') {
+        updated = await reconcileResetDeployment(updated);
+      }
+      return json(DemoResetResponseSchema.parse(updated), {
+        status: updated.status === 'deploying' ? 202 : 200,
+      });
+    } catch (error) {
+      return json(
+        {
+          error: 'invalid_transition',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Reset execution transition is invalid.',
+        },
+        { status: 409 },
+      );
     }
-    resetSimulationStore();
-    await telemetryRepository.reset();
-    return json(
-      DemoResetResponseSchema.parse({
-        status: 'reset',
-        repositoryResetDispatched: Boolean(env?.GITHUB_TOKEN),
-      }),
-    );
+  }
+
+  if (request.method === 'POST' && pathname === '/api/demo/reset') {
+    const active = await telemetryRepository.getLatestResetExecution();
+    if (active && !['complete', 'failed'].includes(active.status)) {
+      return json(DemoResetResponseSchema.parse(active), { status: 202 });
+    }
+    const targetConnection = await telemetryRepository.getTargetConnection();
+    const target = targetConnection?.repository ?? configuredTarget(env);
+    let execution = createResetExecution({
+      fullName: target.fullName,
+      branch: target.branch,
+      studyUrl: target.studyUrl,
+    });
+    await telemetryRepository.saveResetExecution(execution);
+    if (!env?.GITHUB_TOKEN && !env?.DARWIN_CALLBACK_TOKEN) {
+      resetSimulationStore();
+      await telemetryRepository.reset({ preserveResetExecutions: true });
+      execution = DemoResetExecutionSchema.parse({
+        ...execution,
+        status: 'complete',
+        updatedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      });
+      await telemetryRepository.saveResetExecution(execution);
+      return json(DemoResetResponseSchema.parse(execution));
+    }
+    if (!env?.GITHUB_TOKEN || !env.DARWIN_CALLBACK_TOKEN) {
+      execution = updateResetExecution(execution, {
+        status: 'failed',
+        error:
+          'GitHub dispatch and callback credentials must both be configured.',
+      });
+      await telemetryRepository.saveResetExecution(execution);
+      return json(DemoResetResponseSchema.parse(execution), { status: 503 });
+    }
+    try {
+      const callbackCredential = await issueExecutionCallbackCredential(
+        execution.resetId,
+      );
+      await telemetryRepository.saveExecutionCallbackCredential(
+        callbackCredential.credential,
+      );
+      await dispatchResetWorkflow({
+        token: env.GITHUB_TOKEN,
+        fullName: execution.repository.fullName,
+        branch: execution.repository.branch,
+        resetId: execution.resetId,
+        callbackUrl: `${url.origin}/api/demo/reset/${execution.resetId}/callback`,
+        callbackNonce: callbackCredential.nonce,
+        policyHash: execution.policyHash,
+      });
+      execution = DemoResetExecutionSchema.parse({
+        ...execution,
+        repositoryResetDispatched: true,
+        updatedAt: new Date().toISOString(),
+      });
+      await telemetryRepository.saveResetExecution(execution);
+      return json(DemoResetResponseSchema.parse(execution), { status: 201 });
+    } catch (error) {
+      try {
+        execution = updateResetExecution(execution, {
+          status: 'failed',
+          error:
+            error instanceof Error
+              ? error.message
+              : 'ProjectFlow reset dispatch failed.',
+        });
+        await telemetryRepository.saveResetExecution(execution);
+      } catch {
+        // Preserve the original dispatch error when state persistence also fails.
+      }
+      return json(DemoResetResponseSchema.parse(execution), { status: 502 });
+    }
   }
 
   if (request.method === 'POST' && pathname === '/api/telemetry/events') {

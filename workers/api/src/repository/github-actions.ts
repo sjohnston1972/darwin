@@ -193,6 +193,10 @@ export interface DispatchResetWorkflowOptions {
   token: string;
   fullName: string;
   branch?: string;
+  resetId: string;
+  callbackUrl: string;
+  callbackNonce: string;
+  policyHash: string;
   fetch?: typeof fetch;
 }
 
@@ -200,6 +204,10 @@ export async function dispatchResetWorkflow({
   token,
   fullName,
   branch = 'main',
+  resetId,
+  callbackUrl,
+  callbackNonce,
+  policyHash,
   fetch: fetcher = fetch,
 }: DispatchResetWorkflowOptions) {
   const response = await fetcher(
@@ -207,7 +215,16 @@ export async function dispatchResetWorkflow({
     {
       method: 'POST',
       headers: headers(token),
-      body: JSON.stringify({ ref: branch }),
+      body: JSON.stringify({
+        ref: branch,
+        inputs: {
+          reset_id: resetId,
+          repository: fullName,
+          callback_url: callbackUrl,
+          callback_nonce: callbackNonce,
+          reset_policy_hash: policyHash,
+        },
+      }),
     },
   );
   if (!response.ok) {

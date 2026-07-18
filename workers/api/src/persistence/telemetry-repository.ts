@@ -1,6 +1,7 @@
 import {
   EvolutionCycleSchema,
   type CodexImplementationManifest,
+  type DemoResetExecution,
   type EvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
@@ -87,6 +88,9 @@ export interface TelemetryRepository {
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
   listRepositoryExecutions(): Promise<RepositoryMutationExecution[]>;
+  saveResetExecution(execution: DemoResetExecution): Promise<void>;
+  getResetExecution(resetId: string): Promise<DemoResetExecution | null>;
+  getLatestResetExecution(): Promise<DemoResetExecution | null>;
   saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ): Promise<void>;
@@ -105,10 +109,16 @@ export interface TelemetryRepository {
       'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
     >,
   ): Promise<EvolutionCycle>;
+  resetEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
   saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
   deleteTargetConnection(): Promise<void>;
-  reset(): Promise<void>;
+  reset(options?: { preserveResetExecutions?: boolean }): Promise<void>;
 }
 
 const eventStore = new Map<string, StoredTelemetryEvent>();
@@ -121,6 +131,7 @@ const evidenceAnalysisStore = new Map<
 >();
 const manifestStore = new Map<string, CodexImplementationManifest>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
+const resetExecutionStore = new Map<string, DemoResetExecution>();
 const callbackCredentialStore = new Map<string, ExecutionCallbackCredential>();
 const callbackSignatureStore = new Set<string>();
 let targetConnectionStore: TargetApplicationConnection | null = null;
@@ -310,6 +321,22 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     );
   }
 
+  async saveResetExecution(execution: DemoResetExecution) {
+    resetExecutionStore.set(execution.resetId, execution);
+  }
+
+  async getResetExecution(resetId: string) {
+    return resetExecutionStore.get(resetId) ?? null;
+  }
+
+  async getLatestResetExecution() {
+    return (
+      [...resetExecutionStore.values()]
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .at(-1) ?? null
+    );
+  }
+
   async saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ) {
@@ -355,6 +382,20 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return evolutionCycleStore;
   }
 
+  async resetEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    evolutionCycleStore = {
+      studyId: baselineStudyId,
+      ...boundary,
+      genomeEvolutionCount: 0,
+    };
+    return evolutionCycleStore;
+  }
+
   async getTargetConnection() {
     return targetConnectionStore;
   }
@@ -367,7 +408,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     targetConnectionStore = null;
   }
 
-  async reset() {
+  async reset(options?: { preserveResetExecutions?: boolean }) {
     eventStore.clear();
     workspaceStore.clear();
     evidenceStore.clear();
@@ -377,6 +418,7 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     repositoryExecutionStore.clear();
     callbackCredentialStore.clear();
     callbackSignatureStore.clear();
+    if (!options?.preserveResetExecutions) resetExecutionStore.clear();
     evolutionCycleStore = defaultEvolutionCycle();
   }
 }
@@ -747,6 +789,45 @@ export class D1TelemetryRepository implements TelemetryRepository {
     );
   }
 
+  async saveResetExecution(execution: DemoResetExecution) {
+    await this.database
+      .prepare(
+        `INSERT INTO reset_executions (
+          reset_id, status, updated_at, execution_json
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(reset_id) DO UPDATE SET
+          status = excluded.status,
+          updated_at = excluded.updated_at,
+          execution_json = excluded.execution_json`,
+      )
+      .bind(
+        execution.resetId,
+        execution.status,
+        execution.updatedAt,
+        JSON.stringify(execution),
+      )
+      .run();
+  }
+
+  async getResetExecution(resetId: string) {
+    const row = await this.database
+      .prepare(
+        'SELECT execution_json FROM reset_executions WHERE reset_id = ? LIMIT 1',
+      )
+      .bind(resetId)
+      .first<{ execution_json: string }>();
+    return row ? (JSON.parse(row.execution_json) as DemoResetExecution) : null;
+  }
+
+  async getLatestResetExecution() {
+    const row = await this.database
+      .prepare(
+        'SELECT execution_json FROM reset_executions ORDER BY updated_at DESC, rowid DESC LIMIT 1',
+      )
+      .first<{ execution_json: string }>();
+    return row ? (JSON.parse(row.execution_json) as DemoResetExecution) : null;
+  }
+
   async saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ) {
@@ -878,6 +959,30 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return next;
   }
 
+  async resetEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    const next: EvolutionCycle = {
+      studyId: baselineStudyId,
+      ...boundary,
+      genomeEvolutionCount: 0,
+    };
+    await this.database
+      .prepare(
+        `INSERT INTO demo_state (state_key, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(state_key) DO UPDATE SET
+           state_json = excluded.state_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind('evolution-cycle', JSON.stringify(next), next.startedAt)
+      .run();
+    return next;
+  }
+
   async getTargetConnection() {
     const row = await this.database
       .prepare(
@@ -913,8 +1018,8 @@ export class D1TelemetryRepository implements TelemetryRepository {
     await this.database.prepare('DELETE FROM target_connections').run();
   }
 
-  async reset() {
-    await this.database.batch([
+  async reset(options?: { preserveResetExecutions?: boolean }) {
+    const statements = [
       this.database.prepare('DELETE FROM telemetry_events'),
       this.database.prepare('DELETE FROM participant_workspaces'),
       this.database.prepare('DELETE FROM analysis_runs'),
@@ -925,7 +1030,11 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM execution_callback_credentials'),
       this.database.prepare('DELETE FROM outcome_validations'),
       this.database.prepare('DELETE FROM demo_state'),
-    ]);
+    ];
+    if (!options?.preserveResetExecutions) {
+      statements.push(this.database.prepare('DELETE FROM reset_executions'));
+    }
+    await this.database.batch(statements);
   }
 }
 

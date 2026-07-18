@@ -34,7 +34,7 @@ npx wrangler secret put PROJECTFLOW_INGESTION_SECRET --config workers/api/wrangl
 npx wrangler pages secret put PROJECTFLOW_INGESTION_SECRET --project-name darwin-projectflow
 ```
 
-ProjectFlow Actions requires the matching callback secret and its own provider/deployment credentials. Darwin combines that secret with a per-execution nonce to sign the repository, immutable manifest, timestamp, and callback payload; the shared secret itself is never a workflow input. The ProjectFlow Pages Function and Darwin Worker must share the same ingestion secret. `DARWIN_OPERATOR_TOKEN` must be distinct from both.
+ProjectFlow Actions requires the matching callback secret and its own provider/deployment credentials. Darwin combines that secret with a per-execution nonce to sign the repository, immutable manifest or reset policy, timestamp, and callback payload; the shared secret itself is never a workflow input. The ProjectFlow Pages Function and Darwin Worker must share the same ingestion secret. `DARWIN_OPERATOR_TOKEN` must be distinct from both.
 
 ## D1 migrations
 

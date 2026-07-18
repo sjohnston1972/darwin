@@ -271,7 +271,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.24.0');
+    expect(body.version).toBe('0.25.0');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -720,8 +720,10 @@ describe('Darwin API', () => {
     const resetResponse = await handleRequest(
       new Request('http://localhost/api/demo/reset', { method: 'POST' }),
     );
-    expect(DemoResetResponseSchema.parse(await resetResponse.json())).toEqual({
-      status: 'reset',
+    expect(
+      DemoResetResponseSchema.parse(await resetResponse.json()),
+    ).toMatchObject({
+      status: 'complete',
       repositoryResetDispatched: false,
     });
     const resetEvidence = await handleRequest(
@@ -738,6 +740,173 @@ describe('Darwin API', () => {
     expect(
       StudyEventsResponseSchema.parse(await resetEvents.json()),
     ).toMatchObject({ count: 0, events: [] });
+  });
+
+  it('preserves state through reset workflow and deployment failures, then clears only after baseline verification', async () => {
+    let deployedSha = 'a'.repeat(40);
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, _init?: RequestInit) => {
+        void _init;
+        const url = String(input);
+        if (url.includes('/darwin-reset.yml/dispatches')) {
+          return new Response(null, { status: 204 });
+        }
+        if (url.startsWith('https://darwin-projectflow.pages.dev/')) {
+          return new Response(
+            `<!doctype html><meta name="darwin-app-version" content="${deployedSha.slice(0, 12)}"><meta name="darwin-commit-sha" content="${deployedSha}">`,
+          );
+        }
+        return new Response(null, { status: 404 });
+      },
+    );
+    vi.stubGlobal('fetch', fetcher);
+    await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({ events: [studyEvent] }),
+      }),
+    );
+    const resetEnv = {
+      GITHUB_TOKEN: 'github-test-token',
+      DARWIN_CALLBACK_TOKEN: 'callback-test-token',
+      PROJECTFLOW_RESET_MAX_ATTEMPTS: '2',
+    };
+    const startReset = async () => {
+      const response = await handleRequest(
+        new Request('http://localhost/api/demo/reset', { method: 'POST' }),
+        resetEnv,
+      );
+      const execution = DemoResetResponseSchema.parse(await response.json());
+      const dispatch = fetcher.mock.calls
+        .filter(([input]) =>
+          String(input).includes('/darwin-reset.yml/dispatches'),
+        )
+        .at(-1);
+      const inputs = JSON.parse(String(dispatch?.[1]?.body)).inputs as Record<
+        string,
+        string
+      >;
+      return { execution, nonce: inputs.callback_nonce! };
+    };
+    const sendResetCallback = async (
+      execution: ReturnType<typeof DemoResetResponseSchema.parse>,
+      nonce: string,
+      callback: Record<string, unknown>,
+    ) => {
+      const path = `http://localhost/api/demo/reset/${execution.resetId}/callback`;
+      const body = JSON.stringify(callback);
+      const response = await handleRequest(
+        await signedCallbackRequest({
+          path,
+          method: 'POST',
+          body,
+          nonce,
+          executionId: execution.resetId,
+          repository: execution.repository.fullName,
+          manifestHash: execution.policyHash,
+        }),
+        resetEnv,
+      );
+      return {
+        response,
+        execution: DemoResetResponseSchema.parse(await response.json()),
+      };
+    };
+    const eventCount = async () => {
+      const response = await handleRequest(
+        new Request(
+          'http://localhost/api/studies/projectflow-baseline-study/events?limit=20',
+        ),
+      );
+      return StudyEventsResponseSchema.parse(await response.json()).count;
+    };
+
+    const workflowFailure = await startReset();
+    expect(workflowFailure.execution.status).toBe('queued');
+    expect(await eventCount()).toBe(1);
+    await sendResetCallback(workflowFailure.execution, workflowFailure.nonce, {
+      status: 'running',
+      workflowRunId: 901,
+      workflowUrl:
+        'https://github.com/sjohnston1972/projectflow/actions/runs/901',
+    });
+    await sendResetCallback(workflowFailure.execution, workflowFailure.nonce, {
+      status: 'validating',
+    });
+    const failedWorkflow = await sendResetCallback(
+      workflowFailure.execution,
+      workflowFailure.nonce,
+      { status: 'failed', error: 'Baseline validation failed.' },
+    );
+    expect(failedWorkflow.execution).toMatchObject({
+      status: 'failed',
+      error: 'Baseline validation failed.',
+    });
+    expect(await eventCount()).toBe(1);
+
+    const deploymentFailure = await startReset();
+    await sendResetCallback(
+      deploymentFailure.execution,
+      deploymentFailure.nonce,
+      {
+        status: 'running',
+      },
+    );
+    await sendResetCallback(
+      deploymentFailure.execution,
+      deploymentFailure.nonce,
+      {
+        status: 'validating',
+      },
+    );
+    const failedDeployment = await sendResetCallback(
+      deploymentFailure.execution,
+      deploymentFailure.nonce,
+      { status: 'deploying', baselineCommit: 'b'.repeat(40) },
+    );
+    expect(failedDeployment.execution.status).toBe('failed');
+    expect(failedDeployment.execution.deploymentVerification).toMatchObject({
+      observedCommit: 'a'.repeat(40),
+      attempts: 2,
+    });
+    expect(await eventCount()).toBe(1);
+
+    const successfulReset = await startReset();
+    await sendResetCallback(successfulReset.execution, successfulReset.nonce, {
+      status: 'running',
+    });
+    await sendResetCallback(successfulReset.execution, successfulReset.nonce, {
+      status: 'validating',
+    });
+    deployedSha = 'c'.repeat(40);
+    const completed = await sendResetCallback(
+      successfulReset.execution,
+      successfulReset.nonce,
+      { status: 'deploying', baselineCommit: deployedSha },
+    );
+    expect(completed.execution).toMatchObject({
+      status: 'complete',
+      baselineCommit: deployedSha,
+      deploymentVerification: {
+        status: 'verified',
+        observedCommit: deployedSha,
+        observedAppVersion: deployedSha.slice(0, 12),
+      },
+    });
+    expect(await eventCount()).toBe(0);
+    const genomeResponse = await handleRequest(
+      new Request('http://localhost/api/genome'),
+    );
+    expect(
+      GenomeHistoryResponseSchema.parse(await genomeResponse.json())
+        .evolutionCycle,
+    ).toMatchObject({
+      genomeEvolutionCount: 0,
+      measuredCommit: deployedSha,
+      appVersion: deployedSha.slice(0, 12),
+      deploymentVerifiedAt:
+        completed.execution.deploymentVerification?.verifiedAt,
+    });
   });
 
   it('caches evidence analysis and creates a bounded Codex manifest', async () => {

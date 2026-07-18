@@ -87,6 +87,7 @@ D1 tables currently store:
 | `evidence_analyses`      | validated GPT portfolios and cache metadata            |
 | `codex_manifests`        | immutable approved implementation manifests            |
 | `repository_executions`  | workflow, diff, checks, PR, preview, release, rollback |
+| `reset_executions`       | baseline workflow, validation, deployment verification |
 | `outcome_validations`    | reserved measured outcome records                      |
 | `demo_state`             | evolution cycle state                                  |
 | `target_connections`     | verified target snapshot and checks                    |
@@ -112,7 +113,16 @@ prepared -> queued -> validating -> pull_request_open
          -> failed (from any non-terminal stage)
 ```
 
+Demo reset:
+
+```text
+queued -> running -> validating -> deploying -> complete
+       -> failed (from any non-terminal stage)
+```
+
 Only an explicit release call merges a reviewed pull request. Candidate previews never replace production automatically. After merge, Darwin polls the configured ProjectFlow study deployment for semantic commit and app-version metadata. The execution remains deployment-ready until both match the merge result; only then does Darwin record `released` and start the next evidence cycle at the verified deployment timestamp. Evidence generation rejects mixed-version measurement windows.
+
+Reset uses the same signed, execution-scoped callback boundary. Darwin retains telemetry, evidence, analyses, manifests, and Genome history while the reset is queued, running, validating, or deploying. It clears that state only after production reports the exact restored baseline commit, then anchors the clean baseline cycle at the verified deployment timestamp. Failures remain persisted and retryable.
 
 ## Generated reasoning context
 

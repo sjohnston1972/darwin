@@ -1,5 +1,6 @@
 import {
   CodexImplementationManifestSchema,
+  DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
   GenomeHistoryResponseSchema,
@@ -7,6 +8,7 @@ import {
   RepositoryMutationExecutionSchema,
   StudyEventsResponseSchema,
   type CodexImplementationManifest,
+  type DemoResetExecution,
   type EvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
@@ -47,6 +49,8 @@ export interface LiveTelemetryState {
   participantCount: number;
   resetState: () => void;
   resetEvolution: () => Promise<boolean>;
+  resetExecution: DemoResetExecution | null;
+  resetting: boolean;
   sessionCounts: Record<string, number>;
   startControlledEvolution: (mutationIds: string[]) => Promise<void>;
   status: 'loading' | 'live' | 'offline';
@@ -95,6 +99,9 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [releasingExecution, setReleasingExecution] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [releasingRollback, setReleasingRollback] = useState(false);
+  const [resetExecution, setResetExecution] =
+    useState<DemoResetExecution | null>(null);
+  const [resetRequesting, setResetRequesting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<LiveTelemetryState['status']>('loading');
   const resetGeneration = useRef(0);
@@ -160,6 +167,16 @@ export function useLiveTelemetry(): LiveTelemetryState {
     let active = true;
     void refreshGenome().catch(() => undefined);
     void refreshObservationArchives().catch(() => undefined);
+    void apiFetch(`${apiBaseUrl}/api/demo/reset`)
+      .then(async (response) => {
+        if (response.status === 204 || !response.ok) return;
+        if (active) {
+          setResetExecution(
+            DemoResetResponseSchema.parse(await response.json()),
+          );
+        }
+      })
+      .catch(() => undefined);
     const load = async () => {
       const generation = resetGeneration.current;
       try {
@@ -244,6 +261,40 @@ export function useLiveTelemetry(): LiveTelemetryState {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      !resetExecution ||
+      ['complete', 'failed'].includes(resetExecution.status)
+    ) {
+      return;
+    }
+    let active = true;
+    const priorStatus = resetExecution.status;
+    const poll = async () => {
+      try {
+        const response = await apiFetch(`${apiBaseUrl}/api/demo/reset`);
+        if (!response.ok) return;
+        const latest = DemoResetResponseSchema.parse(await response.json());
+        if (!active) return;
+        if (latest.status === 'complete' && priorStatus !== 'complete') {
+          resetState();
+          setResetExecution(latest);
+          await Promise.all([refreshGenome(), refreshObservationArchives()]);
+          return;
+        }
+        setResetExecution(latest);
+      } catch {
+        // Broad API availability remains visible through the telemetry poll.
+      }
+    };
+    const interval = window.setInterval(() => void poll(), 3_000);
+    void poll();
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [resetExecution?.resetId, resetExecution?.status]);
 
   useEffect(() => {
     const rollbackComplete =
@@ -537,22 +588,40 @@ export function useLiveTelemetry(): LiveTelemetryState {
   };
 
   const resetEvolution = async () => {
+    setResetRequesting(true);
     setError(null);
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/demo/reset`, {
         method: 'POST',
       });
-      const payload = (await response.json()) as { message?: string };
+      const payload = (await response.json()) as {
+        message?: string;
+        error?: string;
+      };
+      const parsed = DemoResetResponseSchema.safeParse(payload);
+      if (parsed.success) setResetExecution(parsed.data);
       if (!response.ok) {
-        throw new Error(payload.message ?? 'Evolution reset failed.');
+        throw new Error(
+          parsed.success
+            ? (parsed.data.error ?? 'Evolution reset failed.')
+            : (payload.message ?? 'Evolution reset failed.'),
+        );
       }
-      resetState();
+      if (!parsed.success) {
+        throw new Error('Reset returned an invalid execution record.');
+      }
+      if (parsed.data.status === 'complete') {
+        resetState();
+        setResetExecution(parsed.data);
+      }
       return true;
     } catch (error) {
       setError(
         error instanceof Error ? error.message : 'Evolution reset failed.',
       );
       return false;
+    } finally {
+      setResetRequesting(false);
     }
   };
 
@@ -584,6 +653,13 @@ export function useLiveTelemetry(): LiveTelemetryState {
     refresh,
     refreshing,
     resetEvolution,
+    resetExecution,
+    resetting:
+      resetRequesting ||
+      Boolean(
+        resetExecution &&
+        !['complete', 'failed'].includes(resetExecution.status),
+      ),
     resetState,
     sessionCounts,
     startControlledEvolution,

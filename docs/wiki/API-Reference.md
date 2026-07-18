@@ -19,6 +19,16 @@ All JSON request/response contracts are defined in `packages/shared/src/contract
 | GET    | `/api/genome`                | evolution cycle and repository execution history    |
 | GET    | `/api/observations/archives` | evidence/analysis retained by completed executions  |
 
+## Demo reset
+
+| Method | Route                               | Purpose                                   |
+| ------ | ----------------------------------- | ----------------------------------------- |
+| GET    | `/api/demo/reset`                   | latest reset lifecycle or 204             |
+| POST   | `/api/demo/reset`                   | dispatch or retry baseline restoration    |
+| POST   | `/api/demo/reset/:resetId/callback` | authenticated workflow lifecycle callback |
+
+Reset status progresses through `queued`, `running`, `validating`, `deploying`, then `complete` or `failed`. A dispatch never clears Darwin state. Completion requires production HTML metadata matching the restored commit and app version. The callback route uses the same execution-scoped HMAC and replay protection as repository mutation callbacks.
+
 ## Target connection
 
 | Method | Route                               | Purpose                                   |
@@ -39,14 +49,6 @@ Connection input:
 ```
 
 The Worker accepts only its configured target values.
-
-## Demo reset
-
-| Method | Route             | Purpose                                           |
-| ------ | ----------------- | ------------------------------------------------- |
-| POST   | `/api/demo/reset` | dispatch target reset and clear Darwin demo state |
-
-Reset completion verification is tracked in issue #10.
 
 ## Telemetry and workspaces
 

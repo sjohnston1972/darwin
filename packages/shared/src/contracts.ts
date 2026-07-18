@@ -790,11 +790,6 @@ export const SimulationCreateResponseSchema = z.object({
   summary: SimulationSummarySchema,
 });
 
-export const DemoResetResponseSchema = z.object({
-  status: z.literal('reset'),
-  repositoryResetDispatched: z.boolean(),
-});
-
 export const RepositoryExecutionStatusSchema = z.enum([
   'prepared',
   'queued',
@@ -821,6 +816,53 @@ export const RepositoryDeploymentVerificationSchema = z.object({
   verifiedAt: z.string().datetime().nullable(),
   lastError: z.string().min(1).max(500).nullable(),
 });
+
+export const DemoResetStatusSchema = z.enum([
+  'queued',
+  'running',
+  'validating',
+  'deploying',
+  'complete',
+  'failed',
+]);
+
+export const DemoResetExecutionSchema = z.object({
+  resetId: StudyIdentifierSchema,
+  status: DemoResetStatusSchema,
+  repository: z.object({
+    fullName: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+    branch: z.string().min(1).max(200),
+    studyUrl: z.string().url(),
+  }),
+  baselineTag: z.string().min(1).max(100),
+  policyHash: z.string().regex(/^[a-f0-9]{64}$/),
+  repositoryResetDispatched: z.boolean(),
+  workflowRunId: z.number().int().positive().nullable(),
+  workflowUrl: z.string().url().nullable(),
+  baselineCommit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  deploymentVerification:
+    RepositoryDeploymentVerificationSchema.nullable().default(null),
+  error: z.string().min(1).max(4_000).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+});
+
+export const DemoResetCallbackSchema = DemoResetExecutionSchema.pick({
+  workflowRunId: true,
+  workflowUrl: true,
+  baselineCommit: true,
+  error: true,
+})
+  .partial()
+  .extend({
+    status: z.enum(['running', 'validating', 'deploying', 'failed']),
+  });
+
+export const DemoResetResponseSchema = DemoResetExecutionSchema;
 
 export const RepositoryExecutionCheckSchema = z.object({
   name: z.string().min(1).max(200),
@@ -1040,6 +1082,9 @@ export type SimulationCreateResponse = z.infer<
   typeof SimulationCreateResponseSchema
 >;
 export type DemoResetResponse = z.infer<typeof DemoResetResponseSchema>;
+export type DemoResetExecution = z.infer<typeof DemoResetExecutionSchema>;
+export type DemoResetStatus = z.infer<typeof DemoResetStatusSchema>;
+export type DemoResetCallback = z.infer<typeof DemoResetCallbackSchema>;
 export type RepositoryExecutionStatus = z.infer<
   typeof RepositoryExecutionStatusSchema
 >;

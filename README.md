@@ -177,6 +177,7 @@ PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
 PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
 PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS=90000
 PROJECTFLOW_DEPLOYMENT_POLL_MS=5000
+PROJECTFLOW_RESET_MAX_ATTEMPTS=60
 ```
 
 The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. The operator token is entered into Darwin's unlock view and retained only in browser session storage.
@@ -216,7 +217,7 @@ See [Operations and Deployment](docs/wiki/Operations-and-Deployment.md) for D1 m
 
 ## Three-minute demo
 
-1. Open **Target application** and re-verify the live ProjectFlow commit.
+1. Run **Reset evolution demo** and wait for Darwin to verify the restored ProjectFlow deployment, then re-verify the target.
 2. Open the measured study in a new window and interact with ProjectFlow.
 3. Return to **Observations**, inspect the event trace, and generate evidence.
 4. Open **Mutations**, invoke GPT-5.6, and expand the ranked pressure portfolio.

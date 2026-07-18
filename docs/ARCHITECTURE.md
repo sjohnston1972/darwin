@@ -41,6 +41,8 @@ request or preview is created.
 ```text
 GET  /api/health
 POST /api/demo/reset
+GET  /api/demo/reset
+POST /api/demo/reset/:resetId/callback
 POST /api/telemetry/events
 GET  /api/studies/:study/events
 GET  /api/studies/:study/sessions/:session
@@ -80,3 +82,4 @@ local development and unit tests.
 - A pull request is never merged without an explicit release request.
 - A merged mutation is not recorded as released until ProjectFlow production reports the merged commit and app version.
 - Evidence generation rejects telemetry that crosses application-version boundaries.
+- Reset preserves existing state until an authenticated ProjectFlow workflow callback reaches deployment and production reports the restored baseline commit.

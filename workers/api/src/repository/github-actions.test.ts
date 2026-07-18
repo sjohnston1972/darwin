@@ -143,11 +143,24 @@ describe('dispatchEvolutionWorkflow', () => {
     await dispatchResetWorkflow({
       token: 'github-token',
       fullName: 'sjohnston1972/projectflow',
+      resetId: 'reset-test',
+      callbackUrl: 'https://darwin.example/api/demo/reset/reset-test/callback',
+      callbackNonce: 'reset-nonce',
+      policyHash: 'b'.repeat(64),
       fetch: fetcher,
     });
     expect(String(fetcher.mock.calls[1]?.[0])).toContain(
       '/darwin-reset.yml/dispatches',
     );
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({
+      ref: 'main',
+      inputs: {
+        reset_id: 'reset-test',
+        repository: 'sjohnston1972/projectflow',
+        callback_nonce: 'reset-nonce',
+        reset_policy_hash: 'b'.repeat(64),
+      },
+    });
   });
 
   it('dispatches and merges a separately reviewable rollback', async () => {

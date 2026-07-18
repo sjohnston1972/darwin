@@ -2,6 +2,7 @@ import {
   HealthResponseSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
+  type DemoResetStatus,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type EvidencePack,
@@ -140,6 +141,15 @@ const configuredTarget: TargetConnectionRequest = {
   studyUrl: `${projectFlowBaseUrl}/?study=true`,
 };
 
+const resetStatusLabel: Record<DemoResetStatus, string> = {
+  queued: 'Reset queued in GitHub Actions',
+  running: 'ProjectFlow baseline is being restored',
+  validating: 'Restored baseline is being validated',
+  deploying: 'Waiting for the baseline deployment',
+  complete: 'Baseline deployment verified',
+  failed: 'Baseline reset requires attention',
+};
+
 interface FitnessDelta {
   completionPoints: number;
   interactionDelta: number | null;
@@ -210,6 +220,10 @@ function DarwinDashboard() {
   const activeView = getDashboardView();
   const targetConnection = useTargetConnection();
   const liveTelemetry = useLiveTelemetry();
+  const resetBlocksStudy = Boolean(
+    liveTelemetry.resetExecution?.status !== undefined &&
+    liveTelemetry.resetExecution.status !== 'complete',
+  );
   const repository =
     targetConnection.connection?.repository ??
     liveTelemetry.execution?.repository ??
@@ -527,6 +541,7 @@ function DarwinDashboard() {
             error={targetConnection.error}
             loading={targetConnection.loading}
             saving={targetConnection.saving}
+            studyBlocked={resetBlocksStudy}
             onConnect={targetConnection.connect}
             onDisconnect={targetConnection.disconnect}
           />
@@ -583,16 +598,69 @@ function DarwinDashboard() {
               className="icon-button"
               type="button"
               onClick={() => void resetDemo()}
-              disabled={false}
-              aria-label="Reset evolution demo"
-              data-explain="Delete Darwin telemetry, evidence, reasoning, manifests and execution state, then dispatch the ProjectFlow baseline restore workflow."
+              disabled={liveTelemetry.resetting}
+              aria-label={
+                liveTelemetry.resetExecution?.status === 'failed'
+                  ? 'Retry evolution reset'
+                  : 'Reset evolution demo'
+              }
+              data-explain="Dispatch the ProjectFlow baseline restore workflow. Darwin preserves current state until the workflow passes and production reports the restored commit."
             >
-              <RotateCcw size={15} />
+              {liveTelemetry.resetting ? (
+                <CircleDashed className="is-spinning" size={15} />
+              ) : (
+                <RotateCcw size={15} />
+              )}
             </button>
           </div>
         </header>
 
         <div className="mx-auto max-w-[1640px] px-5 pb-12 pt-8 sm:px-8 lg:px-10 lg:pt-11">
+          {liveTelemetry.resetExecution &&
+            liveTelemetry.resetExecution.status !== 'complete' && (
+              <section
+                className={`reset-status-band ${liveTelemetry.resetExecution.status === 'failed' ? 'is-failed' : ''}`}
+                role={
+                  liveTelemetry.resetExecution.status === 'failed'
+                    ? 'alert'
+                    : 'status'
+                }
+              >
+                {liveTelemetry.resetExecution.status === 'failed' ? (
+                  <AlertTriangle size={19} />
+                ) : (
+                  <CircleDashed className="is-spinning" size={19} />
+                )}
+                <div>
+                  <strong>
+                    {resetStatusLabel[liveTelemetry.resetExecution.status]}
+                  </strong>
+                  <span>
+                    {liveTelemetry.resetExecution.error ??
+                      'Measured study access remains locked until the verified baseline is live.'}
+                  </span>
+                </div>
+                {liveTelemetry.resetExecution.workflowUrl && (
+                  <a
+                    href={liveTelemetry.resetExecution.workflowUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Workflow <ExternalLink size={12} />
+                  </a>
+                )}
+                {liveTelemetry.resetExecution.status === 'failed' && (
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => void resetDemo()}
+                    disabled={liveTelemetry.resetting}
+                  >
+                    <RotateCcw size={15} /> Retry reset
+                  </button>
+                )}
+              </section>
+            )}
           {activeView === 'Control room' && (
             <>
               <section className="hero-band" aria-labelledby="page-title">
@@ -630,13 +698,20 @@ function DarwinDashboard() {
                       </span>
                     )}
                     <a
-                      className="primary-action"
-                      href={targetApplicationUrl}
+                      className={`primary-action ${resetBlocksStudy ? 'is-disabled' : ''}`}
+                      href={resetBlocksStudy ? undefined : targetApplicationUrl}
                       target="_blank"
                       rel="noreferrer"
+                      aria-disabled={resetBlocksStudy || undefined}
+                      onClick={(event) => {
+                        if (resetBlocksStudy) event.preventDefault();
+                      }}
                       data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
                     >
-                      <Radar size={17} /> Open measured study
+                      <Radar size={17} />{' '}
+                      {resetBlocksStudy
+                        ? 'Measured study locked'
+                        : 'Open measured study'}
                     </a>
                   </div>
                   {!liveTelemetry.analysis && (
@@ -1202,6 +1277,7 @@ function TargetConnectionView({
   error,
   loading,
   saving,
+  studyBlocked,
   onConnect,
   onDisconnect,
 }: {
@@ -1209,6 +1285,7 @@ function TargetConnectionView({
   error: string | null;
   loading: boolean;
   saving: boolean;
+  studyBlocked: boolean;
   onConnect: (request: TargetConnectionRequest) => Promise<void>;
   onDisconnect: () => Promise<void>;
 }) {
@@ -1334,15 +1411,24 @@ function TargetConnectionView({
               />
               <a
                 aria-label="Open measured study"
-                href={request.studyUrl}
+                href={studyBlocked ? undefined : request.studyUrl}
                 target="_blank"
                 rel="noreferrer"
-                title="Open measured study"
+                aria-disabled={studyBlocked || undefined}
+                title={
+                  studyBlocked
+                    ? 'Measured study locked until reset verification completes'
+                    : 'Open measured study'
+                }
               >
                 <ExternalLink size={16} />
               </a>
             </div>
-            <small>Darwin telemetry is enabled on this application view</small>
+            <small>
+              {studyBlocked
+                ? 'Locked until the baseline reset deployment is verified'
+                : 'Darwin telemetry is enabled on this application view'}
+            </small>
           </label>
 
           {error && (

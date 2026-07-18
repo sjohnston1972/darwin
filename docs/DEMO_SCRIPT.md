@@ -3,8 +3,10 @@
 ## Prepare
 
 1. Open the Darwin control room in light mode.
-2. Click **Reset evolution demo** and wait for the ProjectFlow reset workflow.
-3. Confirm the counters are empty and no repository candidate is shown.
+2. Click **Reset evolution demo** and follow the visible queued, running,
+   validating, and deploying states.
+3. Wait for **Baseline deployment verified**, then confirm the counters are
+   empty and no repository candidate is shown.
 
 ## Observe
 
