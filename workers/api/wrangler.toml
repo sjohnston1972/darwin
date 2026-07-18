@@ -12,6 +12,8 @@ PROJECTFLOW_REPOSITORY = "sjohnston1972/projectflow"
 PROJECTFLOW_BRANCH = "main"
 PROJECTFLOW_PRODUCTION_URL = "https://darwin-projectflow.pages.dev/"
 PROJECTFLOW_STUDY_URL = "https://darwin-projectflow.pages.dev/?study=true"
+PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS = "90000"
+PROJECTFLOW_DEPLOYMENT_POLL_MS = "5000"
 ALLOWED_ORIGINS = "https://darwin-control-room.pages.dev,https://darwin-projectflow.pages.dev,https://sjohnston1972.github.io,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
 
 [[d1_databases]]

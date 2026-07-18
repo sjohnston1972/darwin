@@ -99,7 +99,8 @@ Mutation execution:
 
 ```text
 prepared -> queued -> codex_running -> validating
-         -> pull_request_open -> preview_ready -> releasing -> released
+         -> pull_request_open -> preview_ready -> releasing
+         -> deployment_verifying -> released
          -> failed (from any non-terminal stage)
 ```
 
@@ -111,7 +112,7 @@ prepared -> queued -> validating -> pull_request_open
          -> failed (from any non-terminal stage)
 ```
 
-Only an explicit release call merges a reviewed pull request. Candidate previews never replace production automatically.
+Only an explicit release call merges a reviewed pull request. Candidate previews never replace production automatically. After merge, Darwin polls the configured ProjectFlow study deployment for semantic commit and app-version metadata. The execution remains deployment-ready until both match the merge result; only then does Darwin record `released` and start the next evidence cycle at the verified deployment timestamp. Evidence generation rejects mixed-version measurement windows.
 
 ## Generated reasoning context
 
@@ -119,6 +120,6 @@ Only an explicit release call merges a reviewed pull request. Candidate previews
 
 ## Known architectural hardening
 
-The public Build Week deployment now has capability-scoped operator authorization, HMAC-authenticated ProjectFlow ingestion, protected read APIs, and execution-scoped signed repository callbacks with replay protection. It is still not a production trust boundary while atomic release transactions, deployment-aware evidence cycles, and retention remain open.
+The public Build Week deployment now has capability-scoped operator authorization, HMAC-authenticated ProjectFlow ingestion, protected read APIs, execution-scoped signed repository callbacks with replay protection, atomic release transitions, and deployment-aware evidence cycles. It remains a controlled hackathon proof of life rather than a production trust boundary.
 
 See [Security and Privacy](Security-and-Privacy.md) and the [issue backlog](https://github.com/sjohnston1972/darwin/issues).

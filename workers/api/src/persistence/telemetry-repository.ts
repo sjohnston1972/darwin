@@ -99,7 +99,12 @@ export interface TelemetryRepository {
     usedAt: string,
   ): Promise<boolean>;
   getEvolutionCycle(): Promise<EvolutionCycle>;
-  advanceEvolutionCycle(): Promise<EvolutionCycle>;
+  advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
   saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
   deleteTargetConnection(): Promise<void>;
@@ -124,6 +129,9 @@ const defaultEvolutionCycle = (): EvolutionCycle => ({
   studyId: baselineStudyId,
   startedAt: null,
   genomeEvolutionCount: 0,
+  measuredCommit: null,
+  appVersion: null,
+  deploymentVerifiedAt: null,
 });
 let evolutionCycleStore = defaultEvolutionCycle();
 
@@ -333,10 +341,15 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return evolutionCycleStore;
   }
 
-  async advanceEvolutionCycle() {
+  async advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
     evolutionCycleStore = {
       studyId: baselineStudyId,
-      startedAt: new Date().toISOString(),
+      ...boundary,
       genomeEvolutionCount: evolutionCycleStore.genomeEvolutionCount + 1,
     };
     return evolutionCycleStore;
@@ -832,14 +845,24 @@ export class D1TelemetryRepository implements TelemetryRepository {
         null as string | null,
       ),
       genomeEvolutionCount: retained.length,
+      measuredCommit: retained[0]?.headSha ?? null,
+      appVersion:
+        retained[0]?.deploymentVerification?.expectedAppVersion ?? null,
+      deploymentVerifiedAt:
+        retained[0]?.deploymentVerification?.verifiedAt ?? null,
     };
   }
 
-  async advanceEvolutionCycle() {
+  async advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
     const current = await this.getEvolutionCycle();
     const next: EvolutionCycle = {
       studyId: baselineStudyId,
-      startedAt: new Date().toISOString(),
+      ...boundary,
       genomeEvolutionCount: current.genomeEvolutionCount + 1,
     };
     await this.database

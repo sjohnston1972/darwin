@@ -90,7 +90,7 @@ Add `?optional=true` to latest GET routes to receive 204 when no current artifac
 | GET    | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | get execution or 204           |
 | POST   | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | dispatch controlled evolution  |
 | GET    | `/api/repository-executions/:executionId`                     | poll execution                 |
-| POST   | `/api/repository-executions/:executionId/release`             | merge reviewed mutation PR     |
+| POST   | `/api/repository-executions/:executionId/release`             | merge PR and verify production |
 | POST   | `/api/repository-executions/:executionId/rollback`            | dispatch rollback workflow     |
 | POST   | `/api/repository-executions/:executionId/rollback/release`    | merge reviewed rollback PR     |
 
@@ -101,6 +101,8 @@ Manifest selection body:
   "mutationIds": ["mutation-one", "mutation-two"]
 }
 ```
+
+A release returns `202` with status `deployment_verifying` when the pull request has merged but the production HTML metadata does not yet report the merged commit and app version. Repeating the same release request rechecks production without merging again. A `200` `released` response includes the verified identity and timestamp that begin the next evidence cycle.
 
 ## Repository workflow callbacks
 

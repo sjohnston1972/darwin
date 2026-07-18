@@ -34,8 +34,9 @@
 ## Select
 
 1. Release the reviewed mutation.
-2. Show the merged commit and deployment in the fossil record.
-3. Repeat the measured behavior against the evolved application to establish
+2. Show Darwin verify that production reports the merged commit and app version.
+3. Show that exact measurement boundary in Observations and the deployment in the fossil record.
+4. Repeat the measured behavior against the evolved application to establish
    whether it survived selection.
 
 Closing line:

@@ -32,12 +32,33 @@ interface SignalCandidate {
   events: StoredTelemetryEvent[];
 }
 
+export class EvidenceVersionMismatchError extends Error {
+  readonly appVersions: string[];
+
+  constructor(appVersions: string[]) {
+    super(
+      appVersions.length > 1
+        ? 'Evidence cannot combine telemetry from multiple application versions.'
+        : 'Evidence telemetry does not match the verified deployment version.',
+    );
+    this.name = 'EvidenceVersionMismatchError';
+    this.appVersions = appVersions;
+  }
+}
+
+interface EvidenceDeploymentBoundary {
+  appVersion: string | null;
+  measuredCommit: string | null;
+  deploymentVerifiedAt: string | null;
+}
+
 const terminalTypes = new Set(['task_completed', 'task_failed']);
 
 export async function buildEvidencePack(
   studyId: string,
   storedEvents: StoredTelemetryEvent[],
   generatedAt = new Date().toISOString(),
+  deploymentBoundary?: EvidenceDeploymentBoundary,
 ): Promise<EvidencePack> {
   const events = storedEvents
     .filter((event) => event.studyId === studyId)
@@ -46,6 +67,14 @@ export async function buildEvidencePack(
         ? left.sequence - right.sequence
         : left.receivedAt.localeCompare(right.receivedAt),
     );
+  const appVersions = [...new Set(events.map((event) => event.appVersion))];
+  if (
+    appVersions.length > 1 ||
+    (deploymentBoundary?.appVersion &&
+      appVersions[0] !== deploymentBoundary.appVersion)
+  ) {
+    throw new EvidenceVersionMismatchError(appVersions);
+  }
   const taskAttempts = reconstructAttempts(events, generatedAt);
   const candidates = detectFriction(events, taskAttempts);
   const frictionSignals = candidates.map((candidate, index) =>
@@ -55,7 +84,7 @@ export async function buildEvidencePack(
   const evidenceClass = evidenceClassFor(events);
   const quality = assessEvidence(events, taskAttempts);
   const journeys = buildJourneys(events);
-  const appVersion = events.at(-1)?.appVersion ?? 'unknown';
+  const appVersion = appVersions[0] ?? 'unknown';
   const evolved = appVersion.startsWith('1.1');
   const payload = {
     parserVersion,
@@ -63,6 +92,8 @@ export async function buildEvidencePack(
     study: {
       studyId,
       appVersion,
+      measuredCommit: deploymentBoundary?.measuredCommit ?? null,
+      deploymentVerifiedAt: deploymentBoundary?.deploymentVerifiedAt ?? null,
       sourceEventCount: events.length,
       participants: new Set(events.map((event) => event.participantId)).size,
       sessions: new Set(events.map((event) => event.sessionId)).size,

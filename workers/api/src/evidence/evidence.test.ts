@@ -153,6 +153,52 @@ describe('real telemetry evidence engine', () => {
     expect(pack.tasks[0]?.medianDurationMs).toBe(9_001);
   });
 
+  it('rejects a measurement window containing multiple application versions', async () => {
+    const mixedEvents = events.map((event, index) => ({
+      ...event,
+      appVersion: index === events.length - 1 ? 'bbbbbbbbbbbb' : 'aaaaaaaaaaaa',
+    }));
+
+    await expect(
+      buildEvidencePack(
+        'projectflow-baseline-study',
+        mixedEvents,
+        '2026-07-16T12:02:00.000Z',
+        {
+          appVersion: 'bbbbbbbbbbbb',
+          measuredCommit: 'b'.repeat(40),
+          deploymentVerifiedAt: '2026-07-16T11:59:00.000Z',
+        },
+      ),
+    ).rejects.toMatchObject({
+      name: 'EvidenceVersionMismatchError',
+      appVersions: ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'],
+    });
+  });
+
+  it('retains the verified deployment boundary in evidence', async () => {
+    const versionedEvents = events.map((event) => ({
+      ...event,
+      appVersion: 'bbbbbbbbbbbb',
+    }));
+    const pack = await buildEvidencePack(
+      'projectflow-baseline-study',
+      versionedEvents,
+      '2026-07-16T12:02:00.000Z',
+      {
+        appVersion: 'bbbbbbbbbbbb',
+        measuredCommit: 'b'.repeat(40),
+        deploymentVerifiedAt: '2026-07-16T11:59:00.000Z',
+      },
+    );
+
+    expect(pack.study).toMatchObject({
+      appVersion: 'bbbbbbbbbbbb',
+      measuredCommit: 'b'.repeat(40),
+      deploymentVerifiedAt: '2026-07-16T11:59:00.000Z',
+    });
+  });
+
   it('turns derived pointer behavior into compact citable evidence', async () => {
     const richEvents: StoredTelemetryEvent[] = [
       ...events,

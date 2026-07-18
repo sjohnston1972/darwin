@@ -24,7 +24,7 @@ import {
 
 import { simulate } from './simulation';
 import { getTelemetryRepository } from './persistence/telemetry-repository';
-import { buildEvidencePack } from './evidence';
+import { EvidenceVersionMismatchError, buildEvidencePack } from './evidence';
 import {
   EvidenceReasoningError,
   analyseEvidence,
@@ -55,6 +55,10 @@ import {
   issueExecutionCallbackCredential,
   verifyExecutionCallback,
 } from './security/callback';
+import {
+  DeploymentVerificationPendingError,
+  verifyProjectFlowDeployment,
+} from './repository/deployment-verification';
 
 export interface Env {
   DB?: D1Database;
@@ -72,6 +76,8 @@ export interface Env {
   PROJECTFLOW_BRANCH: string;
   PROJECTFLOW_PRODUCTION_URL: string;
   PROJECTFLOW_STUDY_URL: string;
+  PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS?: string;
+  PROJECTFLOW_DEPLOYMENT_POLL_MS?: string;
   PROJECTFLOW_STUDY_ID?: string;
   PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
   GITHUB_TOKEN?: string;
@@ -335,7 +341,7 @@ export const handleRequest = async (
     const response: HealthResponse = {
       status: 'ok',
       service: 'darwin-api',
-      version: '0.23.0',
+      version: '0.24.0',
       analysis: {
         mode: 'live',
         model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -705,6 +711,7 @@ export const handleRequest = async (
   );
   if (request.method === 'POST' && studyEvidenceMatch) {
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
+    const cycle = await telemetryRepository.getEvolutionCycle();
     const source = url.searchParams.get('source') ?? 'real_user';
     if (source !== 'real_user' && source !== 'automated') {
       return json(
@@ -716,7 +723,7 @@ export const handleRequest = async (
       await telemetryRepository.listEvents(
         studyId,
         10_000,
-        await currentCycleStart(studyId),
+        cycle.studyId === studyId ? cycle.startedAt : null,
       )
     ).filter((event) => event.source === source);
     if (!events.length) {
@@ -729,10 +736,32 @@ export const handleRequest = async (
       );
     }
     try {
-      const pack = await buildEvidencePack(studyId, events);
+      const pack = await buildEvidencePack(
+        studyId,
+        events,
+        undefined,
+        cycle.studyId === studyId
+          ? {
+              appVersion: cycle.appVersion,
+              measuredCommit: cycle.measuredCommit,
+              deploymentVerifiedAt: cycle.deploymentVerifiedAt,
+            }
+          : undefined,
+      );
       await telemetryRepository.saveEvidence(pack);
       return json(EvidencePackSchema.parse(pack), { status: 201 });
     } catch (error) {
+      if (error instanceof EvidenceVersionMismatchError) {
+        return json(
+          {
+            error: 'mixed_application_versions',
+            message:
+              'Evidence must contain exactly one application version matching the verified deployment.',
+            appVersions: error.appVersions,
+          },
+          { status: 409 },
+        );
+      }
       if (
         error &&
         typeof error === 'object' &&
@@ -1455,51 +1484,136 @@ export const handleRequest = async (
     if (execution.status === 'released') {
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
-    if (execution.status !== 'preview_ready') {
+    if (
+      execution.status !== 'preview_ready' &&
+      execution.status !== 'deployment_verifying'
+    ) {
       return json(
         {
           error: 'not_releasable',
-          message: 'A validated pull request preview is required for release.',
+          message:
+            'A validated preview or merged deployment awaiting verification is required for release.',
         },
         { status: 409 },
       );
     }
-    if (!env?.GITHUB_TOKEN) {
+    if (execution.status === 'preview_ready') {
+      if (!env?.GITHUB_TOKEN) {
+        return json(
+          {
+            error: 'repository_release_unavailable',
+            message: 'GitHub release credentials are not configured.',
+          },
+          { status: 503 },
+        );
+      }
+      execution = updateRepositoryExecution(execution, {
+        status: 'releasing',
+      });
+      await telemetryRepository.saveRepositoryExecution(execution);
+      try {
+        const releasedSha = await mergeEvolutionPullRequest({
+          token: env.GITHUB_TOKEN,
+          execution,
+        });
+        execution = updateRepositoryExecution(execution, {
+          status: 'deployment_verifying',
+          headSha: releasedSha,
+          deploymentVerification: {
+            status: 'verifying',
+            expectedCommit: releasedSha,
+            expectedAppVersion: releasedSha.slice(0, 12),
+            observedCommit: null,
+            observedAppVersion: null,
+            attempts: 0,
+            verifiedAt: null,
+            lastError: null,
+          },
+        });
+        await telemetryRepository.saveRepositoryExecution(execution);
+      } catch (error) {
+        execution = updateRepositoryExecution(execution, {
+          status: 'failed',
+          error:
+            error instanceof Error
+              ? error.message
+              : 'GitHub pull request release failed.',
+        });
+        await telemetryRepository.saveRepositoryExecution(execution);
+        return json(RepositoryMutationExecutionSchema.parse(execution), {
+          status: 502,
+        });
+      }
+    }
+
+    const deployment = execution.deploymentVerification;
+    if (!execution.headSha || !deployment) {
       return json(
         {
-          error: 'repository_release_unavailable',
-          message: 'GitHub release credentials are not configured.',
+          error: 'deployment_verification_unavailable',
+          message: 'The merged deployment identity was not retained.',
         },
-        { status: 503 },
+        { status: 409 },
       );
     }
-    execution = updateRepositoryExecution(execution, { status: 'releasing' });
-    await telemetryRepository.saveRepositoryExecution(execution);
     try {
-      const releasedSha = await mergeEvolutionPullRequest({
-        token: env.GITHUB_TOKEN,
-        execution,
+      const configuredTimeout = Number(
+        env?.PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS ?? 90_000,
+      );
+      const configuredPoll = Number(
+        env?.PROJECTFLOW_DEPLOYMENT_POLL_MS ?? 5_000,
+      );
+      const verified = await verifyProjectFlowDeployment({
+        studyUrl: execution.repository.studyUrl,
+        expectedCommit: deployment.expectedCommit,
+        expectedAppVersion: deployment.expectedAppVersion,
+        timeoutMs: Number.isFinite(configuredTimeout)
+          ? configuredTimeout
+          : 90_000,
+        pollIntervalMs: Number.isFinite(configuredPoll)
+          ? configuredPoll
+          : 5_000,
       });
       execution = updateRepositoryExecution(execution, {
         status: 'released',
-        headSha: releasedSha,
         previewUrl: execution.repository.studyUrl,
+        deploymentVerification: {
+          ...deployment,
+          status: 'verified',
+          observedCommit: verified.commitSha,
+          observedAppVersion: verified.appVersion,
+          attempts: deployment.attempts + verified.attempts,
+          verifiedAt: verified.verifiedAt,
+          lastError: null,
+        },
       });
       await telemetryRepository.saveRepositoryExecution(execution);
-      await telemetryRepository.advanceEvolutionCycle();
+      await telemetryRepository.advanceEvolutionCycle({
+        startedAt: verified.verifiedAt,
+        measuredCommit: verified.commitSha,
+        appVersion: verified.appVersion,
+        deploymentVerifiedAt: verified.verifiedAt,
+      });
       return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
-      execution = updateRepositoryExecution(execution, {
-        status: 'failed',
-        error:
-          error instanceof Error
-            ? error.message
-            : 'GitHub pull request release failed.',
-      });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      return json(RepositoryMutationExecutionSchema.parse(execution), {
-        status: 502,
-      });
+      if (error instanceof DeploymentVerificationPendingError) {
+        execution = RepositoryMutationExecutionSchema.parse({
+          ...execution,
+          deploymentVerification: {
+            ...deployment,
+            observedCommit: error.observed?.commitSha ?? null,
+            observedAppVersion: error.observed?.appVersion ?? null,
+            attempts: deployment.attempts + error.attempts,
+            lastError: error.errorCode,
+          },
+          updatedAt: new Date().toISOString(),
+        });
+        await telemetryRepository.saveRepositoryExecution(execution);
+        return json(RepositoryMutationExecutionSchema.parse(execution), {
+          status: 202,
+        });
+      }
+      throw error;
     }
   }
 

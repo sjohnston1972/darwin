@@ -4,11 +4,11 @@
 
 Darwin separates three responsibilities:
 
-| Component | Responsibility |
-| --- | --- |
+| Component                | Responsibility                                                         |
+| ------------------------ | ---------------------------------------------------------------------- |
 | deterministic TypeScript | parse events, reconstruct journeys, derive evidence, enforce contracts |
-| GPT-5.6 | explain causal pressure and propose a structured mutation portfolio |
-| Codex | implement only the human-approved, repository-bounded manifest |
+| GPT-5.6                  | explain causal pressure and propose a structured mutation portfolio    |
+| Codex                    | implement only the human-approved, repository-bounded manifest         |
 
 GPT does not invent telemetry. Codex does not choose which product mutation to run.
 
@@ -88,9 +88,7 @@ Darwin displays the returned patch, changed files, checks, Codex report, workflo
 
 ## Release
 
-The candidate stays isolated until the operator clicks **Release reviewed mutation**. Darwin squash-merges the exact reviewed pull request and records the resulting SHA.
-
-Deployment-aware cycle boundaries and atomic/idempotent release transitions are tracked in issues [#6](https://github.com/sjohnston1972/darwin/issues/6) and [#5](https://github.com/sjohnston1972/darwin/issues/5).
+The candidate stays isolated until the operator clicks **Release reviewed mutation**. Darwin squash-merges the exact reviewed pull request, enters deployment verification, and polls ProjectFlow production until its semantic metadata reports both the merged SHA and matching app version. Only that verified timestamp opens the next measurement cycle. Mixed application versions are rejected from a single evidence pack, and Observations displays the precise measured boundary.
 
 ## Rollback
 

@@ -78,3 +78,5 @@ local development and unit tests.
 - Invalid callbacks are rejected before execution state changes.
 - Failed Codex or validation jobs remain visible with their real output.
 - A pull request is never merged without an explicit release request.
+- A merged mutation is not recorded as released until ProjectFlow production reports the merged commit and app version.
+- Evidence generation rejects telemetry that crosses application-version boundaries.

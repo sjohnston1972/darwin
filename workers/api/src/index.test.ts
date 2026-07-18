@@ -201,8 +201,9 @@ const signedCallbackRequest = async ({
   });
 };
 
-const installOpenAIResponse = (output: unknown) =>
-  vi.stubGlobal(
+const installOpenAIResponse = (output: unknown) => {
+  let deploymentVerificationCalls = 0;
+  return vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -223,6 +224,15 @@ const installOpenAIResponse = (output: unknown) =>
         );
       }
       if (url.startsWith('https://darwin-projectflow.pages.dev/')) {
+        if (url.includes('darwin_deployment_verify=')) {
+          deploymentVerificationCalls += 1;
+          const deployedSha =
+            deploymentVerificationCalls === 1 ? repositorySha : 'f'.repeat(40);
+          return new Response(
+            `<!doctype html><html><head><meta name="darwin-app-version" content="${deployedSha.slice(0, 12)}"><meta name="darwin-commit-sha" content="${deployedSha}"><title>ProjectFlow</title></head></html>`,
+            { headers: { 'Content-Type': 'text/html' } },
+          );
+        }
         return new Response(
           '<!doctype html><html><head><title>ProjectFlow</title></head></html>',
           { headers: { 'Content-Type': 'text/html' } },
@@ -240,6 +250,7 @@ const installOpenAIResponse = (output: unknown) =>
       );
     }),
   );
+};
 
 describe('Darwin API', () => {
   beforeEach(async () => {
@@ -260,7 +271,7 @@ describe('Darwin API', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(body.service).toBe('darwin-api');
-    expect(body.version).toBe('0.23.0');
+    expect(body.version).toBe('0.24.0');
 
     const liveResponse = await handleRequest(
       new Request('http://localhost/api/health'),
@@ -1058,7 +1069,11 @@ describe('Darwin API', () => {
         `http://localhost/api/repository-executions/${execution.executionId}/release`,
         { method: 'POST' },
       ),
-      { GITHUB_TOKEN: 'github-test-token' },
+      {
+        GITHUB_TOKEN: 'github-test-token',
+        PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS: '500',
+        PROJECTFLOW_DEPLOYMENT_POLL_MS: '0',
+      },
     );
     const releasedExecution = RepositoryMutationExecutionSchema.parse(
       await releaseResponse.json(),
@@ -1066,6 +1081,14 @@ describe('Darwin API', () => {
     expect(releaseResponse.status).toBe(200);
     expect(releasedExecution.status).toBe('released');
     expect(releasedExecution.headSha).toBe('f'.repeat(40));
+    expect(releasedExecution.deploymentVerification).toMatchObject({
+      status: 'verified',
+      expectedCommit: 'f'.repeat(40),
+      observedCommit: 'f'.repeat(40),
+      expectedAppVersion: 'f'.repeat(12),
+      observedAppVersion: 'f'.repeat(12),
+      attempts: 2,
+    });
     const terminalRewrite = await callback({
       status: 'released',
       headSha: 'a'.repeat(40),
@@ -1079,7 +1102,15 @@ describe('Darwin API', () => {
       await genomeResponse.json(),
     );
     expect(genome.evolutionCycle.genomeEvolutionCount).toBe(1);
-    expect(genome.evolutionCycle.startedAt).not.toBeNull();
+    expect(genome.evolutionCycle.startedAt).toBe(
+      releasedExecution.deploymentVerification?.verifiedAt,
+    );
+    expect(genome.evolutionCycle).toMatchObject({
+      measuredCommit: 'f'.repeat(40),
+      appVersion: 'f'.repeat(12),
+      deploymentVerifiedAt:
+        releasedExecution.deploymentVerification?.verifiedAt,
+    });
     expect(genome.executions).toHaveLength(1);
     expect(genome.executions[0]?.executionId).toBe(execution.executionId);
 

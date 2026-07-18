@@ -9,6 +9,7 @@ import {
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidencePack,
+  type EvolutionCycle,
   type ObservationArchive,
   type RepositoryMutationExecution,
   type StoredTelemetryEvent,
@@ -28,6 +29,7 @@ export interface LiveTelemetryState {
   analyseEvidence: () => Promise<void>;
   analysing: boolean;
   evidence: EvidencePack | null;
+  evolutionCycle: EvolutionCycle;
   error: string | null;
   events: StoredTelemetryEvent[];
   genomeEvolutionCount: number;
@@ -75,6 +77,14 @@ export function useLiveTelemetry(): LiveTelemetryState {
   const [execution, setExecution] =
     useState<RepositoryMutationExecution | null>(null);
   const [genomeEvolutionCount, setGenomeEvolutionCount] = useState(0);
+  const [evolutionCycle, setEvolutionCycle] = useState<EvolutionCycle>({
+    studyId,
+    startedAt: null,
+    genomeEvolutionCount: 0,
+    measuredCommit: null,
+    appVersion: null,
+    deploymentVerifiedAt: null,
+  });
   const [genomeExecutions, setGenomeExecutions] = useState<
     RepositoryMutationExecution[]
   >([]);
@@ -93,6 +103,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     const response = await apiFetch(`${apiBaseUrl}/api/genome`);
     if (!response.ok) return;
     const history = GenomeHistoryResponseSchema.parse(await response.json());
+    setEvolutionCycle(history.evolutionCycle);
     setGenomeEvolutionCount(history.evolutionCycle.genomeEvolutionCount);
     setGenomeExecutions(history.executions);
   };
@@ -504,6 +515,14 @@ export function useLiveTelemetry(): LiveTelemetryState {
     setManifest(null);
     setExecution(null);
     setGenomeEvolutionCount(0);
+    setEvolutionCycle({
+      studyId,
+      startedAt: null,
+      genomeEvolutionCount: 0,
+      measuredCommit: null,
+      appVersion: null,
+      deploymentVerifiedAt: null,
+    });
     setGenomeExecutions([]);
     setObservationArchives([]);
     setError(null);
@@ -545,6 +564,7 @@ export function useLiveTelemetry(): LiveTelemetryState {
     clearError: () => setError(null),
     count,
     evidence,
+    evolutionCycle,
     error,
     events,
     execution,

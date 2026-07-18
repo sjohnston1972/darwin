@@ -101,9 +101,30 @@ describe('repository execution state', () => {
     const releasing = updateRepositoryExecution(preview, {
       status: 'releasing',
     });
-    const released = updateRepositoryExecution(releasing, {
-      status: 'released',
+    const verifying = updateRepositoryExecution(releasing, {
+      status: 'deployment_verifying',
       headSha: 'f'.repeat(40),
+      deploymentVerification: {
+        status: 'verifying',
+        expectedCommit: 'f'.repeat(40),
+        expectedAppVersion: 'f'.repeat(12),
+        observedCommit: null,
+        observedAppVersion: null,
+        attempts: 0,
+        verifiedAt: null,
+        lastError: null,
+      },
+    });
+    const released = updateRepositoryExecution(verifying, {
+      status: 'released',
+      deploymentVerification: {
+        ...verifying.deploymentVerification!,
+        status: 'verified',
+        observedCommit: 'f'.repeat(40),
+        observedAppVersion: 'f'.repeat(12),
+        attempts: 2,
+        verifiedAt: '2026-07-18T12:00:00.000Z',
+      },
     });
 
     const rollback = createRepositoryRollback(
