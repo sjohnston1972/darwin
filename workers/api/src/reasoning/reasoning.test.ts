@@ -328,8 +328,8 @@ describe('evidence-backed reasoning v2', () => {
     );
   });
 
-  it('normalizes a model-supplied five-point scorecard to percentages', () => {
-    const fivePointCandidate = (id: string, score: number) => ({
+  it('keeps legitimate low percentage scores low when ranking candidates', () => {
+    const scoredCandidate = (id: string, score: number) => ({
       ...candidate(id, score),
       scorecard: {
         evidenceStrength: score,
@@ -342,21 +342,33 @@ describe('evidence-backed reasoning v2', () => {
     const normalized = validateModelOutput(
       {
         ...modelOutput,
-        selectedMutation: fivePointCandidate('direct-my-work', 5),
+        selectedMutation: scoredCandidate('direct-my-work', 5),
         alternatives: [
-          fivePointCandidate('dashboard-work-queue', 4),
-          fivePointCandidate('global-search', 3),
+          scoredCandidate('dashboard-work-queue', 70),
+          scoredCandidate('global-search', 40),
         ],
       },
       pack,
     );
 
+    expect(normalized.selectedMutation.id).toBe('dashboard-work-queue');
     expect(normalized.selectedMutation.scorecard).toMatchObject({
-      userImpact: 100,
-      feasibility: 100,
-      validationClarity: 100,
+      userImpact: 70,
+      feasibility: 70,
+      validationClarity: 70,
     });
-    expect(normalized.selectedMutation.scorecard.total).toBeGreaterThan(80);
+    expect(normalized.alternatives).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'direct-my-work',
+          scorecard: expect.objectContaining({
+            userImpact: 5,
+            feasibility: 5,
+            validationClarity: 5,
+          }),
+        }),
+      ]),
+    );
   });
 
   it('fails closed without live GPT instead of returning a substitute mutation', async () => {

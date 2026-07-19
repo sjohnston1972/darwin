@@ -1,1 +1,5 @@
-export { buildEvidencePack, reconstructAttempts } from './evidence';
+export {
+  EvidenceBoundaryError,
+  buildEvidencePack,
+  reconstructAttempts,
+} from './evidence';

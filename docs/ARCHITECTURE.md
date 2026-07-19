@@ -3,6 +3,7 @@
 ```mermaid
 flowchart LR
   PF[ProjectFlow target repository] --> TC[Telemetry client]
+  LAB[Darwin Lab Playwright population] --> PF
   TC --> API[Cloudflare Worker]
   API --> D1[(D1 evidence and execution state)]
   D1 --> EE[Deterministic evidence engine]
@@ -70,6 +71,12 @@ D1 stores real telemetry, participant workspaces, evidence packs, GPT analyses,
 manifests and repository executions. Reset deletes those records and dispatches
 ProjectFlow's baseline restoration workflow. In-memory implementations cover
 local development and unit tests.
+
+Human study, Darwin Lab automated observation, and Scale replay use explicit
+provenance contracts and separate study/storage queries. Lab tasks are versioned
+and hash-bound; each observation records experiment, run, session, attempt,
+application version, and task-definition identity. Only Scale replay generates
+events without touching ProjectFlow.
 
 ## Failure Behavior
 

@@ -2,6 +2,7 @@ import {
   StudyTelemetryEventSchema,
   TelemetryBatchSchema,
   TelemetryReceiptSchema,
+  type DarwinProvenance,
   type StudyTelemetryEvent,
   type TelemetryReceipt,
   type ViewportClass,
@@ -16,11 +17,14 @@ export interface TelemetryClientConfig {
   participantId: string;
   endpoint?: string;
   source?: ClientSource;
+  provenance?: DarwinProvenance;
+  studySessionToken?: string;
   sessionId?: string;
   initialRoute?: string;
   flushIntervalMs?: number;
   batchSize?: number;
   onEvent?: (event: StudyTelemetryEvent) => void;
+  onHealth?: (health: TelemetryHealth) => void;
   fetcher?: typeof fetch;
 }
 
@@ -28,6 +32,14 @@ export type TelemetryFlushResult =
   | ({ status: 'delivered' } & TelemetryReceipt)
   | { status: 'empty'; accepted: 0; rejected: 0 }
   | { status: 'offline'; accepted: 0; rejected: 0 };
+
+export interface TelemetryHealth {
+  queued: number;
+  dropped: number;
+  storageAvailable: boolean;
+  consecutiveFailures: number;
+  nextRetryAt: number | null;
+}
 
 interface ActiveAttempt {
   id: string;
@@ -106,6 +118,23 @@ const clamp = (value: number, minimum: number, maximum: number) =>
 
 const roundRatio = (value: number) => Math.round(value * 1000) / 1000;
 
+class TelemetryDeliveryError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number | null = null,
+  ) {
+    super(message);
+  }
+}
+
+const retryAfterMilliseconds = (value: string | null) => {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+};
+
 export class DarwinTelemetryClient {
   private readonly config: TelemetryClientConfig & {
     source: ClientSource;
@@ -122,6 +151,11 @@ export class DarwinTelemetryClient {
   private flushTimer: number | null = null;
   private flushPromise: Promise<TelemetryFlushResult> | null = null;
   private flushRequested = false;
+  private retryTimer: number | null = null;
+  private consecutiveFailures = 0;
+  private nextRetryAt: number | null = null;
+  private dropped = 0;
+  private storageAvailable = true;
   private startedAt = Date.now();
   private initialized = false;
   private readonly hovers = new Map<string, HoverState>();
@@ -179,7 +213,7 @@ export class DarwinTelemetryClient {
 
     if (this.config.endpoint) {
       this.flushTimer = window.setInterval(() => {
-        void this.flush();
+        void this.flush().catch(() => undefined);
       }, this.config.flushIntervalMs);
     }
   }
@@ -203,8 +237,12 @@ export class DarwinTelemetryClient {
       this.captureViewportZoom,
     );
     if (this.flushTimer !== null) window.clearInterval(this.flushTimer);
+    if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
     this.flushTimer = null;
+    this.retryTimer = null;
+    this.nextRetryAt = null;
     this.initialized = false;
+    this.flushWithBeacon();
   }
 
   trackPageView(route = this.currentRoute) {
@@ -317,6 +355,16 @@ export class DarwinTelemetryClient {
     return [...this.outbox];
   }
 
+  health(): TelemetryHealth {
+    return {
+      queued: this.outbox.length,
+      dropped: this.dropped,
+      storageAvailable: this.storageAvailable,
+      consecutiveFailures: this.consecutiveFailures,
+      nextRetryAt: this.nextRetryAt,
+    };
+  }
+
   async flush(): Promise<TelemetryFlushResult> {
     if (this.flushPromise) {
       this.flushRequested = true;
@@ -325,7 +373,16 @@ export class DarwinTelemetryClient {
     const operation = this.deliverNextBatch();
     this.flushPromise = operation;
     try {
-      return await operation;
+      const result = await operation;
+      this.consecutiveFailures = 0;
+      this.nextRetryAt = null;
+      if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+      this.emitHealth();
+      return result;
+    } catch (error) {
+      this.scheduleRetry(error);
+      throw error;
     } finally {
       this.flushPromise = null;
       const requested = this.flushRequested;
@@ -333,6 +390,7 @@ export class DarwinTelemetryClient {
       if (
         this.config.endpoint &&
         this.outbox.length > 0 &&
+        this.consecutiveFailures === 0 &&
         (requested || this.outbox.length >= this.config.batchSize)
       ) {
         window.setTimeout(() => void this.flush().catch(() => undefined), 0);
@@ -352,14 +410,31 @@ export class DarwinTelemetryClient {
     const batch = TelemetryBatchSchema.parse({ events });
     const response = await this.fetcher(this.config.endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.config.studySessionToken
+          ? { 'X-Darwin-Study-Session': this.config.studySessionToken }
+          : {}),
+      },
       body: JSON.stringify(batch),
       keepalive: true,
     });
-    if (!response.ok)
-      throw new Error(`Telemetry delivery failed: ${response.status}`);
+    if (!response.ok) {
+      throw new TelemetryDeliveryError(
+        `Telemetry delivery failed: ${response.status}`,
+        retryAfterMilliseconds(response.headers.get('Retry-After')),
+      );
+    }
 
     const receipt = TelemetryReceiptSchema.parse(await response.json());
+    if (
+      receipt.accepted + receipt.rejected + receipt.duplicates !==
+      events.length
+    ) {
+      throw new TelemetryDeliveryError(
+        'Telemetry receipt does not acknowledge the submitted batch.',
+      );
+    }
     this.removeFromOutbox(events);
     this.persistOutbox();
     return { status: 'delivered', ...receipt };
@@ -713,16 +788,43 @@ export class DarwinTelemetryClient {
   }
 
   private flushWithBeacon() {
-    if (!this.config.endpoint || !navigator.sendBeacon || !this.outbox.length) {
+    if (!this.config.endpoint || !this.outbox.length) return;
+    // Beacon has no application-level acknowledgement. A keepalive fetch leaves
+    // records in the durable outbox until Darwin returns a validated receipt.
+    void this.flush().catch(() => undefined);
+  }
+
+  private scheduleRetry(error: unknown) {
+    this.consecutiveFailures += 1;
+    const requestedDelay =
+      error instanceof TelemetryDeliveryError ? error.retryAfterMs : null;
+    const exponentialDelay = Math.min(
+      30_000,
+      500 * 2 ** Math.min(6, this.consecutiveFailures - 1),
+    );
+    const delay = Math.min(
+      60_000,
+      (requestedDelay ?? exponentialDelay) + Math.floor(Math.random() * 250),
+    );
+    this.nextRetryAt = Date.now() + delay;
+    if (!this.initialized) {
+      this.emitHealth();
       return;
     }
-    while (this.outbox.length) {
-      const events = this.outbox.slice(0, this.config.batchSize);
-      const body = JSON.stringify(TelemetryBatchSchema.parse({ events }));
-      if (!navigator.sendBeacon(this.config.endpoint, body)) break;
-      this.removeFromOutbox(events);
+    if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
+    this.retryTimer = window.setTimeout(() => {
+      this.retryTimer = null;
+      void this.flush().catch(() => undefined);
+    }, delay);
+    this.emitHealth();
+  }
+
+  private emitHealth() {
+    try {
+      this.config.onHealth?.(this.health());
+    } catch {
+      // Instrumentation health reporting must never break the target app.
     }
-    this.persistOutbox();
   }
 
   private removeFromOutbox(events: StudyTelemetryEvent[]) {
@@ -898,12 +1000,20 @@ export class DarwinTelemetryClient {
       sequence: this.sequence++,
       route: this.currentRoute,
       viewport: getViewportClass(),
+      ...(this.config.provenance ? { provenance: this.config.provenance } : {}),
       ...event,
     };
     const parsed = StudyTelemetryEventSchema.parse(candidate);
     this.outbox.push(parsed);
-    if (this.outbox.length > 500)
-      this.outbox.splice(0, this.outbox.length - 500);
+    if (this.outbox.length > 500) {
+      const overflow = this.outbox.length - 500;
+      this.outbox.splice(0, overflow);
+      this.dropped += overflow;
+      console.warn(
+        `[darwin:telemetry] outbox overflow dropped ${overflow} event(s)`,
+      );
+      this.emitHealth();
+    }
     this.persistOutbox();
     this.config.onEvent?.(parsed);
     if (this.config.endpoint && this.outbox.length >= this.config.batchSize) {
@@ -922,12 +1032,27 @@ export class DarwinTelemetryClient {
         return parsed.success ? [parsed.data] : [];
       });
     } catch {
+      this.storageAvailable = false;
       return [];
     }
   }
 
   private persistOutbox() {
-    localStorage.setItem(this.outboxKey, JSON.stringify(this.outbox));
+    try {
+      localStorage.setItem(this.outboxKey, JSON.stringify(this.outbox));
+      if (!this.storageAvailable) {
+        this.storageAvailable = true;
+        this.emitHealth();
+      }
+    } catch {
+      if (this.storageAvailable) {
+        this.storageAvailable = false;
+        console.warn(
+          '[darwin:telemetry] persistent outbox unavailable; using memory',
+        );
+        this.emitHealth();
+      }
+    }
   }
 }
 

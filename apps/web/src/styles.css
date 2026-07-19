@@ -160,7 +160,8 @@
   font-weight: 550;
 }
 
-.lab-form input:not([type='range']) {
+.lab-form input:not([type='range']),
+.lab-form select {
   min-width: 0;
   height: 40px;
   padding: 0 12px;
@@ -170,7 +171,8 @@
   outline: none;
 }
 
-.lab-form input:focus {
+.lab-form input:focus,
+.lab-form select:focus {
   border-color: rgb(112 231 167 / 52%);
   box-shadow: 0 0 0 3px rgb(112 231 167 / 7%);
 }
@@ -1100,15 +1102,90 @@ a:focus-visible {
   inset: 0;
 }
 
-.hero-dna-visual {
+.hero-selection-visual {
   position: absolute;
   z-index: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center right;
-  opacity: 0.78;
-  inset: 0;
+  right: 2%;
+  top: 14%;
+  width: min(46%, 620px);
+  height: 72%;
+  opacity: 0.65;
+  background:
+    linear-gradient(
+      145deg,
+      transparent 0 22%,
+      rgb(185 243 107 / 22%) 22.2% 22.6%,
+      transparent 22.8% 48%,
+      rgb(185 243 107 / 16%) 48.2% 48.5%,
+      transparent 48.7%
+    ),
+    radial-gradient(circle at 20% 72%, rgb(185 243 107 / 20%), transparent 28%);
+}
+
+.hero-selection-visual i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #b9f36b;
+  border-radius: 50%;
+  background: #101211;
+  box-shadow: 0 0 24px rgb(185 243 107 / 28%);
+}
+
+.hero-selection-visual i:nth-child(1) {
+  left: 8%;
+  top: 70%;
+}
+.hero-selection-visual i:nth-child(2) {
+  left: 35%;
+  top: 40%;
+}
+.hero-selection-visual i:nth-child(3) {
+  left: 62%;
+  top: 56%;
+}
+.hero-selection-visual i:nth-child(4) {
+  left: 88%;
+  top: 22%;
+}
+
+.hero-evidence-classes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.hero-evidence-classes span {
+  border: 1px solid #363d39;
+  padding: 5px 8px;
+  background: rgb(16 18 17 / 74%);
+  color: #aeb8b1;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provenance-chip {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  border: 1px solid #46504a;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #181c1a;
+  color: #aeb8b1;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.provenance-chip.provenance-darwin_lab {
+  border-color: rgb(185 243 107 / 48%);
+  background: rgb(185 243 107 / 9%);
+  color: #cafa8d;
 }
 
 .primary-action {
@@ -1369,6 +1446,49 @@ a:focus-visible {
 
 .live-evidence-actions {
   gap: 10px;
+}
+
+.telemetry-freshness {
+  color: var(--mist);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.telemetry-freshness.is-stale {
+  color: var(--amber);
+}
+
+.diagnostics-list {
+  display: grid;
+  gap: 1px;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.diagnostics-list > div {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  display: grid;
+  gap: 0.35rem 1rem;
+  grid-template-columns: minmax(10rem, 0.7fr) minmax(14rem, 1.5fr) minmax(
+      12rem,
+      1fr
+    ) minmax(8rem, 0.6fr);
+  padding: 0.85rem 1rem;
+}
+
+.diagnostics-list code,
+.diagnostics-list small,
+.diagnostics-list span {
+  color: var(--mist);
+  font-size: 0.72rem;
+}
+
+@media (max-width: 760px) {
+  .diagnostics-list > div {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (min-width: 640px) {
@@ -3630,6 +3750,35 @@ a:focus-visible {
   justify-content: space-between;
   gap: 24px;
   padding: 26px;
+}
+
+.artifact-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--mist);
+  font-size: 0.72rem;
+}
+
+.artifact-filter select {
+  max-width: 13rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--white);
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.artifact-filter select:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+.artifact-empty {
+  padding: 1.5rem;
+  color: var(--mist);
+  font-size: 0.875rem;
 }
 
 .fossil-artifact {

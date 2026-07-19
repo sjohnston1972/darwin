@@ -1,25 +1,35 @@
 import {
+  CodexImplementationManifestSchema,
   LabAgentActionAppendRequestSchema,
   LabAgentDecisionRequestSchema,
   LabAgentRunFinishRequestSchema,
   LabAgentRunSchema,
   LabAgentRunStartRequestSchema,
   LabExperimentCreateRequestSchema,
+  LabExperimentStatusSchema,
+  LabExperimentUpdateRequestSchema,
   LabExperimentSchema,
   LabExperimentsResponseSchema,
   LabMutationSelectionRequestSchema,
   LabRunnerClaimRequestSchema,
   LabSelectionSchema,
   type LabExperiment,
+  type LabTaskInput,
 } from '@darwin/shared';
 
 import { buildLabEvidence } from './evidence';
 import { getLabRepository } from './lab-repository';
+import { getTelemetryRepository } from '../persistence/telemetry-repository';
+import { captureRepositorySnapshot } from '../repository/github-source';
 import {
   LabReasoningError,
   analyseLabEvidence,
   decideLabAgentAction,
 } from './reasoning';
+import {
+  PayloadTooLargeError,
+  readBoundedBody,
+} from '../security/bounded-body';
 
 interface LabHandlerEnvironment {
   DB?: D1Database;
@@ -30,6 +40,11 @@ interface LabHandlerEnvironment {
   OPENAI_MODEL?: string;
   OPENAI_LAB_AGENT_MODEL?: string;
   OPENAI_TIMEOUT_MS?: string;
+  GITHUB_TOKEN?: string;
+  PROJECTFLOW_REPOSITORY?: string;
+  PROJECTFLOW_BRANCH?: string;
+  PROJECTFLOW_PRODUCTION_URL?: string;
+  PROJECTFLOW_STUDY_URL?: string;
 }
 
 interface LabOperatorIdentity {
@@ -39,12 +54,7 @@ interface LabOperatorIdentity {
 type JsonResponder = (body: unknown, init?: ResponseInit) => Response;
 
 const parseBody = async (request: Request) => {
-  const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-  if (contentLength > 256_000) throw new Error('payload_too_large');
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > 256_000) {
-    throw new Error('payload_too_large');
-  }
+  const body = await readBoundedBody(request, 256_000);
   try {
     return JSON.parse(body) as unknown;
   } catch {
@@ -78,6 +88,77 @@ const targetAllowed = (targetUrl: string, env?: LabHandlerEnvironment) => {
   return allowedTargetOrigins(env).has(target.origin);
 };
 
+const canonicalStringify = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([key, item]) => `${JSON.stringify(key)}:${canonicalStringify(item)}`,
+      )
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+};
+
+const sha256 = async (value: unknown) => {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(canonicalStringify(value)),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
+const createTaskDefinition = async (task: LabTaskInput) => {
+  const definitionVersion = 1 as const;
+  const definitionHash = await sha256({ definitionVersion, ...task });
+  return {
+    ...task,
+    taskDefinitionId: `lab-task-${definitionHash.slice(0, 16)}`,
+    definitionVersion,
+    definitionHash,
+  };
+};
+
+const labProvenance = (
+  experimentId: string,
+  task: { taskDefinitionId: string; definitionHash: string },
+  runIds: string[] = [],
+  evidence?: { evidencePackId: string; evidenceHash: string } | null,
+) => ({
+  evidenceClass: 'darwin_lab' as const,
+  label: 'Darwin Lab',
+  labExperimentId: experimentId,
+  taskDefinitionId: task.taskDefinitionId,
+  taskDefinitionHash: task.definitionHash,
+  evidencePackId: evidence?.evidencePackId ?? null,
+  evidenceHash: evidence?.evidenceHash ?? null,
+  runIds,
+});
+
+const defaultPersonaAllocation = (populationSize: number) => {
+  const personas = [
+    'novice',
+    'experienced_pm',
+    'executive',
+    'keyboard_first',
+    'mobile',
+    'cautious',
+    'impatient',
+    'search_first',
+  ] as const;
+  const counts = new Map<string, number>();
+  for (let index = 0; index < populationSize; index += 1) {
+    const persona = personas[index % personas.length]!;
+    counts.set(persona, (counts.get(persona) ?? 0) + 1);
+  }
+  return [...counts].map(([persona, count]) => ({ persona, count }));
+};
+
 const errorResponse = (
   json: JsonResponder,
   error: unknown,
@@ -85,7 +166,7 @@ const errorResponse = (
   status = 400,
 ) => {
   const message = error instanceof Error ? error.message : fallback;
-  if (message === 'payload_too_large') {
+  if (error instanceof PayloadTooLargeError) {
     return json(
       { error: 'payload_too_large', message: 'Request body is too large.' },
       { status: 413 },
@@ -121,10 +202,17 @@ export async function handleLabRequest(
   const repository = getLabRepository(env?.DB);
 
   if (request.method === 'GET' && pathname === '/api/lab/experiments') {
-    const status = url.searchParams.get('status') ?? undefined;
-    const experiments = await repository.listExperiments(
-      status as Parameters<typeof repository.listExperiments>[0],
-    );
+    const requestedStatus = url.searchParams.get('status');
+    const status = requestedStatus
+      ? LabExperimentStatusSchema.safeParse(requestedStatus)
+      : null;
+    if (status && !status.success) {
+      return json(
+        { error: 'invalid_request', message: 'Unsupported Lab status filter.' },
+        { status: 400 },
+      );
+    }
+    const experiments = await repository.listExperiments(status?.data);
     return json(LabExperimentsResponseSchema.parse({ experiments }));
   }
 
@@ -144,19 +232,31 @@ export async function handleLabRequest(
         );
       }
       const experimentId = `lab-exp-${crypto.randomUUID()}`;
+      const task = await createTaskDefinition(input.task);
+      const personaAllocation = input.personaAllocation.length
+        ? input.personaAllocation
+        : defaultPersonaAllocation(input.populationSize);
+      if (
+        personaAllocation.reduce((total, item) => total + item.count, 0) !==
+        input.populationSize
+      ) {
+        return json(
+          {
+            error: 'lab_population_invalid',
+            message: 'Persona allocation must equal the population size.',
+          },
+          { status: 400 },
+        );
+      }
       const experiment = LabExperimentSchema.parse({
         experimentId,
         studyId: `projectflow-darwin-lab-${experimentId.slice(-12)}`,
         name: input.name,
         targetUrl: input.targetUrl,
-        task: {
-          taskId: 'find-apollo-assignees',
-          name: 'Find Project Apollo assignees',
-          instruction: 'Find everyone assigned to Project Apollo.',
-          successDescription:
-            'The agent identifies the complete Project Apollo assignment set.',
-        },
+        targetAppVersion: input.targetAppVersion,
+        task,
         populationSize: input.populationSize,
+        personaAllocation,
         maxActions: input.maxActions,
         maxDurationMs: input.maxDurationMs,
         seed: input.seed,
@@ -170,6 +270,10 @@ export async function handleLabRequest(
         analysis: null,
         selection: null,
         error: null,
+        evidenceError: null,
+        archivedAt: null,
+        version: 0,
+        provenance: labProvenance(experimentId, task),
       });
       await repository.saveExperiment(experiment);
       return json(experiment, {
@@ -222,6 +326,251 @@ export async function handleLabRequest(
     return experiment ? json(experiment) : missingExperiment(json);
   }
 
+  if (request.method === 'PUT' && experimentMatch) {
+    try {
+      const experiment = await repository.getExperiment(
+        decodeURIComponent(experimentMatch[1]!),
+      );
+      if (!experiment) return missingExperiment(json);
+      if (experiment.status !== 'draft') {
+        return json(
+          {
+            error: 'lab_state_conflict',
+            message: 'Only a draft Lab task can be edited.',
+          },
+          { status: 409 },
+        );
+      }
+      const input = LabExperimentUpdateRequestSchema.parse(
+        await parseBody(request),
+      );
+      const targetUrl = input.targetUrl ?? experiment.targetUrl;
+      if (!targetAllowed(targetUrl, env)) {
+        return json(
+          {
+            error: 'lab_target_forbidden',
+            message: 'The edited target is outside the configured Lab origins.',
+          },
+          { status: 403 },
+        );
+      }
+      const task = input.task
+        ? await createTaskDefinition(input.task)
+        : experiment.task;
+      const populationSize = input.populationSize ?? experiment.populationSize;
+      const personaAllocation = input.personaAllocation?.length
+        ? input.personaAllocation
+        : input.populationSize
+          ? defaultPersonaAllocation(populationSize)
+          : experiment.personaAllocation;
+      if (
+        personaAllocation.reduce((total, item) => total + item.count, 0) !==
+        populationSize
+      ) {
+        return json(
+          {
+            error: 'lab_population_invalid',
+            message: 'Persona allocation must equal the population size.',
+          },
+          { status: 400 },
+        );
+      }
+      const updated = LabExperimentSchema.parse({
+        ...experiment,
+        ...input,
+        targetUrl,
+        task,
+        populationSize,
+        personaAllocation,
+        provenance: labProvenance(experiment.experimentId, task),
+      });
+      const persisted = await repository.compareAndSwapExperiment(
+        experiment,
+        updated,
+      );
+      return persisted
+        ? json(persisted)
+        : json(
+            {
+              error: 'lab_state_conflict',
+              message: 'Draft changed while it was being edited.',
+            },
+            { status: 409 },
+          );
+    } catch (error) {
+      return errorResponse(json, error, 'Lab task update was invalid.');
+    }
+  }
+
+  const duplicateMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/duplicate$/,
+  );
+  if (request.method === 'POST' && duplicateMatch) {
+    const source = await repository.getExperiment(
+      decodeURIComponent(duplicateMatch[1]!),
+    );
+    if (!source) return missingExperiment(json);
+    const experimentId = `lab-exp-${crypto.randomUUID()}`;
+    const duplicate = LabExperimentSchema.parse({
+      ...source,
+      experimentId,
+      studyId: `projectflow-darwin-lab-${experimentId.slice(-12)}`,
+      name: `${source.name} copy`.slice(0, 100),
+      status: 'draft',
+      runnerId: null,
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      completedAt: null,
+      runs: [],
+      evidence: null,
+      analysis: null,
+      selection: null,
+      error: null,
+      evidenceError: null,
+      archivedAt: null,
+      version: 0,
+      provenance: labProvenance(experimentId, source.task),
+    });
+    await repository.saveExperiment(duplicate);
+    return json(duplicate, { status: 201 });
+  }
+
+  const lifecycleMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/(cancel|retry|force-fail|archive)$/,
+  );
+  if (request.method === 'POST' && lifecycleMatch) {
+    const experiment = await repository.getExperiment(
+      decodeURIComponent(lifecycleMatch[1]!),
+    );
+    if (!experiment) return missingExperiment(json);
+    const action = lifecycleMatch[2]!;
+    if (action === 'retry') {
+      if (!['failed', 'cancelled'].includes(experiment.status)) {
+        return json(
+          {
+            error: 'lab_state_conflict',
+            message: 'Experiment is not retryable.',
+          },
+          { status: 409 },
+        );
+      }
+      const experimentId = `lab-exp-${crypto.randomUUID()}`;
+      const retry = LabExperimentSchema.parse({
+        ...experiment,
+        experimentId,
+        studyId: `projectflow-darwin-lab-${experimentId.slice(-12)}`,
+        name: `${experiment.name} retry`.slice(0, 100),
+        status: 'awaiting_runner',
+        runnerId: null,
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        completedAt: null,
+        runs: [],
+        evidence: null,
+        analysis: null,
+        selection: null,
+        error: null,
+        evidenceError: null,
+        archivedAt: null,
+        version: 0,
+        provenance: labProvenance(experimentId, experiment.task),
+      });
+      await repository.saveExperiment(retry);
+      return json(retry, { status: 201 });
+    }
+    const allowed =
+      action === 'archive'
+        ? ['completed', 'analysed', 'failed', 'cancelled'].includes(
+            experiment.status,
+          )
+        : ['draft', 'awaiting_runner', 'running'].includes(experiment.status);
+    if (!allowed) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message: `Experiment cannot ${action}.`,
+        },
+        { status: 409 },
+      );
+    }
+    const updated = LabExperimentSchema.parse({
+      ...experiment,
+      status:
+        action === 'archive'
+          ? 'archived'
+          : action === 'cancel'
+            ? 'cancelled'
+            : 'failed',
+      completedAt:
+        action === 'archive'
+          ? experiment.completedAt
+          : new Date().toISOString(),
+      archivedAt: action === 'archive' ? new Date().toISOString() : null,
+      error:
+        action === 'force-fail'
+          ? 'Operator force-failed a stranded Darwin Lab experiment.'
+          : experiment.error,
+    });
+    const persisted = await repository.compareAndSwapExperiment(
+      experiment,
+      updated,
+    );
+    return persisted
+      ? json(persisted)
+      : json(
+          { error: 'lab_state_conflict', message: 'Experiment changed.' },
+          { status: 409 },
+        );
+  }
+
+  const rebuildEvidenceMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/rebuild-evidence$/,
+  );
+  if (request.method === 'POST' && rebuildEvidenceMatch) {
+    const experiment = await repository.getExperiment(
+      decodeURIComponent(rebuildEvidenceMatch[1]!),
+    );
+    if (!experiment) return missingExperiment(json);
+    if (experiment.status !== 'completed' || experiment.evidence) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message:
+            'Only a completed experiment with missing evidence can retry.',
+        },
+        { status: 409 },
+      );
+    }
+    try {
+      const evidence = await buildLabEvidence(experiment);
+      const updated = LabExperimentSchema.parse({
+        ...experiment,
+        evidence,
+        evidenceError: null,
+      });
+      const persisted = await repository.compareAndSwapExperiment(
+        experiment,
+        updated,
+      );
+      return persisted
+        ? json(persisted)
+        : json(
+            { error: 'lab_state_conflict', message: 'Experiment changed.' },
+            { status: 409 },
+          );
+    } catch (error) {
+      const failed = LabExperimentSchema.parse({
+        ...experiment,
+        evidenceError:
+          error instanceof Error
+            ? error.message
+            : 'Lab evidence generation failed.',
+      });
+      await repository.compareAndSwapExperiment(experiment, failed);
+      return errorResponse(json, error, 'Lab evidence generation failed.', 500);
+    }
+  }
+
   const startMatch = pathname.match(
     /^\/api\/lab\/experiments\/([^/]+)\/start$/,
   );
@@ -230,7 +579,7 @@ export async function handleLabRequest(
       decodeURIComponent(startMatch[1]!),
     );
     if (!experiment) return missingExperiment(json);
-    if (!['draft', 'failed'].includes(experiment.status)) {
+    if (experiment.status !== 'draft') {
       return json(
         {
           error: 'lab_state_conflict',
@@ -250,9 +599,21 @@ export async function handleLabRequest(
       analysis: null,
       selection: null,
       error: null,
+      evidenceError: null,
     });
-    await repository.saveExperiment(updated);
-    return json(updated);
+    const persisted = await repository.compareAndSwapExperiment(
+      experiment,
+      updated,
+    );
+    return persisted
+      ? json(persisted)
+      : json(
+          {
+            error: 'lab_state_conflict',
+            message: 'Experiment changed while it was being queued.',
+          },
+          { status: 409 },
+        );
   }
 
   const claimMatch = pathname.match(
@@ -280,8 +641,19 @@ export async function handleLabRequest(
         runnerId: input.runnerId,
         startedAt: new Date().toISOString(),
       });
-      await repository.saveExperiment(updated);
-      return json(updated);
+      const persisted = await repository.compareAndSwapExperiment(
+        experiment,
+        updated,
+      );
+      return persisted
+        ? json(persisted)
+        : json(
+            {
+              error: 'lab_state_conflict',
+              message: 'Another runner already claimed this experiment.',
+            },
+            { status: 409 },
+          );
     } catch (error) {
       return errorResponse(json, error, 'Lab runner claim was invalid.');
     }
@@ -307,6 +679,22 @@ export async function handleLabRequest(
         );
       }
       if (
+        input.studyId !== experiment.studyId ||
+        input.taskDefinitionId !== experiment.task.taskDefinitionId ||
+        input.taskDefinitionHash !== experiment.task.definitionHash ||
+        input.appVersion !== experiment.targetAppVersion ||
+        input.populationOrdinal > experiment.populationSize
+      ) {
+        return json(
+          {
+            error: 'lab_provenance_conflict',
+            message:
+              'Run identity does not match the immutable experiment target and task.',
+          },
+          { status: 409 },
+        );
+      }
+      if (
         experiment.runs.length >= experiment.populationSize ||
         experiment.runs.some((run) => run.runId === input.runId)
       ) {
@@ -321,6 +709,9 @@ export async function handleLabRequest(
       const run = LabAgentRunSchema.parse({
         ...input,
         experimentId: experiment.experimentId,
+        provenance: labProvenance(experiment.experimentId, experiment.task, [
+          input.runId,
+        ]),
         status: 'running',
         finishedAt: null,
         durationMs: null,
@@ -330,12 +721,16 @@ export async function handleLabRequest(
         actions: [],
         error: null,
       });
-      const updated = LabExperimentSchema.parse({
-        ...experiment,
-        runs: [...experiment.runs, run],
-      });
-      await repository.saveExperiment(updated);
-      return json(run, { status: 201 });
+      const persisted = await repository.createRun(experiment, run);
+      return persisted
+        ? json(persisted, { status: 201 })
+        : json(
+            {
+              error: 'lab_population_conflict',
+              message: 'Run ID or population slot is already occupied.',
+            },
+            { status: 409 },
+          );
     } catch (error) {
       return errorResponse(json, error, 'Lab run was invalid.');
     }
@@ -363,11 +758,7 @@ export async function handleLabRequest(
           { status: 409 },
         );
       }
-      if (
-        run.actions.length >= experiment.maxActions ||
-        input.action.ordinal !== run.actions.length + 1 ||
-        run.actions.some((action) => action.actionId === input.action.actionId)
-      ) {
+      if (run.actions.length >= experiment.maxActions) {
         return json(
           {
             error: 'lab_action_budget_conflict',
@@ -377,18 +768,41 @@ export async function handleLabRequest(
           { status: 409 },
         );
       }
-      const updatedRun = LabAgentRunSchema.parse({
-        ...run,
-        actions: [...run.actions, input.action],
-      });
-      const updated = LabExperimentSchema.parse({
-        ...experiment,
-        runs: experiment.runs.map((candidate) =>
-          candidate.runId === runId ? updatedRun : candidate,
-        ),
-      });
-      await repository.saveExperiment(updated);
-      return json(updatedRun, { status: 202 });
+      if (
+        input.action.provenance.evidenceClass !== 'darwin_lab' ||
+        input.action.provenance.labExperimentId !== experiment.experimentId ||
+        input.action.provenance.taskDefinitionHash !==
+          experiment.task.definitionHash ||
+        !input.action.provenance.runIds.includes(runId)
+      ) {
+        return json(
+          {
+            error: 'lab_provenance_conflict',
+            message: 'Action provenance does not match its Lab run.',
+          },
+          { status: 409 },
+        );
+      }
+      const outcome = await repository.appendAction(
+        experiment.experimentId,
+        runId,
+        input.action,
+      );
+      if (outcome === 'conflict') {
+        return json(
+          {
+            error: 'lab_action_budget_conflict',
+            message:
+              'Action conflicts with an existing action or inactive run.',
+          },
+          { status: 409 },
+        );
+      }
+      const persisted = await repository.getExperiment(experiment.experimentId);
+      const updatedRun = persisted?.runs.find(
+        (candidate) => candidate.runId === runId,
+      );
+      return json(updatedRun, { status: outcome === 'created' ? 202 : 200 });
     } catch (error) {
       return errorResponse(json, error, 'Lab action was invalid.');
     }
@@ -410,32 +824,71 @@ export async function handleLabRequest(
       const run = experiment.runs.find(
         (candidate) => candidate.runId === runId,
       );
-      if (!run || run.status !== 'running') {
+      if (!run) {
         return json(
-          { error: 'lab_run_not_active', message: 'Lab run is not active.' },
-          { status: 409 },
+          { error: 'lab_run_not_found', message: 'Lab run was not found.' },
+          { status: 404 },
         );
       }
       const updatedRun = LabAgentRunSchema.parse({ ...run, ...input });
-      const runs = experiment.runs.map((candidate) =>
-        candidate.runId === runId ? updatedRun : candidate,
+      const persistedRun = await repository.finishRun(
+        experiment.experimentId,
+        run,
+        updatedRun,
       );
+      if (!persistedRun) {
+        return json(
+          {
+            error: 'lab_run_finish_conflict',
+            message: 'Run was already finished with a different result.',
+          },
+          { status: 409 },
+        );
+      }
+      const latest = await repository.getExperiment(experiment.experimentId);
+      if (!latest) return missingExperiment(json);
       const complete =
-        runs.length === experiment.populationSize &&
-        runs.every((item) => isTerminal(item.status));
-      const intermediate = LabExperimentSchema.parse({
-        ...experiment,
-        runs,
-        status: complete ? 'completed' : experiment.status,
-        completedAt: complete ? new Date().toISOString() : null,
+        latest.runs.length === latest.populationSize &&
+        latest.runs.every((item) => isTerminal(item.status));
+      if (!complete || latest.status !== 'running') return json(persistedRun);
+
+      const completed = LabExperimentSchema.parse({
+        ...latest,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        evidenceError: null,
       });
-      const evidence = complete ? await buildLabEvidence(intermediate) : null;
-      const updated = LabExperimentSchema.parse({
-        ...intermediate,
-        evidence: evidence ?? intermediate.evidence,
-      });
-      await repository.saveExperiment(updated);
-      return json(updatedRun);
+      const persistedCompleted = await repository.compareAndSwapExperiment(
+        latest,
+        completed,
+      );
+      if (!persistedCompleted) return json(persistedRun);
+
+      try {
+        const evidence = await buildLabEvidence(persistedCompleted);
+        const withEvidence = LabExperimentSchema.parse({
+          ...persistedCompleted,
+          evidence,
+          evidenceError: null,
+        });
+        await repository.compareAndSwapExperiment(
+          persistedCompleted,
+          withEvidence,
+        );
+      } catch (error) {
+        const failedEvidence = LabExperimentSchema.parse({
+          ...persistedCompleted,
+          evidenceError:
+            error instanceof Error
+              ? error.message
+              : 'Lab evidence generation failed.',
+        });
+        await repository.compareAndSwapExperiment(
+          persistedCompleted,
+          failedEvidence,
+        );
+      }
+      return json(persistedRun);
     } catch (error) {
       return errorResponse(json, error, 'Lab run result was invalid.');
     }
@@ -462,7 +915,7 @@ export async function handleLabRequest(
       return json(
         {
           error: 'lab_state_conflict',
-          message: 'A completed synthetic evidence pack is required.',
+          message: 'A completed Darwin Lab evidence pack is required.',
         },
         { status: 409 },
       );
@@ -472,11 +925,23 @@ export async function handleLabRequest(
       status: 'analysing',
       error: null,
     });
-    await repository.saveExperiment(analysing);
+    const persistedAnalysing = await repository.compareAndSwapExperiment(
+      experiment,
+      analysing,
+    );
+    if (!persistedAnalysing) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message: 'Experiment changed while analysis was starting.',
+        },
+        { status: 409 },
+      );
+    }
     try {
       const analysis = await analyseLabEvidence(
-        analysing,
-        analysing.evidence!,
+        persistedAnalysing,
+        persistedAnalysing.evidence!,
         {
           apiKey: env?.OPENAI_API_KEY || env?.OPENAI_API,
           model: env?.OPENAI_MODEL || 'gpt-5.6',
@@ -484,19 +949,30 @@ export async function handleLabRequest(
         },
       );
       const updated = LabExperimentSchema.parse({
-        ...analysing,
+        ...persistedAnalysing,
         status: 'analysed',
         analysis,
       });
-      await repository.saveExperiment(updated);
-      return json(updated);
+      const persisted = await repository.compareAndSwapExperiment(
+        persistedAnalysing,
+        updated,
+      );
+      return persisted
+        ? json(persisted)
+        : json(
+            {
+              error: 'lab_state_conflict',
+              message: 'Experiment changed while analysis was completing.',
+            },
+            { status: 409 },
+          );
     } catch (error) {
       const failed = LabExperimentSchema.parse({
-        ...analysing,
+        ...persistedAnalysing,
         status: 'completed',
         error: error instanceof Error ? error.message : 'Lab analysis failed.',
       });
-      await repository.saveExperiment(failed);
+      await repository.compareAndSwapExperiment(persistedAnalysing, failed);
       return errorResponse(json, error, 'Lab analysis failed.', 502);
     }
   }
@@ -528,6 +1004,12 @@ export async function handleLabRequest(
         );
       }
       const selection = LabSelectionSchema.parse({
+        provenance: labProvenance(
+          experiment.experimentId,
+          experiment.task,
+          experiment.runs.map((run) => run.runId),
+          experiment.evidence,
+        ),
         selectionId: `lab-selection-${crypto.randomUUID()}`,
         experimentId: experiment.experimentId,
         mutationId: input.mutationId,
@@ -537,12 +1019,113 @@ export async function handleLabRequest(
             ? 'local-development'
             : 'operator',
         status: 'approved_for_controlled_implementation',
+        manifestId: null,
+        executionId: null,
       });
       const updated = LabExperimentSchema.parse({ ...experiment, selection });
-      await repository.saveExperiment(updated);
-      return json(updated);
+      const persisted = await repository.compareAndSwapExperiment(
+        experiment,
+        updated,
+      );
+      return persisted
+        ? json(persisted)
+        : json(
+            {
+              error: 'lab_state_conflict',
+              message: 'Experiment changed while selection was recorded.',
+            },
+            { status: 409 },
+          );
     } catch (error) {
       return errorResponse(json, error, 'Lab mutation selection failed.');
+    }
+  }
+
+  const manifestMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/codex-manifest$/,
+  );
+  if (request.method === 'POST' && manifestMatch) {
+    const experiment = await repository.getExperiment(
+      decodeURIComponent(manifestMatch[1]!),
+    );
+    if (!experiment) return missingExperiment(json);
+    const mutation = experiment.analysis?.mutations.find(
+      (candidate) => candidate.mutationId === experiment.selection?.mutationId,
+    );
+    if (
+      !experiment.evidence ||
+      !experiment.analysis ||
+      !experiment.selection ||
+      !mutation
+    ) {
+      return json(
+        {
+          error: 'lab_selection_conflict',
+          message: 'Select an evidence-citing Darwin Lab mutation first.',
+        },
+        { status: 409 },
+      );
+    }
+    try {
+      const snapshot = await captureRepositorySnapshot({
+        fullName: env?.PROJECTFLOW_REPOSITORY,
+        branch: env?.PROJECTFLOW_BRANCH,
+        githubToken: env?.GITHUB_TOKEN,
+        productionUrl: env?.PROJECTFLOW_PRODUCTION_URL,
+        studyUrl: env?.PROJECTFLOW_STUDY_URL,
+      });
+      const provenance = {
+        ...experiment.evidence.provenance,
+        evidencePackId: experiment.evidence.evidencePackId,
+        evidenceHash: experiment.evidence.evidenceHash,
+      };
+      const payload = {
+        provenance,
+        analysisId: experiment.analysis.analysisId,
+        mutationId: mutation.mutationId,
+        mutationIds: [mutation.mutationId],
+        evidenceHash: experiment.evidence.evidenceHash,
+        promptVersion: '3.0.0' as const,
+        repositoryCommit: snapshot.context.baseSha,
+        repository: snapshot.context,
+        brief: `[Darwin Lab] ${mutation.implementationBrief}`,
+        evidenceCitations: mutation.evidenceIds,
+        allowedPaths: snapshot.context.mutablePaths,
+        protectedPaths: snapshot.context.protectedPaths,
+        acceptanceCriteria: [
+          experiment.task.successDescription,
+          `Retest: ${mutation.validationPlan}`,
+        ],
+        validationCommands: snapshot.context.validationCommands,
+      };
+      const manifestHash = await sha256(payload);
+      const manifest = CodexImplementationManifestSchema.parse({
+        ...payload,
+        manifestId: `manifest-${manifestHash.slice(0, 12)}`,
+        manifestHash,
+        createdAt: new Date().toISOString(),
+      });
+      const telemetryRepository = getTelemetryRepository(env?.DB);
+      await telemetryRepository.saveCodexManifest(manifest);
+      const persistedManifest =
+        (await telemetryRepository.getCodexManifestById(manifest.manifestId)) ??
+        manifest;
+      const withManifest = LabExperimentSchema.parse({
+        ...experiment,
+        selection: {
+          ...experiment.selection,
+          manifestId: persistedManifest.manifestId,
+        },
+      });
+      await repository.compareAndSwapExperiment(experiment, withManifest);
+      return json(persistedManifest, { status: 201 });
+    } catch (error) {
+      return errorResponse(
+        json,
+        error,
+        'Darwin Lab implementation manifest could not be prepared.',
+        502,
+      );
     }
   }
 

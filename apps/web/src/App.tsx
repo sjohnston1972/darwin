@@ -1,14 +1,20 @@
 import {
+  CodexImplementationManifestSchema,
   HealthResponseSchema,
+  ObservationArchiveDetailResponseSchema,
+  RepositoryMutationExecutionSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
   type EvidenceAnalysis,
   type EvidenceMutationCandidate,
   type EvidencePack,
   type ObservationArchive,
+  type ObservationArchiveSummary,
+  type RepositoryExecutionSummary,
   type RepositoryMutationExecution,
   type RepositoryRollback,
   type StoredTelemetryEvent,
+  type StorageHealth,
   type TargetApplicationConnection,
   type TargetConnectionRequest,
 } from '@darwin/shared';
@@ -21,7 +27,6 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  CircleHelp,
   CircleDashed,
   ClipboardCheck,
   Code2,
@@ -65,19 +70,41 @@ import {
 } from './telemetry/useLiveTelemetry';
 import { apiFetch, getOperatorToken, setOperatorToken } from './api';
 import { DarwinLabView } from './LabView';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { InfoTip } from './components/InfoTip';
+import { ProvenanceChip } from './components/ProvenanceChip';
+import { SystemStatusView } from './views/SystemStatusView';
+import {
+  ControlRoomView,
+  type ControlRoomMetric,
+} from './views/ControlRoomView';
+import {
+  GenomeHistoryView,
+  type ProvenanceFilter,
+} from './views/GenomeHistoryView';
 
 type HealthState = 'checking' | 'online' | 'offline';
 type Theme = 'dark' | 'light';
-
 interface ApiHealthState {
   status: HealthState;
   version: string | null;
+  build: {
+    release: string;
+    commit: string;
+    identifier: string;
+  } | null;
   analysis: {
     mode: 'live';
     model: string;
     liveModelAvailable: boolean;
   } | null;
+  storage: StorageHealth | null;
 }
+
+const webBuild = {
+  release: import.meta.env.VITE_DARWIN_RELEASE_VERSION || '0.25.0',
+  commit: import.meta.env.VITE_DARWIN_BUILD_SHA || 'development',
+};
 
 const navItems = [
   {
@@ -163,7 +190,7 @@ function median(values: number[]): number | null {
 }
 
 function compareFitness(
-  baseline: EvidencePack | null,
+  baseline: EvidencePack | ObservationArchiveSummary | null,
   current: EvidencePack | null,
 ): FitnessDelta | null {
   if (!baseline || !current || baseline.evidenceId === current.evidenceId) {
@@ -171,28 +198,36 @@ function compareFitness(
   }
 
   const terminalOutcomes = new Set(['success', 'failed', 'abandoned']);
-  const baselineTerminal = baseline.taskAttempts.filter((attempt) =>
-    terminalOutcomes.has(attempt.outcome),
-  );
+  const baselineTerminal =
+    'taskAttempts' in baseline
+      ? baseline.taskAttempts.filter((attempt) =>
+          terminalOutcomes.has(attempt.outcome),
+        )
+      : [];
   const currentTerminal = current.taskAttempts.filter((attempt) =>
     terminalOutcomes.has(attempt.outcome),
   );
-  if (!baselineTerminal.length || !currentTerminal.length) return null;
-
   const completionRate = (attempts: typeof baselineTerminal) =>
     attempts.filter((attempt) => attempt.outcome === 'success').length /
     attempts.length;
-  const baselineInteractions = median(
-    baselineTerminal.map((attempt) => attempt.interactionCount),
-  );
+  const baselineCompletionRate =
+    'taskAttempts' in baseline
+      ? baselineTerminal.length
+        ? completionRate(baselineTerminal)
+        : null
+      : baseline.completionRate;
+  if (baselineCompletionRate === null || !currentTerminal.length) return null;
+  const baselineInteractions =
+    'taskAttempts' in baseline
+      ? median(baselineTerminal.map((attempt) => attempt.interactionCount))
+      : baseline.medianInteractionCount;
   const currentInteractions = median(
     currentTerminal.map((attempt) => attempt.interactionCount),
   );
 
   return {
     completionPoints: Math.round(
-      (completionRate(currentTerminal) - completionRate(baselineTerminal)) *
-        100,
+      (completionRate(currentTerminal) - baselineCompletionRate) * 100,
     ),
     interactionDelta:
       baselineInteractions === null || currentInteractions === null
@@ -212,12 +247,18 @@ function DarwinDashboard() {
   const [health, setHealth] = useState<ApiHealthState>({
     status: 'checking',
     version: null,
+    build: null,
     analysis: null,
+    storage: null,
   });
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [genomeProvenanceFilter, setGenomeProvenanceFilter] =
+    useState<ProvenanceFilter>('all');
   const activeView = getDashboardView();
   const targetConnection = useTargetConnection();
-  const liveTelemetry = useLiveTelemetry();
+  const liveTelemetry = useLiveTelemetry(
+    ['Control room', 'Observations', 'Mutations'].includes(activeView),
+  );
   const repository =
     targetConnection.connection?.repository ??
     liveTelemetry.execution?.repository ??
@@ -274,7 +315,13 @@ function DarwinDashboard() {
         },
       ]
     : [];
-  const resetDemo = () => liveTelemetry.resetEvolution();
+  const resetDemo = () => {
+    const confirmation = window.prompt(
+      'Export any required Genome, Observation archive, and diagnostics data first. Darwin records cannot be recovered. Type RESET DARWIN DEMO to continue.',
+    );
+    if (confirmation !== 'RESET DARWIN DEMO') return Promise.resolve(false);
+    return liveTelemetry.resetEvolution(confirmation);
+  };
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -297,7 +344,7 @@ function DarwinDashboard() {
     ? (liveTelemetry.observationArchives.find(
         (archive) =>
           archive.execution.executionId === latestReleasedExecution.executionId,
-      )?.evidence ?? null)
+      ) ?? null)
     : null;
   const fitnessDelta = compareFitness(
     latestArchivedEvidence,
@@ -311,13 +358,18 @@ function DarwinDashboard() {
     ).length ?? 0;
   const releaseForConfidence =
     liveTelemetry.execution ?? latestReleasedExecution ?? null;
-  const passedChecks = releaseForConfidence?.checks.filter(
+  const releaseChecks = liveTelemetry.execution?.checks ?? [];
+  const passedChecks = releaseChecks.filter(
     (check) => check.status === 'passed',
   ).length;
-  const totalChecks = releaseForConfidence?.checks.length ?? 0;
+  const totalChecks = releaseChecks.length;
   const releaseRolledBack =
     releaseForConfidence?.rollback?.status === 'released';
-  const releaseConfidence = !releaseForConfidence
+  const releaseConfidence: {
+    value: string;
+    meta: string;
+    tone: ControlRoomMetric['tone'];
+  } = !releaseForConfidence
     ? {
         value: '--',
         meta: 'No repository mutation to validate',
@@ -457,7 +509,7 @@ function DarwinDashboard() {
         : 'No accepted releases',
       tone: liveTelemetry.genomeEvolutionCount ? 'signal' : 'neutral',
     },
-  ] as const;
+  ] as const satisfies readonly ControlRoomMetric[];
 
   useEffect(() => {
     const controller = new AbortController();
@@ -471,15 +523,29 @@ function DarwinDashboard() {
             ? {
                 status: 'online',
                 version: parsed.data.version,
+                build: parsed.data.build,
                 analysis: parsed.data.analysis,
+                storage: parsed.data.storage,
               }
-            : { status: 'offline', version: null, analysis: null },
+            : {
+                status: 'offline',
+                version: null,
+                build: null,
+                analysis: null,
+                storage: null,
+              },
         );
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError')
           return;
-        setHealth({ status: 'offline', version: null, analysis: null });
+        setHealth({
+          status: 'offline',
+          version: null,
+          build: null,
+          analysis: null,
+          storage: null,
+        });
       });
 
     return () => controller.abort();
@@ -602,88 +668,20 @@ function DarwinDashboard() {
 
         <div className="mx-auto max-w-[1640px] px-5 pb-12 pt-8 sm:px-8 lg:px-10 lg:pt-11">
           {activeView === 'Control room' && (
-            <>
-              <section className="hero-band" aria-labelledby="page-title">
-                <img
-                  className="hero-dna-visual"
-                  src="/assets/darwin-dna-wireframe.webp"
-                  alt=""
-                  aria-hidden="true"
-                />
-                <div className="relative z-10 max-w-3xl">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
-                    <Activity size={15} /> Control room
-                    <InfoTip text="Darwin's operator view: observe behavior, ask the configured analyzer for one mutation, approve it, validate it, and retain or reject it." />
-                  </div>
-                  <h1
-                    id="page-title"
-                    className="mt-5 text-4xl font-semibold sm:text-5xl lg:text-[56px] lg:leading-[1.05]"
-                  >
-                    Darwin
-                  </h1>
-                  <p className="mt-3 text-xl text-white sm:text-2xl">
-                    Helping your software evolve.
-                  </p>
-                  <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base">
-                    {targetConnection.connection
-                      ? 'ProjectFlow is connected. Its genome is ready for observation, measurement, and controlled selection.'
-                      : 'Connect ProjectFlow to verify its repository genome, measured runtime, and controlled mutation boundary.'}
-                  </p>
-                </div>
-                <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
-                  <div className="start-action-wrap">
-                    {!liveTelemetry.count && (
-                      <span className="start-here-cue" aria-hidden="true">
-                        Start here <ArrowDown size={15} />
-                      </span>
-                    )}
-                    <a
-                      className="primary-action"
-                      href={targetApplicationUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
-                    >
-                      <Radar size={17} /> Open measured study
-                    </a>
-                  </div>
-                  {!liveTelemetry.analysis && (
-                    <span className="demo-status status-idle">
-                      <Activity size={15} />
-                      {liveTelemetry.evidence
-                        ? `${liveTelemetry.evidence.frictionSignals.length} pressures ready for GPT`
-                        : liveTelemetry.count
-                          ? `${liveTelemetry.count} measured events`
-                          : 'Awaiting measured behavior'}
-                    </span>
-                  )}
-                </div>
-              </section>
-
-              <section
-                className="metric-grid"
-                aria-label="Target application metrics"
-              >
-                {metrics.map((metric) => (
-                  <article className="metric-card" key={metric.label}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="metric-label">
-                        <p className="text-sm text-mist">{metric.label}</p>
-                        <InfoTip text={metric.help} />
-                      </div>
-                      <span
-                        className={`metric-indicator indicator-${metric.tone}`}
-                        aria-hidden="true"
-                      />
-                    </div>
-                    <p className="mt-5 font-mono text-3xl font-medium sm:text-[34px]">
-                      {metric.value}
-                    </p>
-                    <p className="mt-2 text-xs text-mist">{metric.meta}</p>
-                  </article>
-                ))}
-              </section>
-            </>
+            <ControlRoomView
+              analysisReady={liveTelemetry.analysis !== null}
+              measuredEventCount={liveTelemetry.count}
+              metrics={metrics}
+              statusText={
+                liveTelemetry.evidence
+                  ? `${liveTelemetry.evidence.frictionSignals.length} pressures ready for GPT`
+                  : liveTelemetry.count
+                    ? `${liveTelemetry.count} measured events`
+                    : 'Awaiting measured behavior'
+              }
+              targetApplicationUrl={targetApplicationUrl}
+              targetConnected={targetConnection.connection !== null}
+            />
           )}
 
           {activeView !== 'Control room' && (
@@ -700,6 +698,10 @@ function DarwinDashboard() {
               {liveTelemetry.observationArchives.length > 0 && (
                 <ObservationArchivePanel
                   archives={liveTelemetry.observationArchives}
+                  hasMore={liveTelemetry.hasMoreObservationArchives}
+                  onLoadMore={() =>
+                    void liveTelemetry.loadMoreObservationArchives()
+                  }
                 />
               )}
             </>
@@ -752,239 +754,85 @@ function DarwinDashboard() {
             ))}
 
           {activeView === 'System status' && (
-            <section className="mt-8 grid gap-8 lg:grid-cols-2">
-              <aside
-                className="surface-panel"
-                aria-labelledby="system-status-title"
-              >
-                <div className="panel-heading">
-                  <div>
-                    <p className="section-label">System status</p>
-                    <div className="heading-with-help">
-                      <h2
-                        id="system-status-title"
-                        className="mt-2 text-xl font-semibold"
-                      >
-                        {health.status === 'online'
-                          ? 'Runtime connected'
-                          : health.status === 'offline'
-                            ? 'Runtime unavailable'
-                            : 'Checking runtime'}
-                      </h2>
-                      <InfoTip text="Live status returned by the Cloudflare Worker and D1-backed telemetry pipeline, plus the active target application state." />
-                    </div>
-                  </div>
-                  <Network size={19} className="text-mist" />
-                </div>
-                <div className="divide-y divide-line px-5 sm:px-6">
-                  <StatusRow
-                    icon={Server}
-                    label="Worker API"
-                    value={
-                      health.version
-                        ? `v${health.version} online`
-                        : health.status
-                    }
-                    ready={health.status === 'online'}
-                    help="The deployed Darwin Cloudflare Worker. Its version comes from the live /api/health response."
-                  />
-                  <StatusRow
-                    icon={Database}
-                    label="D1 telemetry"
-                    value={
-                      liveTelemetry.status === 'live'
-                        ? `${liveTelemetry.count} events`
-                        : liveTelemetry.status
-                    }
-                    ready={liveTelemetry.status === 'live'}
-                    help="Semantic events currently persisted and returned by the telemetry repository. Production uses Cloudflare D1."
-                  />
-                  <StatusRow
-                    icon={FileCheck2}
-                    label="Evidence engine"
-                    value={
-                      liveTelemetry.evidence
-                        ? `parser ${liveTelemetry.evidence.parserVersion} · ${liveTelemetry.evidence.frictionSignals.length} signals`
-                        : 'awaiting evidence'
-                    }
-                    ready={liveTelemetry.evidence !== null}
-                    help="The deterministic TypeScript parser that reconstructs attempts and converts raw events into bounded, citeable friction signals."
-                  />
-                  <StatusRow
-                    icon={GitBranch}
-                    label="Active genome"
-                    value={
-                      activeCommit
-                        ? `${activeCommit.slice(0, 12)} · ${activeGenomeStage}`
-                        : 'awaiting repository snapshot'
-                    }
-                    ready={repository !== undefined}
-                    help="The exact ProjectFlow Git commit currently retained on the tracked branch. Candidate commits remain review-only until their pull request is released."
-                  />
-                </div>
-              </aside>
-
-              <aside
-                className="surface-panel"
-                aria-labelledby="variant-summary-title"
-              >
-                <div className="panel-heading">
-                  <div>
-                    <p className="section-label">Genome state</p>
-                    <div className="heading-with-help">
-                      <h2
-                        id="variant-summary-title"
-                        className="mt-2 text-xl font-semibold"
-                      >
-                        Repository genome · {activeCommit?.slice(0, 12) ?? '--'}
-                      </h2>
-                      <InfoTip text="The immutable repository snapshot used by GPT and Codex. The active commit changes only after a reviewed pull request is merged." />
-                    </div>
-                  </div>
-                  <Code2 size={19} className="text-mist" />
-                </div>
-                <div
-                  className="genome-comparison"
-                  role="table"
-                  aria-label="Active genome configuration"
-                >
-                  <div className="genome-comparison-header" role="row">
-                    <span role="columnheader">Locus</span>
-                    <strong className="is-active" role="columnheader">
-                      {activeGenomeStage}
-                    </strong>
-                  </div>
-                  {activeGenomeLoci.map((row) => (
-                    <div
-                      className="genome-comparison-row"
-                      key={row.locus}
-                      role="row"
-                    >
-                      <span role="cell">{row.locus}</span>
-                      <code className="is-active" role="cell">
-                        {row.value}
-                      </code>
-                    </div>
-                  ))}
-                  <div className="genome-comparison-source">
-                    <Code2 size={13} /> Live GitHub repository state
-                  </div>
-                </div>
-              </aside>
-            </section>
+            <SystemStatusView
+              apiBaseUrl={apiBaseUrl}
+              health={health}
+              webBuild={webBuild}
+              telemetry={{
+                status: liveTelemetry.status,
+                count: liveTelemetry.count,
+                evidence: liveTelemetry.evidence,
+              }}
+              activeCommit={activeCommit ?? null}
+              activeGenomeStage={activeGenomeStage}
+              activeGenomeLoci={activeGenomeLoci}
+              repositoryConnected={repository !== undefined}
+            />
           )}
 
           {activeView === 'Genome' && (
-            <section
-              className="mt-8 surface-panel"
-              id="genome-record"
-              aria-labelledby="genome-title"
+            <GenomeHistoryView
+              baselineSha={repository?.baseSha ?? null}
+              executionCount={liveTelemetry.genomeExecutions.length}
+              hasMore={liveTelemetry.hasMoreGenome}
+              onFilterChange={setGenomeProvenanceFilter}
+              onLoadMore={() => void liveTelemetry.loadMoreGenome()}
+              provenanceFilter={genomeProvenanceFilter}
             >
-              <div className="panel-heading">
-                <div>
-                  <p className="section-label">Evolution history</p>
-                  <div className="heading-with-help">
-                    <h2
-                      id="genome-title"
-                      className="mt-2 text-xl font-semibold"
-                    >
-                      Genome
-                    </h2>
-                    <InfoTip text="The retained genome history, including the measured evidence, code mutation, validation, release state, and any controlled rollback." />
-                  </div>
-                </div>
-                <Dna size={19} className="text-mist" />
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left text-sm">
-                  <thead className="border-b border-line text-xs uppercase text-mist">
-                    <tr>
-                      <th className="px-6 py-3 font-medium">Genome</th>
-                      <th className="px-6 py-3 font-medium">Mutation</th>
-                      <th className="px-6 py-3 font-medium">Selection</th>
-                      <th className="px-6 py-3 font-medium">Fitness</th>
-                      <th className="px-6 py-3 text-right font-medium">
-                        State
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td className="px-6 py-5 font-mono">v0.1</td>
-                      <td className="px-6 py-5 text-mist">
-                        Foundation established
-                      </td>
-                      <td className="px-6 py-5 text-mist">Baseline</td>
-                      <td className="px-6 py-5 font-mono text-mist">--</td>
-                      <td className="px-6 py-5 text-right">
-                        <span className="status-badge">RETAINED</span>
-                      </td>
-                    </tr>
-                    {!liveTelemetry.genomeExecutions.length && (
-                      <tr className="border-t border-line">
-                        <td className="px-6 py-5 font-mono">
-                          {repository?.baseSha.slice(0, 12) ?? 'baseline'}
-                        </td>
-                        <td className="px-6 py-5 text-mist">
-                          ProjectFlow repository snapshot connected
-                        </td>
-                        <td className="px-6 py-5 text-mist">Baseline</td>
-                        <td className="px-6 py-5 font-mono text-mist">--</td>
-                        <td className="px-6 py-5 text-right">
-                          <span className="status-badge">CURRENT</span>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              {liveTelemetry.genomeExecutions.map((genomeExecution) => (
-                <FossilExecutionArtifact
-                  key={genomeExecution.executionId}
-                  execution={genomeExecution}
-                  mutationTitle={
-                    liveTelemetry.observationArchives.find(
-                      (archive) =>
-                        archive.execution.executionId ===
+              {liveTelemetry.genomeExecutions
+                .filter(
+                  (genomeExecution) =>
+                    genomeProvenanceFilter === 'all' ||
+                    genomeExecution.provenance.evidenceClass ===
+                      genomeProvenanceFilter,
+                )
+                .map((genomeExecution) => (
+                  <FossilExecutionArtifact
+                    key={genomeExecution.executionId}
+                    execution={genomeExecution}
+                    mutationTitle={
+                      liveTelemetry.observationArchives.find(
+                        (archive) =>
+                          archive.execution.executionId ===
+                          genomeExecution.executionId,
+                      )?.mutationTitle ?? null
+                    }
+                    manifest={
+                      liveTelemetry.execution?.executionId ===
+                      genomeExecution.executionId
+                        ? liveTelemetry.manifest
+                        : null
+                    }
+                    releasing={liveTelemetry.releasingExecution}
+                    retrying={liveTelemetry.implementing}
+                    rollingBack={liveTelemetry.rollingBack}
+                    releasingRollback={liveTelemetry.releasingRollback}
+                    onRelease={() =>
+                      void liveTelemetry.releaseExecution(
                         genomeExecution.executionId,
-                    )?.analysis.selectedMutation.title ?? null
-                  }
-                  manifest={
-                    liveTelemetry.execution?.executionId ===
-                    genomeExecution.executionId
-                      ? liveTelemetry.manifest
-                      : null
-                  }
-                  releasing={liveTelemetry.releasingExecution}
-                  retrying={liveTelemetry.implementing}
-                  rollingBack={liveTelemetry.rollingBack}
-                  releasingRollback={liveTelemetry.releasingRollback}
-                  onRelease={() =>
-                    void liveTelemetry.releaseExecution(
-                      genomeExecution.executionId,
-                    )
-                  }
-                  onRollback={() =>
-                    void liveTelemetry.startRollback(
-                      genomeExecution.executionId,
-                    )
-                  }
-                  onReleaseRollback={() =>
-                    void liveTelemetry.releaseRollback(
-                      genomeExecution.executionId,
-                    )
-                  }
-                  onRetry={() =>
-                    void liveTelemetry.startControlledEvolution(
-                      liveTelemetry.manifest?.mutationIds ??
-                        (liveTelemetry.manifest
-                          ? [liveTelemetry.manifest.mutationId]
-                          : []),
-                    )
-                  }
-                />
-              ))}
-            </section>
+                      )
+                    }
+                    onRollback={() =>
+                      void liveTelemetry.startRollback(
+                        genomeExecution.executionId,
+                      )
+                    }
+                    onReleaseRollback={() =>
+                      void liveTelemetry.releaseRollback(
+                        genomeExecution.executionId,
+                      )
+                    }
+                    onRetry={() =>
+                      void liveTelemetry.startControlledEvolution(
+                        liveTelemetry.manifest?.mutationIds ??
+                          (liveTelemetry.manifest
+                            ? [liveTelemetry.manifest.mutationId]
+                            : []),
+                      )
+                    }
+                  />
+                ))}
+            </GenomeHistoryView>
           )}
 
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
@@ -1497,19 +1345,6 @@ function ThemeToggle({
   );
 }
 
-function InfoTip({ text }: { text: string }) {
-  return (
-    <span
-      className="info-tip"
-      tabIndex={0}
-      aria-label={text}
-      data-explain={text}
-    >
-      <CircleHelp size={14} aria-hidden="true" />
-    </span>
-  );
-}
-
 interface ExplainTooltipState {
   target: HTMLElement;
   text: string;
@@ -1726,10 +1561,26 @@ function LiveTelemetryPanel({
           </p>
         </div>
         <div className="live-evidence-actions">
+          <span
+            className={`telemetry-freshness${telemetry.stale ? ' is-stale' : ''}`}
+            role="status"
+          >
+            {telemetry.stale
+              ? 'Live data stale · retrying'
+              : telemetry.lastUpdatedAt
+                ? `Updated ${new Date(
+                    telemetry.lastUpdatedAt,
+                  ).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}`
+                : 'Waiting for first sync'}
+          </span>
           <button
             aria-label="Refresh live telemetry"
             className={`source-status source-${telemetry.status}`}
-            data-explain="Refresh the latest live event window, study counts, genome state, and observation archive from Darwin's API."
+            data-explain="Refresh events, evidence, analysis, manifest, execution, Genome, and archives from Darwin's API."
             disabled={telemetry.refreshing}
             onClick={() => void telemetry.refresh()}
             type="button"
@@ -1850,6 +1701,7 @@ function LiveTelemetryPanel({
               <span className="evidence-class">
                 {telemetry.evidence.evidenceClass}
               </span>
+              <ProvenanceChip provenance={telemetry.evidence.provenance} />
               <strong>Evidence pack {telemetry.evidence.evidenceId}</strong>
               <code>{telemetry.evidence.evidenceHash}</code>
             </div>
@@ -1887,6 +1739,9 @@ function LiveTelemetryPanel({
                     >
                       <summary>
                         <span>{signal.evidenceId}</span>
+                        <ProvenanceChip
+                          provenance={telemetry.evidence!.provenance}
+                        />
                         <strong>{signal.ruleId.replaceAll('_', ' ')}</strong>
                         <small>{signal.severity}</small>
                         <ChevronRight size={15} />
@@ -2000,6 +1855,9 @@ function LiveTelemetryPanel({
                 <div className="analysis-result">
                   <div className="analysis-audit-line">
                     <span>{telemetry.analysis.mode}</span>
+                    <ProvenanceChip
+                      provenance={telemetry.analysis.provenance}
+                    />
                     <code>{telemetry.analysis.model}</code>
                     <code>prompt {telemetry.analysis.promptVersion}</code>
                     <code>{telemetry.analysis.cacheKey.slice(0, 16)}...</code>
@@ -2138,6 +1996,9 @@ function LiveTelemetryPanel({
                   {telemetry.manifest && manifestMatchesSelection && (
                     <div className="manifest-audit">
                       <span>MANIFEST {telemetry.manifest.manifestId}</span>
+                      <ProvenanceChip
+                        provenance={telemetry.manifest.provenance}
+                      />
                       <code>{telemetry.manifest.manifestHash}</code>
                       <span>
                         {telemetry.manifest.allowedPaths.length} allowed ·{' '}
@@ -2237,6 +2098,7 @@ function MutationPortfolioRow({
                 </code>
               ))}
               {rank === 1 && <span>GPT preferred</span>}
+              <ProvenanceChip provenance={candidate.provenance} />
             </div>
             <strong>
               {clusters.map((cluster) => cluster.title).join(' + ') ||
@@ -2482,7 +2344,7 @@ const rollbackStatusLabel: Record<RepositoryRollback['status'], string> = {
 function MutationWorkspaceReset({
   execution,
 }: {
-  execution: RepositoryMutationExecution;
+  execution: RepositoryExecutionSummary;
 }) {
   const rollbackReleased = execution.rollback?.status === 'released';
   return (
@@ -2505,9 +2367,20 @@ function MutationWorkspaceReset({
 
 function ObservationArchivePanel({
   archives,
+  hasMore,
+  onLoadMore,
 }: {
-  archives: ObservationArchive[];
+  archives: ObservationArchiveSummary[];
+  hasMore: boolean;
+  onLoadMore: () => void;
 }) {
+  const [provenanceFilter, setProvenanceFilter] =
+    useState<ProvenanceFilter>('all');
+  const filteredArchives = archives.filter(
+    (archive) =>
+      provenanceFilter === 'all' ||
+      archive.provenance.evidenceClass === provenanceFilter,
+  );
   return (
     <section
       className="mt-8 surface-panel observation-archive"
@@ -2526,11 +2399,38 @@ function ObservationArchivePanel({
             <InfoTip text="Evidence is archived here once it has driven a completed controlled mutation. The active study above contains only the next measurement cycle." />
           </div>
         </div>
-        <Database size={19} className="text-mist" />
+        <label className="artifact-filter">
+          <span>Evidence class</span>
+          <select
+            value={provenanceFilter}
+            onChange={(event) =>
+              setProvenanceFilter(event.target.value as ProvenanceFilter)
+            }
+          >
+            <option value="all">All evidence classes</option>
+            <option value="human_study">Human study</option>
+            <option value="darwin_lab">Darwin Lab</option>
+            <option value="automated_study">Automated study</option>
+            <option value="scale_replay">Scale replay</option>
+            <option value="legacy">Unknown / legacy</option>
+          </select>
+        </label>
       </div>
-      {archives.map((archive) => (
+      {filteredArchives.map((archive) => (
         <ObservationArchiveArtifact key={archive.archiveId} archive={archive} />
       ))}
+      {!filteredArchives.length && (
+        <p className="artifact-empty">No archives match this evidence class.</p>
+      )}
+      {hasMore && (
+        <button
+          className="secondary-action artifact-load-more"
+          type="button"
+          onClick={onLoadMore}
+        >
+          Load older observation archives
+        </button>
+      )}
     </section>
   );
 }
@@ -2538,39 +2438,66 @@ function ObservationArchivePanel({
 function ObservationArchiveArtifact({
   archive,
 }: {
-  archive: ObservationArchive;
+  archive: ObservationArchiveSummary;
 }) {
-  const { analysis, evidence, execution } = archive;
-  const failed = execution.status === 'failed';
-  const signalCount = evidence.frictionSignals.length;
+  const [detail, setDetail] = useState<ObservationArchive | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const failed = archive.execution.status === 'failed';
+  const loadDetail = async () => {
+    if (detail || loading) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const response = await apiFetch(
+        `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787'}/api/observations/archives/${archive.archiveId}`,
+      );
+      if (!response.ok) throw new Error('Archive detail request failed.');
+      setDetail(
+        ObservationArchiveDetailResponseSchema.parse(await response.json()),
+      );
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : 'Archive detail is unavailable.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <details
       className="fossil-artifact observation-artifact"
       id={`observation-${archive.archiveId}`}
+      onToggle={(event) => {
+        if (event.currentTarget.open) void loadDetail();
+      }}
     >
       <summary>
         <div className="fossil-artifact-summary">
           <div>
             <span>Evidence</span>
-            <strong>{evidence.evidenceId}</strong>
+            <ProvenanceChip provenance={archive.provenance} />
+            <strong>{archive.evidenceId}</strong>
           </div>
           <div>
             <span>Measured scope</span>
             <strong>
-              {evidence.study.sourceEventCount.toLocaleString('en-US')} events
+              {archive.sourceEventCount.toLocaleString('en-US')} events
               {' · '}
-              {evidence.study.sessions} sessions
+              {archive.sessions} sessions
             </strong>
           </div>
           <div>
             <span>Evidence quality</span>
             <strong>
-              {evidence.quality.strength} {evidence.quality.score}/100
+              {archive.qualityStrength} {archive.qualityScore}/100
             </strong>
           </div>
           <div>
             <span>Informed mutation</span>
-            <strong>{analysis.selectedMutation.title}</strong>
+            <strong>{archive.mutationTitle}</strong>
           </div>
           <span className={failed ? 'status-badge is-failed' : 'status-badge'}>
             {failed ? 'FAILED' : 'ARCHIVED'}
@@ -2579,53 +2506,80 @@ function ObservationArchiveArtifact({
         <ChevronRight className="fossil-artifact-chevron" size={18} />
       </summary>
       <div className="fossil-artifact-detail observation-archive-detail">
-        <div className="observation-archive-stats">
-          <div>
-            <span>Participants</span>
-            <strong>{evidence.study.participants}</strong>
+        {loading && (
+          <div className="validation-ready">Loading evidence detail…</div>
+        )}
+        {loadError && (
+          <div className="error-band" role="alert">
+            {loadError}
           </div>
-          <div>
-            <span>Task attempts</span>
-            <strong>{evidence.study.attempts}</strong>
-          </div>
-          <div>
-            <span>Selection pressures</span>
-            <strong>{signalCount}</strong>
-          </div>
-          <div>
-            <span>Reasoned with</span>
-            <strong>{analysis.model}</strong>
-          </div>
-        </div>
-        <div className="observation-archive-copy">
-          <div>
-            <span className="section-label">Evidence assessment</span>
-            <p>{analysis.evidenceAssessment.summary}</p>
-          </div>
-          <div>
-            <span className="section-label">
-              Mutation informed by this evidence
-            </span>
-            <strong>{analysis.selectedMutation.title}</strong>
-            <p>{analysis.selectedMutation.hypothesis}</p>
-          </div>
-        </div>
-        <div className="observation-archive-signals">
-          <span className="section-label">Retained signals</span>
-          {evidence.frictionSignals.map((signal) => (
-            <div key={signal.evidenceId}>
-              <strong>
-                {signal.severity} · {signal.summary}
-              </strong>
-              <span>
-                {signal.support.events} events across {signal.support.sessions}{' '}
-                sessions
-              </span>
-            </div>
-          ))}
-        </div>
+        )}
+        {detail && <ObservationArchiveDetail archive={detail} />}
       </div>
     </details>
+  );
+}
+
+function ObservationArchiveDetail({
+  archive,
+}: {
+  archive: ObservationArchive;
+}) {
+  const { analysis, evidence } = archive;
+  const signalCount = evidence.frictionSignals.length;
+  const automated = evidence.provenance.evidenceClass !== 'human_study';
+  return (
+    <>
+      <div className="observation-archive-stats">
+        <div>
+          <span>{automated ? 'Automated runs' : 'Participants'}</span>
+          <strong>
+            {automated
+              ? evidence.provenance.runIds.length
+              : evidence.study.participants}
+          </strong>
+        </div>
+        <div>
+          <span>Task attempts</span>
+          <strong>{evidence.study.attempts}</strong>
+        </div>
+        <div>
+          <span>Selection pressures</span>
+          <strong>{signalCount}</strong>
+        </div>
+        <div>
+          <span>Reasoned with</span>
+          <strong>{analysis.model}</strong>
+        </div>
+      </div>
+      <div className="observation-archive-copy">
+        <div>
+          <span className="section-label">Evidence assessment</span>
+          <p>{analysis.evidenceAssessment.summary}</p>
+        </div>
+        <div>
+          <span className="section-label">
+            Mutation informed by this evidence
+          </span>
+          <strong>{analysis.selectedMutation.title}</strong>
+          <p>{analysis.selectedMutation.hypothesis}</p>
+        </div>
+      </div>
+      <div className="observation-archive-signals">
+        <span className="section-label">Retained signals</span>
+        {evidence.frictionSignals.map((signal) => (
+          <div key={signal.evidenceId}>
+            <strong>
+              {signal.severity} · {signal.summary}
+            </strong>
+            <span>
+              {signal.support.events} events across {signal.support.sessions}{' '}
+              sessions
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -2642,7 +2596,7 @@ function FossilExecutionArtifact({
   onReleaseRollback,
   onRetry,
 }: {
-  execution: RepositoryMutationExecution;
+  execution: RepositoryExecutionSummary;
   mutationTitle: string | null;
   manifest: CodexImplementationManifest | null;
   releasing: boolean;
@@ -2654,6 +2608,13 @@ function FossilExecutionArtifact({
   onReleaseRollback: () => void;
   onRetry: () => void;
 }) {
+  const [detail, setDetail] = useState<RepositoryMutationExecution | null>(
+    null,
+  );
+  const [detailManifest, setDetailManifest] =
+    useState<CodexImplementationManifest | null>(manifest);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const retained = execution.status === 'released';
   const failed = execution.status === 'failed';
   const rollback = execution.rollback;
@@ -2665,13 +2626,57 @@ function FossilExecutionArtifact({
         : retained
           ? 'RETAINED'
           : 'CANDIDATE';
+  const loadDetail = async () => {
+    if (detail || loading) return;
+    setLoading(true);
+    setLoadError(null);
+    const baseUrl =
+      import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
+    try {
+      const [executionResponse, manifestResponse] = await Promise.all([
+        apiFetch(
+          `${baseUrl}/api/repository-executions/${execution.executionId}`,
+        ),
+        apiFetch(
+          `${baseUrl}/api/repository-executions/${execution.executionId}/manifest?audience=operator`,
+        ),
+      ]);
+      if (!executionResponse.ok)
+        throw new Error('Execution detail request failed.');
+      setDetail(
+        RepositoryMutationExecutionSchema.parse(await executionResponse.json()),
+      );
+      if (manifestResponse.ok) {
+        setDetailManifest(
+          CodexImplementationManifestSchema.parse(
+            await manifestResponse.json(),
+          ),
+        );
+      }
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : 'Repository execution detail is unavailable.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <details className="fossil-artifact" id={`fossil-${execution.executionId}`}>
+    <details
+      className="fossil-artifact"
+      id={`fossil-${execution.executionId}`}
+      onToggle={(event) => {
+        if (event.currentTarget.open) void loadDetail();
+      }}
+    >
       <summary>
         <div className="fossil-artifact-summary">
           <div>
             <span>Genome</span>
+            <ProvenanceChip provenance={execution.provenance} />
             <strong>
               {execution.headSha?.slice(0, 12) ?? execution.branch}
             </strong>
@@ -2705,20 +2710,30 @@ function FossilExecutionArtifact({
         <ChevronRight className="fossil-artifact-chevron" size={18} />
       </summary>
       <div className="fossil-artifact-detail">
-        <RepositoryExecutionWorkspace
-          embedded
-          archived
-          execution={execution}
-          manifest={manifest}
-          releasing={releasing}
-          retrying={retrying}
-          rollingBack={rollingBack}
-          releasingRollback={releasingRollback}
-          onRelease={onRelease}
-          onRollback={onRollback}
-          onReleaseRollback={onReleaseRollback}
-          onRetry={onRetry}
-        />
+        {loading && (
+          <div className="validation-ready">Loading execution detail…</div>
+        )}
+        {loadError && (
+          <div className="error-band" role="alert">
+            {loadError}
+          </div>
+        )}
+        {detail && (
+          <RepositoryExecutionWorkspace
+            embedded
+            archived
+            execution={detail}
+            manifest={detailManifest}
+            releasing={releasing}
+            retrying={retrying}
+            rollingBack={rollingBack}
+            releasingRollback={releasingRollback}
+            onRelease={onRelease}
+            onRollback={onRollback}
+            onReleaseRollback={onReleaseRollback}
+            onRetry={onRetry}
+          />
+        )}
       </div>
     </details>
   );
@@ -2793,6 +2808,7 @@ function RepositoryExecutionWorkspace({
             <InfoTip text="A real GitHub Actions run applies the selected manifest to the exact ProjectFlow commit, enforces repository policy, runs validation, opens a pull request, and deploys a review preview. Retained mutations can be rolled back through a separately reviewed inverse pull request." />
           </div>
         </div>
+        <ProvenanceChip provenance={execution.provenance} />
         <span className={`artifact-badge execution-status-${status}`}>
           {[
             'prepared',
@@ -3127,6 +3143,7 @@ function RollbackWorkspace({
       <div className="rollback-heading">
         <div>
           <p className="section-label">Controlled rollback</p>
+          <ProvenanceChip provenance={execution.provenance} />
           <h3 id="rollback-title" className="mt-2 text-lg font-semibold">
             {rollback?.status === 'released'
               ? 'Mutation reverted through review'
@@ -3323,33 +3340,6 @@ function RollbackWorkspace({
   );
 }
 
-function StatusRow({
-  icon: Icon,
-  label,
-  value,
-  ready = false,
-  help,
-}: {
-  icon: typeof Server;
-  label: string;
-  value: string;
-  ready?: boolean;
-  help: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 py-4">
-      <Icon size={17} className="text-mist" />
-      <span className="text-sm text-mist">{label}</span>
-      <InfoTip text={help} />
-      <span
-        className={`ml-auto font-mono text-xs capitalize ${ready ? 'text-signal' : 'text-white'}`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function OperatorBoundary() {
   const [state, setState] = useState<'checking' | 'locked' | 'unlocked'>(
     'checking',
@@ -3458,10 +3448,14 @@ function OperatorBoundary() {
 }
 
 function App() {
-  return import.meta.env.MODE === 'test' ? (
-    <DarwinDashboard />
-  ) : (
-    <OperatorBoundary />
+  return (
+    <ErrorBoundary>
+      {import.meta.env.MODE === 'test' ? (
+        <DarwinDashboard />
+      ) : (
+        <OperatorBoundary />
+      )}
+    </ErrorBoundary>
   );
 }
 

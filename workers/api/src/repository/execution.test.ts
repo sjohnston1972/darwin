@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CodexImplementationManifest } from '@darwin/shared';
+import {
+  LegacyProvenance,
+  type CodexImplementationManifest,
+} from '@darwin/shared';
 import {
   createRepositoryRollback,
   createRepositoryExecution,
@@ -9,6 +12,7 @@ import {
 } from './execution';
 
 const manifest = {
+  provenance: LegacyProvenance,
   manifestId: 'manifest-test',
   manifestHash: 'a'.repeat(64),
   analysisId: 'analysis-test',
@@ -133,5 +137,76 @@ describe('repository execution state', () => {
         headSha: 'e'.repeat(40),
       }),
     ).toThrow('immutable once recorded');
+  });
+
+  it('carries Darwin Lab provenance through release and rollback state', () => {
+    const provenance = {
+      evidenceClass: 'darwin_lab' as const,
+      label: 'Darwin Lab',
+      labExperimentId: 'lab-exp-release-test',
+      taskDefinitionId: 'lab-task-release-test',
+      taskDefinitionHash: 'e'.repeat(64),
+      evidencePackId: 'lab-pack-release-test',
+      evidenceHash: 'f'.repeat(64),
+      runIds: ['lab-run-release-test'],
+    };
+    const prepared = createRepositoryExecution({
+      ...manifest,
+      provenance,
+      manifestId: 'manifest-lab-release-test',
+      manifestHash: '9'.repeat(64),
+    });
+    const queued = updateRepositoryExecution(prepared, { status: 'queued' });
+    const running = updateRepositoryExecution(queued, {
+      status: 'codex_running',
+    });
+    const validating = updateRepositoryExecution(running, {
+      status: 'validating',
+    });
+    const review = updateRepositoryExecution(validating, {
+      status: 'pull_request_open',
+      headSha: '8'.repeat(40),
+      pullRequestNumber: 12,
+      pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/12',
+    });
+    const preview = updateRepositoryExecution(review, {
+      status: 'preview_ready',
+      previewUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+    });
+    const released = updateRepositoryExecution(
+      updateRepositoryExecution(preview, { status: 'releasing' }),
+      { status: 'released', headSha: '7'.repeat(40) },
+    );
+    const withRollback = {
+      ...released,
+      rollback: createRepositoryRollback(released),
+    };
+    const rollbackReleased = updateRepositoryRollback(
+      updateRepositoryRollback(
+        updateRepositoryRollback(
+          updateRepositoryRollback(withRollback, { status: 'queued' }),
+          { status: 'validating' },
+        ),
+        {
+          status: 'pull_request_open',
+          headSha: '6'.repeat(40),
+          pullRequestNumber: 13,
+          pullRequestUrl:
+            'https://github.com/sjohnston1972/projectflow/pull/13',
+        },
+      ),
+      {
+        status: 'preview_ready',
+        previewUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+      },
+    );
+    const final = updateRepositoryRollback(
+      updateRepositoryRollback(rollbackReleased, { status: 'releasing' }),
+      { status: 'released', headSha: '5'.repeat(40) },
+    );
+
+    expect(released.provenance).toEqual(provenance);
+    expect(final.provenance).toEqual(provenance);
+    expect(final.rollback?.status).toBe('released');
   });
 });

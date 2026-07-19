@@ -29,7 +29,7 @@ Confirm:
 
 ## Reset
 
-Use **Reset evolution demo** only when you are prepared to clear Darwin telemetry, evidence, analyses, manifests, and execution history and dispatch the ProjectFlow baseline-reset workflow.
+Use **Reset evolution demo** only after exporting required Genome, Observation archive, and diagnostics records. Type the exact confirmation only when you are prepared to irreversibly clear Darwin telemetry, Lab data, evidence, analyses, manifests, and execution history and dispatch the ProjectFlow baseline-reset workflow.
 
 The current reset endpoint reports after dispatch rather than verified deployment completion. Wait for the ProjectFlow reset workflow and production deployment before starting measured interaction. This gap is tracked in issue [#10](https://github.com/sjohnston1972/darwin/issues/10).
 
@@ -48,6 +48,12 @@ The current reset endpoint reports after dispatch rather than verified deploymen
 2. Interact with dashboard/project/task surfaces naturally.
 3. Include one clear friction journey: route loop, inert affordance, browser Back, hover hesitation, drag expectation, or readability zoom.
 4. Complete or explicitly abandon the task attempt.
+
+For the Darwin Lab variant, define a non-Apollo semantic task in the Lab UI,
+choose the verified target version and bounded persona allocation, then launch
+the Playwright population. Show one real target browser trace and its **Darwin
+Lab** chip before generating the Lab evidence pack. Do not call this a
+simulation; reserve that term for Scale replay.
 
 ### 0:55-1:25 - Inspect evidence
 

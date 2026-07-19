@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "run": "tsx src/runner.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.thresholds.lines=21 --coverage.thresholds.functions=29 --coverage.thresholds.statements=21 --coverage.thresholds.branches=65"
   },
   "dependencies": {
     "@darwin/shared": "0.1.0",
@@ -14,6 +16,7 @@
   "devDependencies": {
     "@types/node": "^24.0.10",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }

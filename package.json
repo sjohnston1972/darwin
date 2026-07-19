@@ -1,6 +1,6 @@
 {
   "name": "darwin",
-  "version": "0.1.0",
+  "version": "0.25.0",
   "private": true,
   "type": "module",
   "description": "Darwin - helping your software evolve.",
@@ -17,24 +17,29 @@
     "lab:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-lab.ps1",
     "context:generate": "node scripts/generate-reasoning-context.mjs",
     "context:check": "node scripts/generate-reasoning-context.mjs --check",
+    "env:check": "node scripts/check-public-env.mjs",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write \"apps/**/*.{ts,tsx,css,html,json}\" \"workers/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,js}\"",
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,json}\" \"workers/**/*.{ts,json}\" \"packages/**/*.{ts,json}\" \"*.{json,js}\"",
-    "typecheck": "npm run context:check && npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run context:check && npm run env:check && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "test:e2e:smoke": "playwright test --grep @smoke --project=desktop",
     "build": "npm run context:generate && npm run build -w @darwin/shared && npm run build -w @darwin/telemetry-client && npm run build -w @darwin/api && npm run build -w @darwin/web",
     "deploy:migrate": "wrangler d1 migrations apply darwin-telemetry --remote --config workers/api/wrangler.toml",
-    "deploy:api": "wrangler deploy --config workers/api/wrangler.toml",
+    "deploy:api": "node scripts/deploy-api.mjs",
     "deploy:web": "wrangler pages deploy apps/web/dist --project-name=darwin-control-room --branch=main",
     "deploy": "npm run build && npm run deploy:migrate && npm run deploy:api && npm run deploy:web",
     "smoke:production": "tsx scripts/smoke-production.ts"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.0.0 <23"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
     "@playwright/test": "^1.61.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "concurrently": "^9.2.0",
     "eslint": "^9.31.0",
     "globals": "^16.3.0",

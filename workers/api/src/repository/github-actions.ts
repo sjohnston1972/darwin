@@ -2,6 +2,7 @@ import type {
   RepositoryMutationExecution,
   RepositoryRollback,
 } from '@darwin/shared';
+import { timeOperation } from '../observability';
 
 const headers = (token: string) => ({
   Accept: 'application/vnd.github+json',
@@ -10,6 +11,17 @@ const headers = (token: string) => ({
   'User-Agent': 'darwin-evolution-engine',
   'X-GitHub-Api-Version': '2022-11-28',
 });
+
+const githubRequest = (
+  fetcher: typeof fetch,
+  input: RequestInfo | URL,
+  init: RequestInit,
+) =>
+  timeOperation(
+    'github',
+    `${init.method ?? 'GET'} ${String(input).split('/').slice(-2).join('/')}`,
+    () => fetcher(input, init),
+  );
 
 export interface DispatchEvolutionWorkflowOptions {
   token: string;
@@ -28,7 +40,8 @@ export async function dispatchEvolutionWorkflow({
   manifestHash,
   fetch: fetcher = fetch,
 }: DispatchEvolutionWorkflowOptions) {
-  const response = await fetcher(
+  const response = await githubRequest(
+    fetcher,
     `https://api.github.com/repos/${execution.repository.fullName}/actions/workflows/darwin-evolve.yml/dispatches`,
     {
       method: 'POST',
@@ -42,6 +55,8 @@ export async function dispatchEvolutionWorkflow({
           repository: execution.repository.fullName,
           callback_url: callbackUrl,
           callback_nonce: callbackNonce,
+          provenance_class: execution.provenance.evidenceClass,
+          lab_experiment_id: execution.provenance.labExperimentId ?? '',
         },
       }),
     },
@@ -72,7 +87,8 @@ export async function dispatchRollbackWorkflow({
   manifestHash,
   fetch: fetcher = fetch,
 }: DispatchRollbackWorkflowOptions) {
-  const response = await fetcher(
+  const response = await githubRequest(
+    fetcher,
     `https://api.github.com/repos/${execution.repository.fullName}/actions/workflows/darwin-rollback.yml/dispatches`,
     {
       method: 'POST',
@@ -88,6 +104,8 @@ export async function dispatchRollbackWorkflow({
           repository: execution.repository.fullName,
           callback_url: callbackUrl,
           callback_nonce: callbackNonce,
+          provenance_class: execution.provenance.evidenceClass,
+          lab_experiment_id: execution.provenance.labExperimentId ?? '',
         },
       }),
     },
@@ -115,7 +133,8 @@ export async function mergeEvolutionPullRequest({
       'Repository execution does not have a reviewable pull request.',
     );
   }
-  const response = await fetcher(
+  const response = await githubRequest(
+    fetcher,
     `https://api.github.com/repos/${execution.repository.fullName}/pulls/${execution.pullRequestNumber}/merge`,
     {
       method: 'PUT',
@@ -161,7 +180,8 @@ export async function mergeRollbackPullRequest({
       'Repository rollback does not have a reviewable pull request.',
     );
   }
-  const response = await fetcher(
+  const response = await githubRequest(
+    fetcher,
     `https://api.github.com/repos/${execution.repository.fullName}/pulls/${rollback.pullRequestNumber}/merge`,
     {
       method: 'PUT',
@@ -202,7 +222,8 @@ export async function dispatchResetWorkflow({
   branch = 'main',
   fetch: fetcher = fetch,
 }: DispatchResetWorkflowOptions) {
-  const response = await fetcher(
+  const response = await githubRequest(
+    fetcher,
     `https://api.github.com/repos/${fullName}/actions/workflows/darwin-reset.yml/dispatches`,
     {
       method: 'POST',

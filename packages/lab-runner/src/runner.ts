@@ -49,16 +49,43 @@ const apiRequest = async (path: string, init?: RequestInit) => {
   return response.json() as Promise<unknown>;
 };
 
-const seededPersonas = (size: number, seed: number) => {
-  let state = seed >>> 0;
+export const retryFinishOperation = async <T>(
+  operation: () => Promise<T>,
+  delays = [0, 150, 500],
+  wait: (delayMs: number) => Promise<void> = (delayMs) =>
+    new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
+) => {
+  let lastError: unknown;
+  for (const delayMs of delays) {
+    if (delayMs) {
+      await wait(delayMs);
+    }
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+};
+
+const persistRunFinish = async (path: string, body: string) =>
+  retryFinishOperation(() => apiRequest(path, { method: 'POST', body }));
+
+export const seededPersonas = (experiment: LabExperiment) => {
+  let state = experiment.seed >>> 0;
   const random = () => {
     state = (state * 1_664_525 + 1_013_904_223) >>> 0;
     return state / 0x1_0000_0000;
   };
-  const population = Array.from(
-    { length: size },
-    (_, index) => personas[index % personas.length]!,
-  );
+  const population = experiment.personaAllocation.length
+    ? experiment.personaAllocation.flatMap(({ persona, count }) =>
+        Array.from({ length: count }, () => persona),
+      )
+    : Array.from(
+        { length: experiment.populationSize },
+        (_, index) => personas[index % personas.length]!,
+      );
   for (let index = population.length - 1; index > 0; index -= 1) {
     const swap = Math.floor(random() * (index + 1));
     [population[index], population[swap]] = [
@@ -91,22 +118,48 @@ const claimExperiment = async () => {
   );
 };
 
-const labTargetUrl = (
+export const labTargetUrl = (
   experiment: LabExperiment,
   runId: string,
   participantId: string,
   sessionId: string,
 ) => {
   const url = new URL(experiment.targetUrl);
+  url.pathname = experiment.task.startRoute;
   url.searchParams.set('study', 'true');
   url.searchParams.set('lab', 'true');
-  url.searchParams.set('source', 'synthetic');
+  url.searchParams.set('source', 'automated');
   url.searchParams.set('studyId', experiment.studyId);
   url.searchParams.set('participantId', participantId);
   url.searchParams.set('sessionId', sessionId);
   url.searchParams.set('experimentId', experiment.experimentId);
   url.searchParams.set('runId', runId);
+  url.searchParams.set('appVersion', experiment.targetAppVersion);
+  url.searchParams.set('taskId', experiment.task.taskId);
+  url.searchParams.set('taskDefinitionId', experiment.task.taskDefinitionId);
+  url.searchParams.set('taskDefinitionHash', experiment.task.definitionHash);
   return url.toString();
+};
+
+const taskSucceeded = async (page: Page, experiment: LabExperiment) => {
+  const criterion = experiment.task.successCriterion;
+  if (criterion.type === 'route_reached') {
+    return new URL(page.url()).pathname === criterion.route;
+  }
+  if (criterion.type === 'semantic_marker') {
+    return (
+      (await page
+        .locator(`[data-darwin-id=${JSON.stringify(criterion.markerId)}]`)
+        .count()) > 0
+    );
+  }
+  return (
+    (await page
+      .locator(
+        `[data-darwin-workflow-outcome=${JSON.stringify(`${criterion.workflowId}:${criterion.outcome}`)}]`,
+      )
+      .count()) > 0
+  );
 };
 
 const semanticId = async (locator: Locator) =>
@@ -213,7 +266,7 @@ const listSessionEventIds = async (
   }
 };
 
-const deriveFrictionLabels = (
+export const deriveFrictionLabels = (
   run: Pick<LabAgentRun, 'actions'>,
   outcome: 'success' | 'failed' | 'abandoned',
 ) => {
@@ -260,6 +313,7 @@ const runAgent = async (
   let terminalStatus: 'succeeded' | 'failed' | 'abandoned' | 'blocked' =
     'failed';
   let terminalError: string | null = null;
+  let finishFailure: Error | null = null;
   const actions: LabAgentActionRecord[] = [];
 
   await apiRequest(
@@ -274,6 +328,11 @@ const runAgent = async (
         viewport,
         agentModel: model,
         startedAt,
+        populationOrdinal: index + 1,
+        studyId: experiment.studyId,
+        taskDefinitionId: experiment.task.taskDefinitionId,
+        taskDefinitionHash: experiment.task.definitionHash,
+        appVersion: experiment.targetAppVersion,
       }),
     },
   );
@@ -298,7 +357,7 @@ const runAgent = async (
 
     for (let ordinal = 1; ordinal <= experiment.maxActions; ordinal += 1) {
       if (Date.now() - startedMs >= experiment.maxDurationMs) break;
-      if (await page.locator('[data-darwin-lab-oracle="success"]').count()) {
+      if (await taskSucceeded(page, experiment)) {
         taskOutcome = 'success';
         terminalStatus = 'succeeded';
         break;
@@ -377,6 +436,10 @@ const runAgent = async (
         accessibilityNodeCount: after.nodeCount,
         telemetryEventIds: newEventIds,
         error: actionError,
+        provenance: {
+          ...experiment.provenance,
+          runIds: [runId],
+        },
       } satisfies LabAgentActionRecord;
       actions.push(action);
       await apiRequest(
@@ -395,7 +458,7 @@ const runAgent = async (
         terminalError = actionError;
         break;
       }
-      if (await page.locator('[data-darwin-lab-oracle="success"]').count()) {
+      if (await taskSucceeded(page, experiment)) {
         taskOutcome = 'success';
         terminalStatus = 'succeeded';
         break;
@@ -416,12 +479,26 @@ const runAgent = async (
       telemetryEventIds,
       error: terminalError,
     };
-    await apiRequest(
-      `/api/lab/experiments/${encodeURIComponent(experiment.experimentId)}/runs/${encodeURIComponent(runId)}/finish`,
-      { method: 'POST', body: JSON.stringify(finishPayload) },
-    );
-    await context.close();
+    try {
+      await persistRunFinish(
+        `/api/lab/experiments/${encodeURIComponent(experiment.experimentId)}/runs/${encodeURIComponent(runId)}/finish`,
+        JSON.stringify(finishPayload),
+      );
+    } catch (error) {
+      const finishMessage =
+        error instanceof Error ? error.message : 'Run finish request failed.';
+      finishFailure = new Error(
+        terminalError
+          ? `${finishMessage} Original run error: ${terminalError}`
+          : finishMessage,
+        { cause: error },
+      );
+    } finally {
+      await context.close().catch(() => undefined);
+    }
   }
+
+  if (finishFailure) throw finishFailure;
 
   return LabAgentRunSchema.parse({
     runId,
@@ -440,17 +517,23 @@ const runAgent = async (
     telemetryEventIds: [],
     actions,
     error: terminalError,
+    populationOrdinal: index + 1,
+    studyId: experiment.studyId,
+    taskDefinitionId: experiment.task.taskDefinitionId,
+    taskDefinitionHash: experiment.task.definitionHash,
+    appVersion: experiment.targetAppVersion,
+    provenance: {
+      ...experiment.provenance,
+      runIds: [runId],
+    },
   });
 };
 
-async function main() {
+export async function main() {
   const experiment = await claimExperiment();
   const browser = await chromium.launch({ headless });
   try {
-    const population = seededPersonas(
-      experiment.populationSize,
-      experiment.seed,
-    );
+    const population = seededPersonas(experiment);
     for (let index = 0; index < population.length; index += 1) {
       const run = await runAgent(
         browser,
@@ -462,17 +545,25 @@ async function main() {
         `${run.runId} ${run.persona} ${run.taskOutcome} ${run.actions.length} actions\n`,
       );
     }
+  } catch (error) {
+    await apiRequest(
+      `/api/lab/experiments/${encodeURIComponent(experiment.experimentId)}/force-fail`,
+      { method: 'POST', body: '{}' },
+    ).catch(() => undefined);
+    throw error;
   } finally {
-    await browser.close();
+    await browser.close().catch(() => undefined);
   }
   process.stdout.write(
     `Darwin Lab experiment ${experiment.experimentId} completed.\n`,
   );
 }
 
-await main().catch((error: unknown) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : 'Darwin Lab runner failed.'}\n`,
-  );
-  process.exitCode = 1;
-});
+if (process.env.VITEST !== 'true') {
+  await main().catch((error: unknown) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : 'Darwin Lab runner failed.'}\n`,
+    );
+    process.exitCode = 1;
+  });
+}

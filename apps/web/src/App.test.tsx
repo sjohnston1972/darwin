@@ -339,8 +339,29 @@ const installApi = (
             ? [
                 {
                   archiveId: 'execution-measured-test',
-                  evidence,
-                  analysis,
+                  evidenceId: evidence.evidenceId,
+                  evidenceHash: evidence.evidenceHash,
+                  provenance: {
+                    evidenceClass: 'human_study',
+                    label: 'Measured study',
+                    labExperimentId: null,
+                    taskDefinitionId: null,
+                    taskDefinitionHash: null,
+                    evidencePackId: evidence.evidenceId,
+                    evidenceHash: evidence.evidenceHash,
+                    runIds: [],
+                  },
+                  sourceEventCount: evidence.study.sourceEventCount,
+                  sessions: evidence.study.sessions,
+                  participants: evidence.study.participants,
+                  attempts: evidence.study.attempts,
+                  completionRate: 1,
+                  medianInteractionCount: 3,
+                  qualityStrength: evidence.quality.strength,
+                  qualityScore: evidence.quality.score,
+                  frictionSignalCount: evidence.frictionSignals.length,
+                  mutationTitle: analysis.selectedMutation.title,
+                  model: analysis.model,
                   execution: {
                     executionId: 'execution-measured-test',
                     manifestId: manifest.manifestId,
@@ -351,6 +372,20 @@ const installApi = (
                 },
               ]
             : [],
+        });
+      }
+      if (url.endsWith('/api/observations/archives/execution-measured-test')) {
+        return response({
+          archiveId: 'execution-measured-test',
+          evidence,
+          analysis,
+          execution: {
+            executionId: 'execution-measured-test',
+            manifestId: manifest.manifestId,
+            status: 'released',
+            createdAt: timestamp,
+            completedAt: timestamp,
+          },
         });
       }
       if (url.includes('/evidence/latest')) return response(evidence);
@@ -403,6 +438,13 @@ const installApi = (
       }
       if (url.endsWith('/api/repository-executions/execution-measured-test')) {
         return response(liveExecution);
+      }
+      if (
+        url.endsWith(
+          '/api/repository-executions/execution-measured-test/manifest',
+        )
+      ) {
+        return response(manifest);
       }
       if (
         url.endsWith(
@@ -505,6 +547,11 @@ const installApi = (
           status: 'ok',
           service: 'darwin-api',
           version: '0.19.1',
+          build: {
+            release: '0.19.1',
+            commit: '0123456789abcdef0123456789abcdef01234567',
+            identifier: '0.19.1+0123456',
+          },
           analysis: {
             mode: 'live',
             model: 'gpt-5.6',
@@ -551,9 +598,14 @@ describe('Darwin control room', () => {
     render(<App />);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Darwin' }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Software that evolves.',
+      }),
     ).toBeVisible();
-    expect(screen.getByText('Helping your software evolve.')).toBeVisible();
+    expect(screen.getByText(/Darwin observes real behavior/)).toBeVisible();
+    expect(screen.getByText('Darwin Lab · automated')).toBeVisible();
+    expect(screen.getByText('Scale replay · simulated')).toBeVisible();
     expect(
       screen.getByRole('link', { name: /Open measured study/ }),
     ).toHaveAttribute('href', expect.stringContaining('study=true'));

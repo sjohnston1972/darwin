@@ -247,6 +247,102 @@ describe('DarwinTelemetryClient', () => {
 
     client.destroy();
   });
+
+  it('retains page-exit events because Beacon cannot acknowledge ingestion', async () => {
+    const beacon = vi.fn(() => true);
+    Object.defineProperty(navigator, 'sendBeacon', {
+      configurable: true,
+      value: beacon,
+    });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('{}', { status: 500 }));
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-beacon',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      fetcher,
+    });
+    client.init();
+
+    window.dispatchEvent(new Event('pagehide'));
+    await Promise.resolve();
+
+    expect(beacon).not.toHaveBeenCalled();
+    expect(client.snapshot().length).toBeGreaterThanOrEqual(3);
+    client.destroy();
+  });
+
+  it('honors Retry-After and recovers without losing the outbox', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response('{}', {
+          status: 429,
+          headers: { 'Retry-After': '0.05' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          { accepted: 2, rejected: 0, duplicates: 0 },
+          { status: 202 },
+        ),
+      );
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-retry',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      flushIntervalMs: 60_000,
+      fetcher,
+    });
+    client.init();
+
+    await expect(client.flush()).rejects.toThrow('429');
+    expect(client.snapshot()).toHaveLength(2);
+    expect(client.health()).toMatchObject({ consecutiveFailures: 1 });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(client.snapshot()).toHaveLength(0);
+    expect(client.health()).toMatchObject({ consecutiveFailures: 0 });
+    client.destroy();
+  });
+
+  it('falls back to memory on storage failure and reports overflow drops', () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      });
+    const health = vi.fn();
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-storage',
+      initialRoute: '/study',
+      onHealth: health,
+    });
+
+    expect(() => client.init()).not.toThrow();
+    for (let index = 0; index < 510; index += 1) {
+      client.trackPageView(`/study/projects/${index}`);
+    }
+
+    expect(setItem).toHaveBeenCalled();
+    expect(client.health()).toMatchObject({
+      queued: 500,
+      dropped: 12,
+      storageAvailable: false,
+    });
+    expect(health).toHaveBeenCalled();
+    client.destroy();
+  });
 });
 
 const pointerEvent = (type: string, init: MouseEventInit = {}) => {

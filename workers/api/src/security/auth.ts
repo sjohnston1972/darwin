@@ -7,6 +7,7 @@ export const operatorCapabilities = [
   'reset',
   'connect',
   'simulate',
+  'delete_data',
 ] as const;
 
 export type OperatorCapability = (typeof operatorCapabilities)[number];
@@ -258,9 +259,18 @@ export const authorizeTargetRequest = async (
       message: 'The target request signature has expired.',
     };
   }
-  const canonical = [timestamp, targetId, sourceOrigin, clientKey, body].join(
-    '\n',
+  const bodyDigest = hexadecimal(
+    await crypto.subtle.digest('SHA-256', textEncoder.encode(body)),
   );
+  const canonical = [
+    request.method.toUpperCase(),
+    url.pathname,
+    timestamp,
+    targetId,
+    sourceOrigin,
+    clientKey,
+    bodyDigest,
+  ].join('\n');
   const expected = await targetSignature(secret, canonical);
   if (!(await constantTimeEqual(signature.toLowerCase(), expected))) {
     return {

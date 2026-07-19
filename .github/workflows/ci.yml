@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Generate build identity
+        run: node scripts/build-metadata.mjs
       - run: mkdir -p ci-logs
       - name: Install dependencies
         run: set -o pipefail; npm ci 2>&1 | tee ci-logs/install.log
@@ -32,8 +34,12 @@ jobs:
         run: set -o pipefail; npm run lint 2>&1 | tee ci-logs/lint.log
       - name: Check generated reasoning context and types
         run: set -o pipefail; npm run typecheck 2>&1 | tee ci-logs/typecheck.log
-      - name: Test
-        run: set -o pipefail; npm run test 2>&1 | tee ci-logs/test.log
+      - name: Test with measured coverage gates
+        run: set -o pipefail; npm run test:coverage 2>&1 | tee ci-logs/test.log
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run controlled-demo browser smoke
+        run: set -o pipefail; npm run test:e2e:smoke 2>&1 | tee ci-logs/e2e.log
       - name: Build
         run: set -o pipefail; npm run build 2>&1 | tee ci-logs/build.log
       - name: Audit dependencies

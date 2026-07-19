@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.thresholds.lines=82 --coverage.thresholds.functions=84 --coverage.thresholds.statements=82 --coverage.thresholds.branches=60"
   },
   "dependencies": {
     "@darwin/shared": "0.1.0"

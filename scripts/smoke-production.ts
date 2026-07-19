@@ -16,6 +16,13 @@ if (!operatorToken) {
   );
 }
 const operatorHeaders = { Authorization: `Bearer ${operatorToken}` };
+const expectedCommit = process.env.DARWIN_BUILD_SHA?.trim();
+const expectedRelease = process.env.DARWIN_RELEASE_VERSION?.trim();
+if (!expectedCommit || !expectedRelease) {
+  throw new Error(
+    'DARWIN_BUILD_SHA and DARWIN_RELEASE_VERSION are required for the production smoke test.',
+  );
+}
 
 const requireOk = async (response: Response, label: string) => {
   if (!response.ok) {
@@ -81,8 +88,16 @@ const fetchPageWithSecurityPolicy = async (
 
 const health = (await (
   await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
-).json()) as { status: string; version: string };
-if (health.status !== 'ok' || health.version !== '0.23.0') {
+).json()) as {
+  status: string;
+  version: string;
+  build: { release: string; commit: string; identifier: string };
+};
+if (
+  health.status !== 'ok' ||
+  health.build.release !== expectedRelease ||
+  health.build.commit !== expectedCommit
+) {
   throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
 }
 
@@ -126,8 +141,10 @@ for (const [label, url, title, connectSource] of [
   if (!html.includes(title)) throw new Error(`${label} HTML title is missing.`);
 }
 
-const eventId = crypto.randomUUID();
+const eventHex = expectedCommit.slice(0, 32);
+const eventId = `${eventHex.slice(0, 8)}-${eventHex.slice(8, 12)}-4${eventHex.slice(13, 16)}-a${eventHex.slice(17, 20)}-${eventHex.slice(20, 32)}`;
 const studyId = 'projectflow-baseline-automated-study';
+const participantId = `smoke-${expectedCommit.slice(0, 12)}`;
 await requireOk(
   await fetch(`${projectFlowUrl}/api/darwin/telemetry/events`, {
     method: 'POST',
@@ -139,8 +156,8 @@ await requireOk(
         {
           schemaVersion: 1,
           eventId,
-          sessionId: `session-${eventId.slice(0, 8)}`,
-          participantId: `participant-${eventId.slice(9, 17)}`,
+          sessionId: `smoke-session-${expectedCommit.slice(0, 12)}`,
+          participantId,
           studyId,
           appVersion: '1.0.0',
           source: 'automated',
@@ -182,6 +199,23 @@ if (
     'D1 telemetry aggregates did not match the persisted events.',
   );
 }
+
+await requireOk(
+  await fetch(`${apiUrl}/api/retention/delete`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...operatorHeaders,
+    },
+    body: JSON.stringify({
+      scope: 'participant',
+      studyId,
+      participantId,
+      confirmation: 'DELETE',
+    }),
+  }),
+  'Smoke telemetry cleanup',
+);
 
 const simulation = (await (
   await requireOk(

@@ -1,30 +1,34 @@
 import {
   CodexImplementationManifestSchema,
   CodexManifestRequestSchema,
+  DemoResetRequestSchema,
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
   GenomeHistoryResponseSchema,
+  ObservationArchiveDetailResponseSchema,
   ObservationArchivesResponseSchema,
+  OperationalAuditEventSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
+  RepositoryExecutionSummarySchema,
   RepositoryMutationExecutionSchema,
   RepositoryRollbackCallbackSchema,
   SimulationRequestSchema,
   StudyEventsResponseSchema,
+  StudySessionIssueRequestSchema,
   StudySessionResponseSchema,
   StudyTelemetryEventSchema,
   TargetApplicationConnectionSchema,
   TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
-  type HealthResponse,
   type SimulationResult,
 } from '@darwin/shared';
 
 import { simulate } from './simulation';
 import { getTelemetryRepository } from './persistence/telemetry-repository';
-import { buildEvidencePack } from './evidence';
+import { EvidenceBoundaryError, buildEvidencePack } from './evidence';
 import {
   EvidenceReasoningError,
   analyseEvidence,
@@ -45,6 +49,7 @@ import {
   mergeRollbackPullRequest,
   mergeEvolutionPullRequest,
 } from './repository/github-actions';
+import { forceFailStrandedExecution } from './repository/recovery';
 import {
   authorizeOperator,
   authorizeTargetRequest,
@@ -56,7 +61,15 @@ import {
   verifyExecutionCallback,
 } from './security/callback';
 import { handleLabRequest } from './lab/handler';
+import { handleOperationalRoutes } from './routes/operations';
 import { getLabRepository } from './lab/lab-repository';
+import {
+  anonymousStudyParticipantId,
+  issueStudySession,
+  verifyStudySessionToken,
+} from './security/study-session';
+import { PayloadTooLargeError, readBoundedBody } from './security/bounded-body';
+import { operationalLog, requestIdFor, timeOperation } from './observability';
 
 export interface Env {
   DB?: D1Database;
@@ -84,15 +97,41 @@ export interface Env {
   DARWIN_OPERATOR_TOKEN?: string;
   DARWIN_VIEWER_TOKEN?: string;
   PROJECTFLOW_INGESTION_SECRET?: string;
+  DARWIN_STUDY_EVENT_QUOTA?: string;
+  DARWIN_TARGET_EVENT_QUOTA?: string;
+  DARWIN_RELEASE_VERSION?: string;
+  DARWIN_BUILD_SHA?: string;
 }
 
 const defaultCorsHeaders = {
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'Content-Type, Authorization, X-Darwin-Study-Session, X-Darwin-Request-ID',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Expose-Headers': 'X-Darwin-Request-ID',
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy':
+    "default-src 'none'; frame-ancestors 'none'; sandbox",
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
 };
 
 const openAIKey = (env?: Partial<Env>) =>
   env?.OPENAI_API_KEY || env?.OPENAI_API;
+
+const studyEventQuota = (env?: Partial<Env>) => {
+  const parsed = Number(env?.DARWIN_STUDY_EVENT_QUOTA ?? 100_000);
+  return Number.isSafeInteger(parsed)
+    ? Math.min(1_000_000, Math.max(1_000, parsed))
+    : 100_000;
+};
+
+const targetEventQuota = (env?: Partial<Env>) => {
+  const parsed = Number(env?.DARWIN_TARGET_EVENT_QUOTA ?? 1_000_000);
+  return Number.isSafeInteger(parsed)
+    ? Math.min(5_000_000, Math.max(10_000, parsed))
+    : 1_000_000;
+};
 
 const jsonResponse = (
   body: unknown,
@@ -105,6 +144,13 @@ const jsonResponse = (
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
+  headers.set(
+    'Content-Security-Policy',
+    "default-src 'none'; frame-ancestors 'none'; sandbox",
+  );
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
   Object.entries(corsHeaders).forEach(([name, value]) =>
     headers.set(name, value),
   );
@@ -125,6 +171,7 @@ const requiredOperatorCapability = (
     return 'simulate';
   }
   if (pathname === '/api/demo/reset') return 'reset';
+  if (pathname.startsWith('/api/retention/')) return 'delete_data';
   if (pathname.startsWith('/api/target-connection')) {
     return method === 'GET' ? 'observe' : 'connect';
   }
@@ -143,6 +190,7 @@ const requiredOperatorCapability = (
   }
   if (
     pathname === '/api/genome' ||
+    pathname.startsWith('/api/diagnostics') ||
     pathname === '/api/observations/archives' ||
     pathname.includes('/events') ||
     pathname.includes('/sessions/') ||
@@ -155,12 +203,21 @@ const requiredOperatorCapability = (
   return 'observe';
 };
 
-const isCallbackRoute = (pathname: string) =>
-  /^\/api\/repository-executions\/[^/]+\/(?:manifest|callback|rollback\/callback)$/.test(
-    pathname,
+const isCallbackRoute = (request: Request) => {
+  const url = new URL(request.url);
+  if (
+    /^\/api\/repository-executions\/[^/]+\/manifest$/.test(url.pathname) &&
+    url.searchParams.get('audience') === 'operator'
+  ) {
+    return false;
+  }
+  return /^\/api\/repository-executions\/[^/]+\/(?:manifest|callback|rollback\/callback)$/.test(
+    url.pathname,
   );
+};
 
 const isTargetRoute = (pathname: string) =>
+  pathname === '/api/study-sessions' ||
   pathname === '/api/telemetry/events' ||
   /^\/api\/studies\/[^/]+\/participants\/[^/]+\/workspace$/.test(pathname);
 
@@ -246,15 +303,7 @@ const allowedTargetStudies = (env?: Partial<Env>) =>
   ]);
 
 const targetStudyAllowed = (studyId: string, env?: Partial<Env>) => {
-  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
-  return (
-    allowedTargetStudies(env).has(studyId) || studyId.startsWith(`${labStudy}-`)
-  );
-};
-
-const isLabStudy = (studyId: string, env?: Partial<Env>) => {
-  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
-  return studyId === labStudy || studyId.startsWith(`${labStudy}-`);
+  return allowedTargetStudies(env).has(studyId);
 };
 
 const targetProvenanceAllowed = (
@@ -266,11 +315,9 @@ const targetProvenanceAllowed = (
   const automatedStudy =
     env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
     'projectflow-baseline-automated-study';
-  const labStudy = env?.PROJECTFLOW_LAB_STUDY_ID || 'projectflow-darwin-lab';
   return (
     (event.studyId === measuredStudy && event.source === 'real_user') ||
-    (event.studyId === automatedStudy && event.source === 'automated') ||
-    (event.studyId.startsWith(`${labStudy}-`) && event.source === 'synthetic')
+    (event.studyId === automatedStudy && event.source === 'automated')
   );
 };
 
@@ -278,6 +325,38 @@ const isAllowedTargetVersion = (appVersion: string) =>
   appVersion === 'baseline' ||
   /^\d+\.\d+\.\d+$/.test(appVersion) ||
   /^[a-f0-9]{7,40}(?:-candidate)?$/.test(appVersion);
+
+const parsePageRequest = (url: URL) => {
+  const requestedLimit = Number(url.searchParams.get('limit') ?? 20);
+  if (
+    !Number.isSafeInteger(requestedLimit) ||
+    requestedLimit < 1 ||
+    requestedLimit > 50
+  ) {
+    throw new Error('invalid_page_limit');
+  }
+  const cursorValue = url.searchParams.get('cursor');
+  if (!cursorValue) return { limit: requestedLimit, cursor: null };
+  if (cursorValue.length > 300) throw new Error('invalid_page_cursor');
+  const separator = cursorValue.lastIndexOf('|');
+  const updatedAt = cursorValue.slice(0, separator);
+  const executionId = cursorValue.slice(separator + 1);
+  if (
+    separator < 1 ||
+    Number.isNaN(Date.parse(updatedAt)) ||
+    !/^[a-zA-Z0-9._:-]{1,128}$/.test(executionId)
+  ) {
+    throw new Error('invalid_page_cursor');
+  }
+  return { limit: requestedLimit, cursor: { updatedAt, executionId } };
+};
+
+const encodePageCursor = (
+  cursor: {
+    updatedAt: string;
+    executionId: string;
+  } | null,
+) => (cursor ? `${cursor.updatedAt}|${cursor.executionId}` : null);
 
 export const resetSimulationStore = () => {
   simulationStore.clear();
@@ -289,9 +368,22 @@ export const handleRequest = async (
 ): Promise<Response> => {
   const url = new URL(request.url);
   const { pathname } = url;
+  const requestId = requestIdFor(request);
   const { corsHeaders, originAllowed } = corsForRequest(request, env);
-  const json = (body: unknown, init: ResponseInit = {}) =>
-    jsonResponse(body, init, corsHeaders);
+  const json = (body: unknown, init: ResponseInit = {}) => {
+    const headers = new Headers(init.headers);
+    headers.set('X-Darwin-Request-ID', requestId);
+    return jsonResponse(body, { ...init, headers }, corsHeaders);
+  };
+
+  try {
+    decodeURI(pathname);
+  } catch {
+    return json(
+      { error: 'invalid_url', message: 'Request URL encoding is invalid.' },
+      { status: 400 },
+    );
+  }
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -328,7 +420,7 @@ export const handleRequest = async (
   if (
     pathname !== '/api/health' &&
     !isTargetRoute(pathname) &&
-    !isCallbackRoute(pathname)
+    !isCallbackRoute(request)
   ) {
     const authorization = await authorizeOperator(
       request,
@@ -359,22 +451,26 @@ export const handleRequest = async (
     return cycle.studyId === studyId ? cycle.startedAt : null;
   };
 
-  if (request.method === 'GET' && pathname === '/api/health') {
-    const response: HealthResponse = {
-      status: 'ok',
-      service: 'darwin-api',
-      version: '0.25.0',
-      analysis: {
-        mode: 'live',
-        model: env?.OPENAI_MODEL || 'gpt-5.6',
-        liveModelAvailable:
-          env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
-      },
-      timestamp: new Date().toISOString(),
-    };
-
-    return json(response);
-  }
+  const operationalResponse = await handleOperationalRoutes({
+    request,
+    url,
+    repository: telemetryRepository,
+    json,
+    requestId,
+    operatorActor: operatorIdentity?.actor ?? null,
+    eventQuotaPerStudy: studyEventQuota(env),
+    eventQuotaPerTarget: targetEventQuota(env),
+    build: {
+      release: env?.DARWIN_RELEASE_VERSION || '0.25.0',
+      commit: env?.DARWIN_BUILD_SHA || 'development',
+    },
+    analysis: {
+      model: env?.OPENAI_MODEL || 'gpt-5.6',
+      liveModelAvailable:
+        env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
+    },
+  });
+  if (operationalResponse) return operationalResponse;
 
   const labResponse = await handleLabRequest(
     request,
@@ -385,45 +481,110 @@ export const handleRequest = async (
   if (labResponse) return labResponse;
 
   if (request.method === 'GET' && pathname === '/api/genome') {
+    let pageRequest;
+    try {
+      pageRequest = parsePageRequest(url);
+    } catch {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Genome page cursor or limit is invalid.',
+        },
+        { status: 400 },
+      );
+    }
+    const page = await telemetryRepository.listRepositoryExecutionsPage(
+      pageRequest.limit,
+      pageRequest.cursor,
+    );
     return json(
       GenomeHistoryResponseSchema.parse({
         evolutionCycle: await telemetryRepository.getEvolutionCycle(),
-        executions: await telemetryRepository.listRepositoryExecutions(),
+        executions: page.items.map((execution) =>
+          RepositoryExecutionSummarySchema.parse(execution),
+        ),
+        nextCursor: page.hasMore ? encodePageCursor(page.cursor) : null,
       }),
     );
   }
 
+  const observationArchiveMatch = pathname.match(
+    /^\/api\/observations\/archives\/([^/]+)$/,
+  );
+  if (request.method === 'GET' && observationArchiveMatch) {
+    const archive = await telemetryRepository.getObservationArchive(
+      decodeURIComponent(observationArchiveMatch[1]!),
+    );
+    return archive
+      ? json(ObservationArchiveDetailResponseSchema.parse(archive))
+      : json(
+          { error: 'not_found', message: 'Observation archive was not found.' },
+          { status: 404 },
+        );
+  }
+
   if (request.method === 'GET' && pathname === '/api/observations/archives') {
-    const executions = (
-      await telemetryRepository.listRepositoryExecutions()
-    ).filter((execution) => ['released', 'failed'].includes(execution.status));
-    const archives = (
-      await Promise.all(
-        executions.map(async (execution) => {
-          const analysis = await telemetryRepository.getEvidenceAnalysis(
-            execution.analysisId,
-          );
-          if (!analysis) return null;
-          const evidence = await telemetryRepository.getEvidence(
-            analysis.evidenceId,
-          );
-          if (!evidence) return null;
-          return {
-            archiveId: execution.executionId,
-            evidence,
-            analysis,
-            execution: {
-              executionId: execution.executionId,
-              manifestId: execution.manifestId,
-              status: execution.status,
-              createdAt: execution.createdAt,
-              completedAt: execution.completedAt,
-            },
-          };
-        }),
-      )
-    ).filter((archive) => archive !== null);
-    return json(ObservationArchivesResponseSchema.parse({ archives }));
+    let pageRequest;
+    try {
+      pageRequest = parsePageRequest(url);
+    } catch {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Archive page cursor or limit is invalid.',
+        },
+        { status: 400 },
+      );
+    }
+    const page = await telemetryRepository.listObservationArchivesPage(
+      pageRequest.limit,
+      pageRequest.cursor,
+    );
+    const archives = page.items.map(
+      ({ archiveId, evidence, analysis, execution }) => {
+        const terminalAttempts = evidence.taskAttempts.filter((attempt) =>
+          ['success', 'failed', 'abandoned'].includes(attempt.outcome),
+        );
+        const interactionCounts = terminalAttempts
+          .map((attempt) => attempt.interactionCount)
+          .sort((left, right) => left - right);
+        const midpoint = Math.floor(interactionCounts.length / 2);
+        return {
+          archiveId,
+          evidenceId: evidence.evidenceId,
+          evidenceHash: evidence.evidenceHash,
+          provenance: evidence.provenance,
+          sourceEventCount: evidence.study.sourceEventCount,
+          sessions: evidence.study.sessions,
+          participants: evidence.study.participants,
+          attempts: evidence.study.attempts,
+          completionRate: terminalAttempts.length
+            ? terminalAttempts.filter(
+                (attempt) => attempt.outcome === 'success',
+              ).length / terminalAttempts.length
+            : null,
+          medianInteractionCount: interactionCounts.length
+            ? interactionCounts.length % 2
+              ? interactionCounts[midpoint]!
+              : (interactionCounts[midpoint - 1]! +
+                  interactionCounts[midpoint]!) /
+                2
+            : null,
+          qualityStrength: evidence.quality.strength,
+          qualityScore: evidence.quality.score,
+          frictionSignalCount: evidence.frictionSignals.length,
+          mutationTitle: analysis.selectedMutation.title,
+          model: analysis.model,
+          execution,
+        };
+      },
+    );
+    return json(
+      ObservationArchivesResponseSchema.parse({
+        archives,
+        nextCursor: page.hasMore ? encodePageCursor(page.cursor) : null,
+      }),
+    );
   }
 
   if (request.method === 'GET' && pathname === '/api/target-connection') {
@@ -436,11 +597,17 @@ export const handleRequest = async (
   if (request.method === 'POST' && pathname === '/api/target-connection') {
     let input: unknown;
     try {
-      input = await request.json();
-    } catch {
+      input = JSON.parse(await readBoundedBody(request, 64_000));
+    } catch (error) {
       return json(
-        { error: 'invalid_request', message: 'Request body must be JSON.' },
-        { status: 400 },
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'invalid_request',
+          message: 'Request body must be bounded valid JSON.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
       );
     }
     const parsed = TargetConnectionRequestSchema.safeParse(input);
@@ -477,9 +644,15 @@ export const handleRequest = async (
         ...requested,
         githubToken: env?.GITHUB_TOKEN,
       });
-      const runtimeResponse = await fetch(requested.studyUrl, {
-        headers: { Accept: 'text/html' },
-      });
+      const runtimeResponse = await timeOperation(
+        'target',
+        'verify_deployment',
+        () =>
+          fetch(requested.studyUrl, {
+            headers: { Accept: 'text/html' },
+          }),
+        requestId,
+      );
       if (!runtimeResponse.ok) {
         throw new Error(
           `Target deployment returned ${runtimeResponse.status}.`,
@@ -549,6 +722,33 @@ export const handleRequest = async (
   }
 
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
+    let resetInput: unknown;
+    try {
+      resetInput = JSON.parse(await readBoundedBody(request, 1_024));
+    } catch (error) {
+      return json(
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'confirmation_required',
+          message:
+            'Reset requires the exact confirmation and an acknowledgement that Darwin data has been exported.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
+      );
+    }
+    const parsedReset = DemoResetRequestSchema.safeParse(resetInput);
+    if (!parsedReset.success) {
+      return json(
+        {
+          error: 'confirmation_required',
+          message:
+            'Reset requires confirmation “RESET DARWIN DEMO” and exportAcknowledged=true.',
+        },
+        { status: 400 },
+      );
+    }
     const targetConnection = await telemetryRepository.getTargetConnection();
     if (env?.GITHUB_TOKEN) {
       try {
@@ -580,43 +780,148 @@ export const handleRequest = async (
       DemoResetResponseSchema.parse({
         status: 'reset',
         repositoryResetDispatched: Boolean(env?.GITHUB_TOKEN),
+        recovery: {
+          projectFlow: 'baseline-workflow-dispatched',
+          darwinData: 'not-recoverable-after-reset',
+        },
       }),
     );
   }
 
-  if (request.method === 'POST' && pathname === '/api/telemetry/events') {
-    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-    if (contentLength > 256_000) {
-      return json(
-        {
-          error: 'payload_too_large',
-          message: 'Telemetry batch is too large.',
-        },
-        { status: 413 },
-      );
-    }
-
-    let input: unknown;
+  if (request.method === 'POST' && pathname === '/api/study-sessions') {
     let body: string;
     try {
-      body = await request.text();
-      if (new TextEncoder().encode(body).byteLength > 256_000) {
-        return json(
-          {
-            error: 'payload_too_large',
-            message: 'Telemetry batch is too large.',
-          },
-          { status: 413 },
-        );
-      }
-      input = JSON.parse(body);
-    } catch {
+      body = await readBoundedBody(request, 8_192);
+    } catch (error) {
+      return json(
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'invalid_request',
+          message:
+            error instanceof PayloadTooLargeError
+              ? 'Study session request is too large.'
+              : 'Study session request encoding is invalid.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
+      );
+    }
+    const targetAuthorization = await authorizeTargetRequest(
+      request,
+      body,
+      env,
+    );
+    if (!targetAuthorization.ok) {
+      return json(
+        {
+          error: targetAuthorization.error,
+          message: targetAuthorization.message,
+        },
+        { status: targetAuthorization.status },
+      );
+    }
+    const parsed = StudySessionIssueRequestSchema.safeParse(
+      (() => {
+        try {
+          return JSON.parse(body);
+        } catch {
+          return null;
+        }
+      })(),
+    );
+    if (!parsed.success || !isAllowedTargetVersion(parsed.data.appVersion)) {
       return json(
         {
           error: 'invalid_request',
-          message: 'Request body must be valid JSON.',
+          message: 'Study session request is invalid.',
         },
         { status: 400 },
+      );
+    }
+    const input = parsed.data;
+    let participantId: string;
+    let sessionId: string | undefined;
+    if (input.evidenceClass === 'darwin_lab') {
+      const experiment = input.labExperimentId
+        ? await getLabRepository(env?.DB).getExperiment(input.labExperimentId)
+        : null;
+      const run = experiment?.runs.find(
+        (candidate) => candidate.runId === input.runId,
+      );
+      if (
+        !experiment ||
+        !run ||
+        experiment.studyId !== input.studyId ||
+        experiment.targetAppVersion !== input.appVersion
+      ) {
+        return json(
+          {
+            error: 'study_session_context_forbidden',
+            message: 'Darwin Lab run identity does not match the experiment.',
+          },
+          { status: 403 },
+        );
+      }
+      participantId = run.participantId;
+      sessionId = run.sessionId;
+    } else {
+      const expectedStudy =
+        input.evidenceClass === 'human_study'
+          ? env?.PROJECTFLOW_STUDY_ID || 'projectflow-baseline-study'
+          : env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
+            'projectflow-baseline-automated-study';
+      if (input.studyId !== expectedStudy) {
+        return json(
+          {
+            error: 'study_session_context_forbidden',
+            message: 'Study and evidence class do not match.',
+          },
+          { status: 403 },
+        );
+      }
+      participantId = await anonymousStudyParticipantId(
+        targetAuthorization.identity.clientKey,
+        input.studyId,
+        input.appVersion,
+        input.evidenceClass,
+      );
+    }
+    const session = await issueStudySession(
+      env?.PROJECTFLOW_INGESTION_SECRET || 'local-development-study-session',
+      {
+        studyId: input.studyId,
+        participantId,
+        ...(sessionId ? { sessionId } : {}),
+        appVersion: input.appVersion,
+        evidenceClass: input.evidenceClass,
+        deploymentOrigin: targetAuthorization.identity.sourceOrigin,
+        labExperimentId: input.labExperimentId,
+        runId: input.runId,
+      },
+    );
+    return json(session, { status: 201 });
+  }
+
+  if (request.method === 'POST' && pathname === '/api/telemetry/events') {
+    let input: unknown;
+    let body: string;
+    try {
+      body = await readBoundedBody(request, 256_000);
+      input = JSON.parse(body);
+    } catch (error) {
+      return json(
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'invalid_request',
+          message:
+            error instanceof PayloadTooLargeError
+              ? 'Telemetry batch is too large.'
+              : 'Request body must be valid JSON.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
       );
     }
 
@@ -640,6 +945,24 @@ export const handleRequest = async (
           message: targetAuthorization.message,
         },
         { status: targetAuthorization.status },
+      );
+    }
+    const sessionToken = request.headers.get('X-Darwin-Study-Session');
+    const sessionVerification =
+      sessionToken || env?.PROJECTFLOW_INGESTION_SECRET
+        ? await verifyStudySessionToken(
+            sessionToken,
+            env?.PROJECTFLOW_INGESTION_SECRET ||
+              'local-development-study-session',
+          )
+        : null;
+    if (sessionVerification && !sessionVerification.ok) {
+      return json(
+        {
+          error: sessionVerification.error,
+          message: sessionVerification.message,
+        },
+        { status: 401 },
       );
     }
 
@@ -667,12 +990,61 @@ export const handleRequest = async (
       if (!parsed.success) return [];
       return [parsed.data];
     });
-    const events = parsedEvents.filter(
-      (event) =>
+    if (
+      sessionVerification?.ok &&
+      parsedEvents.some((event) => {
+        const claims = sessionVerification.claims;
+        const provenanceClass = event.provenance?.evidenceClass;
+        return (
+          event.studyId !== claims.studyId ||
+          event.participantId !== claims.participantId ||
+          event.sessionId !== claims.sessionId ||
+          event.appVersion !== claims.appVersion ||
+          event.source !== claims.source ||
+          provenanceClass !== claims.evidenceClass ||
+          (claims.evidenceClass === 'darwin_lab' &&
+            (event.provenance?.labExperimentId !== claims.labExperimentId ||
+              !claims.runId ||
+              !event.provenance?.runIds.includes(claims.runId)))
+        );
+      })
+    ) {
+      return json(
+        {
+          error: 'study_session_subject_mismatch',
+          message: 'Telemetry identifiers do not match the study session.',
+        },
+        { status: 403 },
+      );
+    }
+    const labExperiments = new Map(
+      (await getLabRepository(env?.DB).listExperiments()).map((experiment) => [
+        experiment.experimentId,
+        experiment,
+      ]),
+    );
+    const events = parsedEvents.filter((event) => {
+      if (event.provenance?.evidenceClass === 'darwin_lab') {
+        const experiment = event.provenance.labExperimentId
+          ? labExperiments.get(event.provenance.labExperimentId)
+          : null;
+        return Boolean(
+          experiment &&
+          event.source === 'automated' &&
+          event.studyId === experiment.studyId &&
+          event.appVersion === experiment.targetAppVersion &&
+          event.provenance.taskDefinitionId ===
+            experiment.task.taskDefinitionId &&
+          event.provenance.taskDefinitionHash ===
+            experiment.task.definitionHash,
+        );
+      }
+      return (
         targetProvenanceAllowed(event, env) &&
         targetStudyAllowed(event.studyId, env) &&
-        isAllowedTargetVersion(event.appVersion),
-    );
+        isAllowedTargetVersion(event.appVersion)
+      );
+    });
     if (events.length !== parsedEvents.length) {
       return json(
         {
@@ -700,11 +1072,13 @@ export const handleRequest = async (
     const stored = await telemetryRepository.insertEvents(
       events,
       new Date().toISOString(),
+      studyEventQuota(env),
+      targetEventQuota(env),
     );
     return json(
       TelemetryReceiptSchema.parse({
         accepted: stored.accepted,
-        rejected: candidates.length - events.length,
+        rejected: candidates.length - events.length + stored.quotaRejected,
         duplicates: stored.duplicates,
       }),
       { status: 202 },
@@ -714,11 +1088,39 @@ export const handleRequest = async (
   const studyEventsMatch = pathname.match(/^\/api\/studies\/([^/]+)\/events$/);
   if (request.method === 'GET' && studyEventsMatch) {
     const studyId = decodeURIComponent(studyEventsMatch[1]!);
-    const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
-    const limit = Number.isFinite(requestedLimit)
-      ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
-      : 50;
-    const receivedAfter = await currentCycleStart(studyId);
+    const limitQuery = url.searchParams.get('limit');
+    const requestedLimit = Number(limitQuery ?? 50);
+    if (
+      limitQuery !== null &&
+      (!/^\d+$/.test(limitQuery) ||
+        !Number.isSafeInteger(requestedLimit) ||
+        requestedLimit < 1 ||
+        requestedLimit > 200)
+    ) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Event limit must be from 1 to 200.',
+        },
+        { status: 400 },
+      );
+    }
+    const limit = requestedLimit;
+    const cursorQuery = url.searchParams.get('after');
+    if (cursorQuery && Number.isNaN(Date.parse(cursorQuery))) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Event cursor must be an ISO timestamp.',
+        },
+        { status: 400 },
+      );
+    }
+    const cycleStart = await currentCycleStart(studyId);
+    const receivedAfter =
+      cursorQuery && (!cycleStart || cursorQuery > cycleStart)
+        ? cursorQuery
+        : cycleStart;
     const events = await telemetryRepository.listEvents(
       studyId,
       limit,
@@ -726,12 +1128,13 @@ export const handleRequest = async (
     );
     const summary = await telemetryRepository.summarizeEvents(
       studyId,
-      receivedAfter,
+      cycleStart,
     );
     return json(
       StudyEventsResponseSchema.parse({
         studyId,
         events,
+        cursor: events.at(-1)?.receivedAt ?? cursorQuery ?? null,
         ...summary,
       }),
     );
@@ -742,12 +1145,15 @@ export const handleRequest = async (
   );
   if (request.method === 'POST' && studyEvidenceMatch) {
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
-    if (isLabStudy(studyId, env)) {
+    const labExperiment = (
+      await getLabRepository(env?.DB).listExperiments()
+    ).find((experiment) => experiment.studyId === studyId);
+    if (labExperiment) {
       return json(
         {
-          error: 'synthetic_evidence_boundary',
+          error: 'darwin_lab_evidence_boundary',
           message:
-            'Darwin Lab telemetry can be analysed only through its synthetic evidence pack.',
+            'Darwin Lab observations can be analysed only through their automated evidence pack.',
         },
         { status: 409 },
       );
@@ -759,13 +1165,12 @@ export const handleRequest = async (
         { status: 400 },
       );
     }
-    const events = (
-      await telemetryRepository.listEvents(
-        studyId,
-        10_000,
-        await currentCycleStart(studyId),
-      )
-    ).filter((event) => event.source === source);
+    const events = await telemetryRepository.listEvents(
+      studyId,
+      10_000,
+      await currentCycleStart(studyId),
+      source,
+    );
     if (!events.length) {
       return json(
         {
@@ -778,8 +1183,24 @@ export const handleRequest = async (
     try {
       const pack = await buildEvidencePack(studyId, events);
       await telemetryRepository.saveEvidence(pack);
+      operationalLog('info', 'evidence_generated', {
+        requestId,
+        studyId,
+        evidenceId: pack.evidenceId,
+        sourceEventCount: pack.study.sourceEventCount,
+        signalCount: pack.frictionSignals.length,
+      });
       return json(EvidencePackSchema.parse(pack), { status: 201 });
     } catch (error) {
+      if (error instanceof EvidenceBoundaryError) {
+        return json(
+          {
+            error: 'evidence_boundary_violation',
+            message: error.message,
+          },
+          { status: 409 },
+        );
+      }
       if (
         error &&
         typeof error === 'object' &&
@@ -830,10 +1251,13 @@ export const handleRequest = async (
   );
   if (request.method === 'POST' && analyseEvidenceMatch) {
     const studyId = decodeURIComponent(analyseEvidenceMatch[1]!);
-    if (isLabStudy(studyId, env)) {
+    const labExperiment = (
+      await getLabRepository(env?.DB).listExperiments()
+    ).find((experiment) => experiment.studyId === studyId);
+    if (labExperiment) {
       return json(
         {
-          error: 'synthetic_evidence_boundary',
+          error: 'darwin_lab_evidence_boundary',
           message:
             'Darwin Lab telemetry cannot enter the measured reasoning workflow.',
         },
@@ -893,7 +1317,19 @@ export const handleRequest = async (
     );
     const cached =
       await telemetryRepository.getEvidenceAnalysisByCacheKey(cacheKey);
-    if (cached) return json(EvidenceAnalysisSchema.parse(cached));
+    if (cached) {
+      operationalLog('info', 'gpt_analysis_cache', {
+        requestId,
+        outcome: 'hit',
+        analysisId: cached.analysisId,
+      });
+      return json(EvidenceAnalysisSchema.parse(cached));
+    }
+    operationalLog('info', 'gpt_analysis_cache', {
+      requestId,
+      outcome: 'miss',
+      evidenceId: pack.evidenceId,
+    });
 
     try {
       const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
@@ -907,6 +1343,11 @@ export const handleRequest = async (
         repositorySnapshot,
       });
       await telemetryRepository.saveEvidenceAnalysis(studyId, analysis);
+      operationalLog('info', 'gpt_analysis_created', {
+        requestId,
+        analysisId: analysis.analysisId,
+        model: analysis.model,
+      });
       return json(EvidenceAnalysisSchema.parse(analysis), { status: 201 });
     } catch (error) {
       if (error instanceof EvidenceReasoningError) {
@@ -969,12 +1410,18 @@ export const handleRequest = async (
       }
       let input: unknown = {};
       try {
-        const text = await request.text();
+        const text = await readBoundedBody(request, 64_000);
         input = text ? JSON.parse(text) : {};
-      } catch {
+      } catch (error) {
         return json(
-          { error: 'invalid_request', message: 'Manifest request is invalid.' },
-          { status: 400 },
+          {
+            error:
+              error instanceof PayloadTooLargeError
+                ? 'payload_too_large'
+                : 'invalid_request',
+            message: 'Manifest request is invalid.',
+          },
+          { status: error instanceof PayloadTooLargeError ? 413 : 400 },
         );
       }
       const parsed = CodexManifestRequestSchema.safeParse(input);
@@ -1021,7 +1468,15 @@ export const handleRequest = async (
         mutations,
       );
       await telemetryRepository.saveCodexManifest(manifest);
-      return json(CodexImplementationManifestSchema.parse(manifest), {
+      operationalLog('info', 'codex_manifest_created', {
+        requestId,
+        manifestId: manifest.manifestId,
+        analysisId: manifest.analysisId,
+      });
+      const persisted =
+        (await telemetryRepository.getCodexManifestById(manifest.manifestId)) ??
+        manifest;
+      return json(CodexImplementationManifestSchema.parse(persisted), {
         status: 201,
       });
     }
@@ -1096,21 +1551,55 @@ export const handleRequest = async (
         manifestHash: manifest.manifestHash,
         callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/callback`,
       });
-      execution = updateRepositoryExecution(execution, { status: 'queued' });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      const queued = updateRepositoryExecution(execution, { status: 'queued' });
+      const persisted =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          queued,
+        );
+      if (!persisted) {
+        return json(
+          {
+            error: 'execution_changed',
+            message:
+              'Repository execution changed while the workflow was being dispatched.',
+          },
+          { status: 409 },
+        );
+      }
+      operationalLog('info', 'github_workflow_dispatched', {
+        requestId,
+        executionId: persisted.executionId,
+        action: 'evolution',
+      });
+      execution = persisted;
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 201,
       });
     } catch (error) {
-      execution = updateRepositoryExecution(execution, {
+      const failed = updateRepositoryExecution(execution, {
         status: 'failed',
         error:
           error instanceof Error
             ? error.message
             : 'GitHub workflow dispatch failed.',
       });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      return json(RepositoryMutationExecutionSchema.parse(execution), {
+      const persisted =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          failed,
+        );
+      if (!persisted) {
+        return json(
+          {
+            error: 'execution_changed',
+            message:
+              'Repository execution changed while a dispatch failure was being recorded.',
+          },
+          { status: 409 },
+        );
+      }
+      return json(RepositoryMutationExecutionSchema.parse(persisted), {
         status: 502,
       });
     }
@@ -1153,17 +1642,32 @@ export const handleRequest = async (
     }
     try {
       const rollback = createRepositoryRollback(execution);
-      const manifest = await telemetryRepository.getCodexManifest(
-        execution.analysisId,
+      const manifest = await telemetryRepository.getCodexManifestById(
+        execution.manifestId,
       );
       if (!manifest) {
         throw new Error('The retained execution manifest could not be loaded.');
       }
-      execution = RepositoryMutationExecutionSchema.parse({
+      const prepared = RepositoryMutationExecutionSchema.parse({
         ...execution,
         rollback,
       });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      const persistedPrepared =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          prepared,
+        );
+      if (!persistedPrepared) {
+        return json(
+          {
+            error: 'execution_changed',
+            message:
+              'Repository execution changed while the rollback was being prepared.',
+          },
+          { status: 409 },
+        );
+      }
+      execution = persistedPrepared;
       const callbackCredential = await issueExecutionCallbackCredential(
         execution.executionId,
       );
@@ -1178,21 +1682,56 @@ export const handleRequest = async (
         manifestHash: manifest.manifestHash,
         callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/rollback/callback`,
       });
-      execution = updateRepositoryRollback(execution, { status: 'queued' });
-      await telemetryRepository.saveRepositoryExecution(execution);
+      operationalLog('info', 'github_workflow_dispatched', {
+        requestId,
+        executionId: execution.executionId,
+        action: 'rollback',
+      });
+      const queued = updateRepositoryRollback(execution, { status: 'queued' });
+      const persistedQueued =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          queued,
+        );
+      if (!persistedQueued) {
+        return json(
+          {
+            error: 'execution_changed',
+            message:
+              'Repository rollback changed while the workflow was being dispatched.',
+          },
+          { status: 409 },
+        );
+      }
+      execution = persistedQueued;
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 201,
       });
     } catch (error) {
       if (execution.rollback) {
-        execution = updateRepositoryRollback(execution, {
+        const failed = updateRepositoryRollback(execution, {
           status: 'failed',
           error:
             error instanceof Error
               ? error.message
               : 'GitHub rollback workflow dispatch failed.',
         });
-        await telemetryRepository.saveRepositoryExecution(execution);
+        const persisted =
+          await telemetryRepository.compareAndSwapRepositoryExecution(
+            execution,
+            failed,
+          );
+        if (!persisted) {
+          return json(
+            {
+              error: 'execution_changed',
+              message:
+                'Repository rollback changed while a dispatch failure was being recorded.',
+            },
+            { status: 409 },
+          );
+        }
+        execution = persisted;
       }
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 502,
@@ -1215,6 +1754,66 @@ export const handleRequest = async (
         );
   }
 
+  const repositoryRecoveryMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/recovery\/force-fail$/,
+  );
+  if (request.method === 'POST' && repositoryRecoveryMatch) {
+    let input: unknown;
+    try {
+      input = JSON.parse(await readBoundedBody(request, 1_024));
+    } catch (error) {
+      return json(
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'confirmation_required',
+          message: 'A bounded recovery confirmation is required.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
+      );
+    }
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Object.keys(input).length !== 1 ||
+      (input as { confirmation?: unknown }).confirmation !==
+        'FAIL STRANDED EXECUTION'
+    ) {
+      return json(
+        {
+          error: 'confirmation_required',
+          message: 'Type FAIL STRANDED EXECUTION to use recovery.',
+        },
+        { status: 400 },
+      );
+    }
+    const executionId = decodeURIComponent(repositoryRecoveryMatch[1]!);
+    const recovery = await forceFailStrandedExecution(
+      telemetryRepository,
+      executionId,
+    );
+    if (recovery.outcome === 'not_found') {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    if (recovery.outcome === 'too_recent') {
+      return json(
+        {
+          error: 'recovery_window_active',
+          message: 'The workflow is still inside its bounded recovery window.',
+          eligibleAt: recovery.eligibleAt,
+        },
+        { status: 409 },
+      );
+    }
+    return json(RepositoryMutationExecutionSchema.parse(recovery.execution), {
+      status: recovery.outcome === 'recovered' ? 200 : 409,
+    });
+  }
+
   const repositoryManifestMatch = pathname.match(
     /^\/api\/repository-executions\/([^/]+)\/manifest$/,
   );
@@ -1223,13 +1822,16 @@ export const handleRequest = async (
     const execution =
       await telemetryRepository.getRepositoryExecution(executionId);
     const manifest = execution
-      ? await telemetryRepository.getCodexManifest(execution.analysisId)
+      ? await telemetryRepository.getCodexManifestById(execution.manifestId)
       : null;
     if (!execution || !manifest) {
       return json(
         { error: 'not_found', message: 'Repository manifest not found.' },
         { status: 404 },
       );
+    }
+    if (url.searchParams.get('audience') === 'operator') {
+      return json({ execution, manifest });
     }
     const verification = await verifyExecutionCallback({
       request,
@@ -1263,22 +1865,23 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-    if (contentLength > 750_000) {
+    let body: string;
+    try {
+      body = await readBoundedBody(request, 750_000);
+    } catch (error) {
       return json(
-        { error: 'payload_too_large', message: 'Callback body is too large.' },
-        { status: 413 },
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'invalid_callback',
+          message: 'Callback body is invalid or too large.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
       );
     }
-    const body = await request.text();
-    if (new TextEncoder().encode(body).byteLength > 750_000) {
-      return json(
-        { error: 'payload_too_large', message: 'Callback body is too large.' },
-        { status: 413 },
-      );
-    }
-    const manifest = await telemetryRepository.getCodexManifest(
-      execution.analysisId,
+    const manifest = await telemetryRepository.getCodexManifestById(
+      execution.manifestId,
     );
     if (!manifest) {
       return json(
@@ -1325,8 +1928,22 @@ export const handleRequest = async (
         );
       }
       const updated = updateRepositoryRollback(execution, callback);
-      await telemetryRepository.saveRepositoryExecution(updated);
-      return json(RepositoryMutationExecutionSchema.parse(updated));
+      const persisted =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          updated,
+        );
+      if (!persisted) {
+        return json(
+          {
+            error: 'execution_changed',
+            message:
+              'Repository rollback changed while the callback was being recorded.',
+          },
+          { status: 409 },
+        );
+      }
+      return json(RepositoryMutationExecutionSchema.parse(persisted));
     } catch (error) {
       return json(
         {
@@ -1354,22 +1971,23 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-    if (contentLength > 750_000) {
+    let body: string;
+    try {
+      body = await readBoundedBody(request, 750_000);
+    } catch (error) {
       return json(
-        { error: 'payload_too_large', message: 'Callback body is too large.' },
-        { status: 413 },
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'invalid_callback',
+          message: 'Callback body is invalid or too large.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
       );
     }
-    const body = await request.text();
-    if (new TextEncoder().encode(body).byteLength > 750_000) {
-      return json(
-        { error: 'payload_too_large', message: 'Callback body is too large.' },
-        { status: 413 },
-      );
-    }
-    const manifest = await telemetryRepository.getCodexManifest(
-      execution.analysisId,
+    const manifest = await telemetryRepository.getCodexManifestById(
+      execution.manifestId,
     );
     if (!manifest) {
       return json(
@@ -1416,8 +2034,22 @@ export const handleRequest = async (
         );
       }
       const updated = updateRepositoryExecution(execution, callback);
-      await telemetryRepository.saveRepositoryExecution(updated);
-      return json(RepositoryMutationExecutionSchema.parse(updated));
+      const persisted =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          updated,
+        );
+      if (!persisted) {
+        return json(
+          {
+            error: 'execution_changed',
+            message:
+              'Repository execution changed while the callback was being recorded.',
+          },
+          { status: 409 },
+        );
+      }
+      return json(RepositoryMutationExecutionSchema.parse(persisted));
     } catch (error) {
       return json(
         {
@@ -1466,34 +2098,107 @@ export const handleRequest = async (
         { status: 503 },
       );
     }
-    execution = updateRepositoryRollback(execution, { status: 'releasing' });
-    await telemetryRepository.saveRepositoryExecution(execution);
+    const releasing = updateRepositoryRollback(execution, {
+      status: 'releasing',
+    });
+    const claimed = await telemetryRepository.compareAndSwapRepositoryExecution(
+      execution,
+      releasing,
+    );
+    if (!claimed) {
+      const current =
+        await telemetryRepository.getRepositoryExecution(executionId);
+      if (current?.rollback?.status === 'released') {
+        return json(RepositoryMutationExecutionSchema.parse(current));
+      }
+      return json(
+        {
+          error: 'release_in_progress',
+          message: 'Another request already claimed this rollback release.',
+        },
+        { status: 409 },
+      );
+    }
+    execution = claimed;
+    let releasedSha: string;
     try {
-      const releasedSha = await mergeRollbackPullRequest({
+      releasedSha = await mergeRollbackPullRequest({
         token: env.GITHUB_TOKEN,
         execution,
         rollback: execution.rollback!,
       });
-      execution = updateRepositoryRollback(execution, {
-        status: 'released',
-        headSha: releasedSha,
-        previewUrl: execution.repository.studyUrl,
-      });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
-      execution = updateRepositoryRollback(execution, {
+      const current =
+        await telemetryRepository.getRepositoryExecution(executionId);
+      if (current?.rollback?.status === 'released') {
+        return json(RepositoryMutationExecutionSchema.parse(current));
+      }
+      if (
+        !current ||
+        current.version !== execution.version ||
+        current.rollback?.status !== 'releasing'
+      ) {
+        return json(
+          {
+            error: 'release_state_uncertain',
+            message:
+              'The rollback release state changed while GitHub was responding; inspect the current execution before retrying.',
+          },
+          { status: 409 },
+        );
+      }
+      const failed = updateRepositoryRollback(execution, {
         status: 'failed',
         error:
           error instanceof Error
             ? error.message
             : 'GitHub rollback pull request release failed.',
       });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      return json(RepositoryMutationExecutionSchema.parse(execution), {
+      const persisted =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          failed,
+        );
+      if (!persisted) {
+        return json(
+          {
+            error: 'release_state_uncertain',
+            message:
+              'The rollback release state changed while its failure was being recorded.',
+          },
+          { status: 409 },
+        );
+      }
+      return json(RepositoryMutationExecutionSchema.parse(persisted), {
         status: 502,
       });
     }
+    const released = updateRepositoryRollback(execution, {
+      status: 'released',
+      headSha: releasedSha,
+      previewUrl: execution.repository.studyUrl,
+    });
+    const persisted =
+      await telemetryRepository.compareAndSwapRepositoryExecution(
+        execution,
+        released,
+      );
+    if (!persisted) {
+      const current =
+        await telemetryRepository.getRepositoryExecution(executionId);
+      if (current?.rollback?.status === 'released') {
+        return json(RepositoryMutationExecutionSchema.parse(current));
+      }
+      return json(
+        {
+          error: 'release_state_uncertain',
+          message:
+            'GitHub merged the rollback, but its final state could not be recorded. Reconcile the execution before retrying.',
+        },
+        { status: 409 },
+      );
+    }
+    return json(RepositoryMutationExecutionSchema.parse(persisted));
   }
 
   const repositoryReleaseMatch = pathname.match(
@@ -1530,34 +2235,106 @@ export const handleRequest = async (
         { status: 503 },
       );
     }
-    execution = updateRepositoryExecution(execution, { status: 'releasing' });
-    await telemetryRepository.saveRepositoryExecution(execution);
+    const releasing = updateRepositoryExecution(execution, {
+      status: 'releasing',
+    });
+    const claimed = await telemetryRepository.compareAndSwapRepositoryExecution(
+      execution,
+      releasing,
+    );
+    if (!claimed) {
+      const current =
+        await telemetryRepository.getRepositoryExecution(executionId);
+      if (current?.status === 'released') {
+        return json(RepositoryMutationExecutionSchema.parse(current));
+      }
+      return json(
+        {
+          error: 'release_in_progress',
+          message: 'Another request already claimed this mutation release.',
+        },
+        { status: 409 },
+      );
+    }
+    execution = claimed;
+    let releasedSha: string;
     try {
-      const releasedSha = await mergeEvolutionPullRequest({
+      releasedSha = await mergeEvolutionPullRequest({
         token: env.GITHUB_TOKEN,
         execution,
       });
-      execution = updateRepositoryExecution(execution, {
-        status: 'released',
-        headSha: releasedSha,
-        previewUrl: execution.repository.studyUrl,
-      });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      await telemetryRepository.advanceEvolutionCycle();
-      return json(RepositoryMutationExecutionSchema.parse(execution));
     } catch (error) {
-      execution = updateRepositoryExecution(execution, {
+      const current =
+        await telemetryRepository.getRepositoryExecution(executionId);
+      if (current?.status === 'released') {
+        return json(RepositoryMutationExecutionSchema.parse(current));
+      }
+      if (
+        !current ||
+        current.version !== execution.version ||
+        current.status !== 'releasing'
+      ) {
+        return json(
+          {
+            error: 'release_state_uncertain',
+            message:
+              'The mutation release state changed while GitHub was responding; inspect the current execution before retrying.',
+          },
+          { status: 409 },
+        );
+      }
+      const failed = updateRepositoryExecution(execution, {
         status: 'failed',
         error:
           error instanceof Error
             ? error.message
             : 'GitHub pull request release failed.',
       });
-      await telemetryRepository.saveRepositoryExecution(execution);
-      return json(RepositoryMutationExecutionSchema.parse(execution), {
+      const persisted =
+        await telemetryRepository.compareAndSwapRepositoryExecution(
+          execution,
+          failed,
+        );
+      if (!persisted) {
+        return json(
+          {
+            error: 'release_state_uncertain',
+            message:
+              'The mutation release state changed while its failure was being recorded.',
+          },
+          { status: 409 },
+        );
+      }
+      return json(RepositoryMutationExecutionSchema.parse(persisted), {
         status: 502,
       });
     }
+    const released = updateRepositoryExecution(execution, {
+      status: 'released',
+      headSha: releasedSha,
+      previewUrl: execution.repository.studyUrl,
+    });
+    const persisted =
+      await telemetryRepository.compareAndSwapRepositoryExecution(
+        execution,
+        released,
+      );
+    if (!persisted) {
+      const current =
+        await telemetryRepository.getRepositoryExecution(executionId);
+      if (current?.status === 'released') {
+        return json(RepositoryMutationExecutionSchema.parse(current));
+      }
+      return json(
+        {
+          error: 'release_state_uncertain',
+          message:
+            'GitHub merged the mutation, but its final state could not be recorded. Reconcile the execution before retrying.',
+        },
+        { status: 409 },
+      );
+    }
+    return json(RepositoryMutationExecutionSchema.parse(persisted));
   }
 
   const studySessionMatch = pathname.match(
@@ -1584,24 +2361,18 @@ export const handleRequest = async (
     const participantId = decodeURIComponent(participantWorkspaceMatch[2]!);
     let workspaceBody = '';
     if (request.method === 'PUT') {
-      const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-      if (contentLength > 256_000) {
+      try {
+        workspaceBody = await readBoundedBody(request, 256_000);
+      } catch (error) {
         return json(
           {
-            error: 'payload_too_large',
-            message: 'Workspace body is too large.',
+            error:
+              error instanceof PayloadTooLargeError
+                ? 'payload_too_large'
+                : 'invalid_request',
+            message: 'Workspace body is invalid or too large.',
           },
-          { status: 413 },
-        );
-      }
-      workspaceBody = await request.text();
-      if (new TextEncoder().encode(workspaceBody).byteLength > 256_000) {
-        return json(
-          {
-            error: 'payload_too_large',
-            message: 'Workspace body is too large.',
-          },
-          { status: 413 },
+          { status: error instanceof PayloadTooLargeError ? 413 : 400 },
         );
       }
     }
@@ -1619,7 +2390,42 @@ export const handleRequest = async (
         { status: targetAuthorization.status },
       );
     }
-    if (!targetStudyAllowed(studyId, env)) {
+    const sessionToken = request.headers.get('X-Darwin-Study-Session');
+    const sessionVerification =
+      sessionToken || env?.PROJECTFLOW_INGESTION_SECRET
+        ? await verifyStudySessionToken(
+            sessionToken,
+            env?.PROJECTFLOW_INGESTION_SECRET ||
+              'local-development-study-session',
+          )
+        : null;
+    if (
+      sessionVerification &&
+      (!sessionVerification.ok ||
+        sessionVerification.claims.studyId !== studyId ||
+        sessionVerification.claims.participantId !== participantId ||
+        sessionVerification.claims.deploymentOrigin !==
+          targetAuthorization.identity.sourceOrigin)
+    ) {
+      return json(
+        {
+          error: sessionVerification.ok
+            ? 'study_session_subject_mismatch'
+            : sessionVerification.error,
+          message: sessionVerification.ok
+            ? 'Workspace path does not match the study session.'
+            : sessionVerification.message,
+        },
+        { status: sessionVerification.ok ? 403 : 401 },
+      );
+    }
+    if (
+      !targetStudyAllowed(studyId, env) &&
+      !(
+        sessionVerification?.ok &&
+        sessionVerification.claims.evidenceClass === 'darwin_lab'
+      )
+    ) {
       return json(
         { error: 'study_forbidden', message: 'The study is not configured.' },
         { status: 403 },
@@ -1702,14 +2508,17 @@ export const handleRequest = async (
     }
     let input: unknown;
     try {
-      input = await request.json();
-    } catch {
+      input = JSON.parse(await readBoundedBody(request, 16_384));
+    } catch (error) {
       return json(
         {
-          error: 'invalid_request',
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'invalid_request',
           message: 'Request body must be valid JSON.',
         },
-        { status: 400 },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
       );
     }
 
@@ -1798,13 +2607,160 @@ export const handleWorkerRequest = async (
   request: Request,
   env: Partial<Env>,
 ) => {
+  const requestId = requestIdFor(request);
+  const startedAt = performance.now();
   try {
-    return await handleRequest(request, env);
+    const response = await handleRequest(request, env);
+    const durationMs = Math.max(0, Math.round(performance.now() - startedAt));
+    const pathname = new URL(request.url).pathname;
+    operationalLog(
+      response.status >= 500
+        ? 'error'
+        : response.status >= 400
+          ? 'warn'
+          : 'info',
+      'request_completed',
+      {
+        requestId,
+        method: request.method,
+        path: pathname,
+        status: response.status,
+        durationMs,
+      },
+    );
+    operationalLog(
+      response.status === 401 || response.status === 403 ? 'warn' : 'info',
+      'authentication_decision',
+      {
+        requestId,
+        boundary: isCallbackRoute(request)
+          ? 'github_callback'
+          : isTargetRoute(pathname)
+            ? 'projectflow_target'
+            : pathname === '/api/health'
+              ? 'public_health'
+              : 'operator',
+        outcome:
+          response.status === 401 || response.status === 403
+            ? 'rejected'
+            : 'accepted',
+        status: response.status,
+      },
+    );
+
+    const auditMutation =
+      request.method !== 'GET' &&
+      request.method !== 'OPTIONS' &&
+      (pathname === '/api/demo/reset' ||
+        pathname.startsWith('/api/retention/') ||
+        pathname.startsWith('/api/target-connection') ||
+        pathname.includes('/evidence') ||
+        pathname.includes('/codex-manifest') ||
+        pathname.includes('/repository-executions') ||
+        pathname === '/api/simulations' ||
+        pathname.startsWith('/api/lab/'));
+    if (auditMutation) {
+      const callbackRoute = isCallbackRoute(request);
+      const targetRoute = isTargetRoute(pathname);
+      const authorization =
+        !callbackRoute && !targetRoute
+          ? await authorizeOperator(
+              request,
+              env,
+              requiredOperatorCapability(request.method, pathname),
+            )
+          : null;
+      const actor = callbackRoute
+        ? 'github-actions'
+        : targetRoute
+          ? 'projectflow-target'
+          : authorization?.ok
+            ? authorization.identity.actor
+            : 'unauthenticated';
+      let afterState: string | null = null;
+      if (
+        response.headers.get('Content-Type')?.includes('application/json') &&
+        (pathname.includes('/repository-executions') ||
+          pathname.includes('/codex-manifest') ||
+          pathname === '/api/demo/reset')
+      ) {
+        try {
+          const payload = (await response.clone().json()) as {
+            status?: unknown;
+            rollback?: { status?: unknown };
+          };
+          afterState =
+            typeof payload.rollback?.status === 'string'
+              ? `rollback:${payload.rollback.status}`
+              : typeof payload.status === 'string'
+                ? payload.status
+                : null;
+        } catch {
+          afterState = null;
+        }
+      }
+      const beforeState = pathname.endsWith('/rollback/release')
+        ? 'rollback:preview_ready'
+        : pathname.endsWith('/rollback')
+          ? 'released'
+          : pathname.endsWith('/release')
+            ? 'preview_ready'
+            : pathname.includes('/callback')
+              ? 'workflow_in_progress'
+              : null;
+      const event = OperationalAuditEventSchema.parse({
+        auditEventId: `audit-${crypto.randomUUID()}`,
+        requestId,
+        occurredAt: new Date().toISOString(),
+        actor,
+        target: pathname,
+        action: `${request.method} ${pathname}`.slice(0, 128),
+        outcome:
+          response.status < 400
+            ? 'succeeded'
+            : response.status < 500
+              ? 'rejected'
+              : 'failed',
+        beforeState,
+        afterState,
+        durationMs,
+        metadata: { status: response.status },
+      });
+      operationalLog(
+        event.outcome === 'failed'
+          ? 'error'
+          : event.outcome === 'rejected'
+            ? 'warn'
+            : 'info',
+        'privileged_transition',
+        {
+          requestId,
+          actor: event.actor,
+          target: event.target,
+          action: event.action,
+          outcome: event.outcome,
+          beforeState: event.beforeState,
+          afterState: event.afterState,
+          durationMs,
+        },
+      );
+      await timeOperation(
+        'd1',
+        'record_audit_event',
+        () => getTelemetryRepository(env.DB).recordAuditEvent(event),
+        requestId,
+      ).catch(() => undefined);
+    }
+
+    const tracedResponse = new Response(response.body, response);
+    tracedResponse.headers.set('X-Darwin-Request-ID', requestId);
+    return tracedResponse;
   } catch (error) {
     console.error(
       '[darwin:api]',
       JSON.stringify({
         event: 'unhandled_request_error',
+        requestId,
         method: request.method,
         path: new URL(request.url).pathname,
         error: error instanceof Error ? error.name : 'UnknownError',
@@ -1815,7 +2771,10 @@ export const handleWorkerRequest = async (
         error: 'internal_error',
         message: 'Darwin API could not complete the request.',
       },
-      { status: 500 },
+      {
+        status: 500,
+        headers: { 'X-Darwin-Request-ID': requestId },
+      },
       corsForRequest(request, env).corsHeaders,
     );
   }
@@ -1823,6 +2782,27 @@ export const handleWorkerRequest = async (
 
 const worker: ExportedHandler<Env> = {
   fetch: handleWorkerRequest,
+  async scheduled(_controller, env, context) {
+    context.waitUntil(
+      getTelemetryRepository(env.DB)
+        .compactRetention()
+        .then((result) => {
+          console.info(
+            '[darwin:retention]',
+            JSON.stringify({ event: 'retention_run_completed', ...result }),
+          );
+        })
+        .catch((error) => {
+          console.error(
+            '[darwin:retention]',
+            JSON.stringify({
+              event: 'retention_run_failed',
+              error: error instanceof Error ? error.name : 'UnknownError',
+            }),
+          );
+        }),
+    );
+  },
 };
 
 export default worker;

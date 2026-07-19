@@ -48,7 +48,7 @@ The Worker accepts only its configured target values.
 | ------ | ----------------- | ------------------------------------------------- |
 | POST   | `/api/demo/reset` | dispatch target reset and clear Darwin demo state |
 
-Reset completion verification is tracked in issue #10.
+Full reset requires the dedicated `reset` capability and the exact body `{"confirmation":"RESET DARWIN DEMO","exportAcknowledged":true}`. Export Genome, Observation archive, and diagnostics data before calling it: Darwin data is irrecoverable after deletion, while ProjectFlow recovery is the separately audited baseline workflow.
 
 ## Telemetry and workspaces
 
@@ -92,9 +92,11 @@ Add `?optional=true` to latest GET routes to receive 204 when no current artifac
 | GET    | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | get execution or 204           |
 | POST   | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | dispatch controlled evolution  |
 | GET    | `/api/repository-executions/:executionId`                     | poll execution                 |
+| GET    | `/api/repository-executions/:executionId/manifest?audience=operator` | inspect the immutable manifest |
 | POST   | `/api/repository-executions/:executionId/release`             | merge reviewed mutation PR     |
 | POST   | `/api/repository-executions/:executionId/rollback`            | dispatch rollback workflow     |
 | POST   | `/api/repository-executions/:executionId/rollback/release`    | merge reviewed rollback PR     |
+| POST   | `/api/repository-executions/:executionId/recovery/force-fail` | force-fail a workflow stranded for 15 minutes   |
 
 Manifest selection body:
 
@@ -104,20 +106,31 @@ Manifest selection body:
 }
 ```
 
+Stranded execution recovery requires the dedicated execute capability and the
+exact bounded confirmation body `{"confirmation":"FAIL STRANDED EXECUTION"}`.
+The original immutable execution remains auditable and can then be retried.
+
 ## Darwin Lab
 
-Darwin Lab accepts only configured local, test, preview, or staging target
-origins. All experiment records and evidence have synthetic provenance and are
-excluded from measured study cohorts and fitness.
+Darwin Lab accepts only configured ProjectFlow local, test, preview, or
+production origins and requires the exact verified application version. Its
+automated agents interact with the real target in isolated Playwright contexts;
+this is observation, not simulation. All records carry immutable `darwin_lab`
+provenance and are excluded from measured human cohorts and human fitness.
 
 | Method | Route                                                    | Purpose                                         |
 | ------ | -------------------------------------------------------- | ----------------------------------------------- |
 | GET    | `/api/lab/experiments`                                   | list Lab experiments and current runs           |
 | POST   | `/api/lab/experiments`                                   | create one bounded ProjectFlow experiment       |
 | GET    | `/api/lab/experiments/:experimentId`                     | inspect population, replay, evidence, and state |
+| PUT    | `/api/lab/experiments/:experimentId`                     | edit a versioned task while it remains a draft  |
+| POST   | `/api/lab/experiments/:experimentId/duplicate`           | duplicate an immutable task into a new draft    |
+| POST   | `/api/lab/experiments/:experimentId/cancel`              | cancel queued or active bounded work             |
+| POST   | `/api/lab/experiments/:experimentId/retry`               | create an auditable retry experiment             |
+| POST   | `/api/lab/experiments/:experimentId/archive`             | archive terminal Lab work                        |
 | POST   | `/api/lab/experiments/:experimentId/start`               | queue a draft experiment for a browser runner   |
 | POST   | `/api/lab/experiments/:experimentId/claim`               | claim queued work for one runner                |
-| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated synthetic agent run          |
+| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated real-target agent run        |
 | POST   | `/api/lab/experiments/:experimentId/runs/:runId/actions` | append one bounded semantic action              |
 | POST   | `/api/lab/experiments/:experimentId/runs/:runId/finish`  | close a run and finalize population evidence    |
 | POST   | `/api/lab/agent-decision`                                | ask the cheap model for one UI action           |
@@ -127,9 +140,10 @@ excluded from measured study cohorts and fitness.
 The agent-decision endpoint receives an accessibility snapshot, current URL,
 persona, compact action history, and remaining budget. It never receives the
 hidden answer oracle and returns no chain-of-thought. Typed values are used by
-the runner but only their length is persisted. A mutation selection does not
-create a diff or release: Codex execution, repository checks, PR review, and
-release remain separate controlled stages.
+the runner but only their length is persisted. A selected Lab mutation can
+produce the normal immutable Codex manifest. Diff, repository checks, PR review,
+preview, and release remain separate controlled stages, and every downstream
+artifact retains the **Darwin Lab** chip.
 
 ## Repository workflow callbacks
 

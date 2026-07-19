@@ -23,6 +23,8 @@ Non-secret production variables live in `workers/api/wrangler.toml`:
 
 Do not commit credentials to Wrangler configuration.
 
+Tracked `.env.production` files are Vite build inputs and therefore public. They may contain `VITE_` URLs and other non-secret browser configuration only; `npm run env:check` enforces that rule. Account IDs, D1 database IDs, Pages project names, Worker names, and rate-limit namespace IDs are routing identifiers rather than credentials and may be committed. API tokens, operator/viewer credentials, ingestion/callback secrets, and OpenAI/GitHub tokens must remain in GitHub or Cloudflare secret stores.
+
 ## Required secrets
 
 ```powershell
@@ -59,9 +61,9 @@ npm run deploy:web
 npm run smoke:production
 ```
 
-`npm run deploy` combines build, migration, API deploy, and Pages deploy.
+`npm run deploy` combines build, migration, API deploy, and Pages deploy. The production workflow requires an existing semantic release tag that resolves to the selected commit, then injects that release and full SHA into the Worker and web builds. Cloudflare credentials are scoped only to the migration/deployment step, and the production concurrency group prevents interleaved deploys.
 
-The checked workflow at `.github/workflows/deploy.yml` is manually dispatched. Automated pull-request CI is tracked in issue [#22](https://github.com/sjohnston1972/darwin/issues/22).
+The checked workflow at `.github/workflows/deploy.yml` is manually dispatched after CI has succeeded for the exact commit.
 
 ## ProjectFlow deployment
 
@@ -73,13 +75,13 @@ Release merges the reviewed pull request. Rollback creates and validates a separ
 
 `npm run smoke:production` verifies:
 
-- Worker health/version;
+- Worker tagged release and exact deployed commit;
 - target connection and repository identity;
 - Darwin and ProjectFlow HTML availability;
 - authenticated D1 telemetry insertion and aggregate readback;
 - deterministic 10,000-event simulation response.
 
-Set `DARWIN_OPERATOR_TOKEN` and `PROJECTFLOW_INGESTION_SECRET` in the smoke-test environment. The smoke test does not merge code, invoke GPT, or run a live Codex mutation. Smoke-data retention is tracked in issue [#18](https://github.com/sjohnston1972/darwin/issues/18).
+Set `DARWIN_OPERATOR_TOKEN`, `DARWIN_RELEASE_VERSION`, and `DARWIN_BUILD_SHA` in the smoke-test environment. The smoke test does not merge code, invoke GPT, or run a live Codex mutation. Its commit-derived telemetry record is deleted immediately after persistence is verified.
 
 ## Operational checks
 
@@ -113,6 +115,10 @@ Keep its failed record. Correct provider/workflow configuration and use the expl
 ### Released mutation is unsuitable
 
 Use the controlled rollback workflow. Do not force-push or reset ProjectFlow `main`.
+
+### Full demo reset
+
+Export the Genome, Observation archive, and diagnostics JSON needed for the record, then use the UI's exact typed confirmation. The `reset` capability is intentionally separate from normal execution and deletion capabilities. Darwin telemetry, Lab data, evidence, manifests, and execution history cannot be recovered after reset; ProjectFlow is restored only through the reviewed baseline workflow.
 
 ## Monitoring backlog
 

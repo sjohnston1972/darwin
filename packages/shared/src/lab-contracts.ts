@@ -1,10 +1,21 @@
 import { z } from 'zod';
 
+import { DarwinProvenanceSchema } from './provenance';
+
 const LabIdentifierSchema = z
   .string()
   .min(1)
   .max(128)
   .regex(/^[a-zA-Z0-9._:-]+$/);
+
+const LabRouteSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(
+    /^\/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[A-Fa-f0-9]{2})*(?:\/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[A-Fa-f0-9]{2})+)*\/?$/,
+    'Route must be a safe application pathname.',
+  );
 
 export const LabPersonaSchema = z.enum([
   'novice',
@@ -24,6 +35,8 @@ export const LabExperimentStatusSchema = z.enum([
   'completed',
   'analysing',
   'analysed',
+  'cancelled',
+  'archived',
   'failed',
 ]);
 
@@ -64,14 +77,53 @@ export const LabFrictionLabelSchema = z.enum([
   'abandonment',
 ]);
 
-export const LabTaskSchema = z
+export const LabSuccessCriterionSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('route_reached'),
+      route: LabRouteSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('semantic_marker'),
+      markerId: z
+        .string()
+        .min(1)
+        .max(96)
+        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('workflow_outcome'),
+      workflowId: LabIdentifierSchema,
+      outcome: z.literal('success'),
+    })
+    .strict(),
+]);
+
+export const LabTaskInputSchema = z
   .object({
-    taskId: z.literal('find-apollo-assignees'),
-    name: z.literal('Find Project Apollo assignees'),
-    instruction: z.literal('Find everyone assigned to Project Apollo.'),
-    successDescription: z.literal(
-      'The agent identifies the complete Project Apollo assignment set.',
-    ),
+    taskId: LabIdentifierSchema,
+    name: z.string().trim().min(1).max(120),
+    instruction: z.string().trim().min(1).max(500),
+    startRoute: LabRouteSchema,
+    successCriterion: LabSuccessCriterionSchema,
+    successDescription: z.string().trim().min(1).max(300),
+  })
+  .strict();
+
+export const LabTaskSchema = LabTaskInputSchema.extend({
+  taskDefinitionId: LabIdentifierSchema,
+  definitionVersion: z.literal(1),
+  definitionHash: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+
+export const LabPersonaAllocationSchema = z
+  .object({
+    persona: LabPersonaSchema,
+    count: z.number().int().positive().max(20),
   })
   .strict();
 
@@ -79,7 +131,10 @@ export const LabExperimentCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(100).default('Apollo discovery study'),
     targetUrl: z.string().url().max(512),
+    targetAppVersion: z.string().min(1).max(32),
+    task: LabTaskInputSchema,
     populationSize: z.number().int().min(8).max(20).default(8),
+    personaAllocation: z.array(LabPersonaAllocationSchema).max(8).default([]),
     maxActions: z.number().int().min(4).max(30).default(12),
     maxDurationMs: z.number().int().min(30_000).max(600_000).default(180_000),
     seed: z.number().int().min(1).max(2_147_483_647).default(1859),
@@ -159,6 +214,7 @@ export const LabAgentActionRecordSchema = z
     accessibilityNodeCount: z.number().int().nonnegative().max(10_000),
     telemetryEventIds: z.array(z.string().uuid()).max(100),
     error: z.string().min(1).max(500).nullable(),
+    provenance: DarwinProvenanceSchema,
   })
   .strict();
 
@@ -177,6 +233,11 @@ export const LabAgentRunStartRequestSchema = z
       .strict(),
     agentModel: z.string().min(1).max(80),
     startedAt: z.string().datetime(),
+    populationOrdinal: z.number().int().min(1).max(20),
+    studyId: LabIdentifierSchema,
+    taskDefinitionId: LabIdentifierSchema,
+    taskDefinitionHash: z.string().regex(/^[a-f0-9]{64}$/),
+    appVersion: z.string().min(1).max(32),
   })
   .strict();
 
@@ -220,6 +281,12 @@ export const LabAgentRunSchema = z
     telemetryEventIds: z.array(z.string().uuid()),
     actions: z.array(LabAgentActionRecordSchema),
     error: z.string().nullable(),
+    populationOrdinal: z.number().int().min(1).max(20),
+    studyId: LabIdentifierSchema,
+    taskDefinitionId: LabIdentifierSchema,
+    taskDefinitionHash: z.string().regex(/^[a-f0-9]{64}$/),
+    appVersion: z.string().min(1).max(32),
+    provenance: DarwinProvenanceSchema,
   })
   .strict();
 
@@ -248,7 +315,10 @@ export const LabEvidencePackSchema = z
     experimentId: LabIdentifierSchema,
     evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
     parserVersion: z.literal('1.0.0'),
-    evidenceClass: z.literal('synthetic'),
+    evidenceClass: z.literal('automated'),
+    provenance: DarwinProvenanceSchema,
+    taskDefinitionId: LabIdentifierSchema,
+    taskDefinitionHash: z.string().regex(/^[a-f0-9]{64}$/),
     generatedAt: z.string().datetime(),
     population: z
       .object({
@@ -275,6 +345,7 @@ export const LabEvidencePackSchema = z
 
 export const LabMutationCandidateSchema = z
   .object({
+    provenance: DarwinProvenanceSchema,
     mutationId: LabIdentifierSchema,
     title: z.string().min(1).max(120),
     problem: z.string().min(1).max(600),
@@ -289,6 +360,7 @@ export const LabMutationCandidateSchema = z
 
 export const LabAnalysisSchema = z
   .object({
+    provenance: DarwinProvenanceSchema,
     analysisId: LabIdentifierSchema,
     experimentId: LabIdentifierSchema,
     evidencePackId: LabIdentifierSchema,
@@ -304,12 +376,15 @@ export const LabAnalysisSchema = z
 
 export const LabSelectionSchema = z
   .object({
+    provenance: DarwinProvenanceSchema,
     selectionId: LabIdentifierSchema,
     experimentId: LabIdentifierSchema,
     mutationId: LabIdentifierSchema,
     selectedAt: z.string().datetime(),
     selectedBy: z.enum(['operator', 'local-development']),
     status: z.literal('approved_for_controlled_implementation'),
+    manifestId: LabIdentifierSchema.nullable(),
+    executionId: LabIdentifierSchema.nullable(),
   })
   .strict();
 
@@ -319,8 +394,10 @@ export const LabExperimentSchema = z
     studyId: LabIdentifierSchema,
     name: z.string().min(1).max(100),
     targetUrl: z.string().url().max(512),
+    targetAppVersion: z.string().min(1).max(32),
     task: LabTaskSchema,
     populationSize: z.number().int().min(8).max(20),
+    personaAllocation: z.array(LabPersonaAllocationSchema).max(8),
     maxActions: z.number().int().min(4).max(30),
     maxDurationMs: z.number().int().min(30_000).max(600_000),
     seed: z.number().int().positive(),
@@ -334,6 +411,10 @@ export const LabExperimentSchema = z
     analysis: LabAnalysisSchema.nullable(),
     selection: LabSelectionSchema.nullable(),
     error: z.string().nullable(),
+    evidenceError: z.string().nullable(),
+    archivedAt: z.string().datetime().nullable(),
+    version: z.number().int().nonnegative(),
+    provenance: DarwinProvenanceSchema,
   })
   .strict();
 
@@ -349,7 +430,12 @@ export const LabMutationSelectionRequestSchema = z
   .object({ mutationId: LabIdentifierSchema })
   .strict();
 
+export const LabExperimentUpdateRequestSchema =
+  LabExperimentCreateRequestSchema.partial().strict();
+
 export type LabPersona = z.infer<typeof LabPersonaSchema>;
+export type LabTaskInput = z.infer<typeof LabTaskInputSchema>;
+export type LabTask = z.infer<typeof LabTaskSchema>;
 export type LabExperimentStatus = z.infer<typeof LabExperimentStatusSchema>;
 export type LabAgentActionType = z.infer<typeof LabAgentActionTypeSchema>;
 export type LabFrictionLabel = z.infer<typeof LabFrictionLabelSchema>;

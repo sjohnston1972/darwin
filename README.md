@@ -64,8 +64,9 @@ The evidence inspector shows persisted events, sessions, anonymous participants,
 
 ### Darwin Lab
 
-Darwin Lab runs an explicitly synthetic population of 8–20 inexpensive AI
-agents against the real ProjectFlow interface. Each agent receives a fresh
+Darwin Lab runs a bounded automated population of 1–20 inexpensive AI agents
+against the verified real ProjectFlow deployment in isolated Playwright browser
+contexts. Each agent receives a fresh
 browser context, an accessibility snapshot, a persona, and strict action and
 time budgets. The hidden task oracle is evaluated by the browser runner and is
 never included in the agent prompt.
@@ -87,7 +88,7 @@ Darwin and ProjectFlow are separate repositories and deployments. Darwin owns ob
 ```mermaid
 flowchart LR
   U[Measured ProjectFlow session] --> TC[Telemetry client]
-  LA[Darwin Lab agents] -->|synthetic provenance| TC
+  LA[Darwin Lab browser agents] -->|automated Darwin Lab provenance| TC
   TC --> API[Cloudflare Worker API]
   API --> D1[(Cloudflare D1)]
   D1 --> EE[Deterministic evidence engine]
@@ -132,10 +133,12 @@ npm run simulate -- --seed=1859 --variant=baseline
 It produces exactly 10,000 deterministic **synthetic** events. Scale-replay
 events never enter measured evidence and are never presented as real users.
 
-Darwin Lab is a separate synthetic proof path. Its browser events use a
-Lab-specific study ID and `source: synthetic`. After validated raw ingestion,
-those records are eligible only for Lab-specific `L-EV-*` detectors and remain
-excluded from measured study cohorts, evidence, and fitness.
+Darwin Lab is a separate real-target automated observation path. Its browser
+events use a Lab-specific study/experiment/run identity, `source: automated`,
+and immutable **Darwin Lab** provenance. After validated raw ingestion, those
+records are eligible only for Lab evidence and automated fitness; they remain
+excluded from measured human cohorts, participant counts, evidence, and fitness.
+Only the seeded 10,000-event Scale replay is called a simulation.
 
 ## Repository layout
 
@@ -271,6 +274,9 @@ This is a public Build Week proof of life, locked to one configured ProjectFlow 
 Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [open security issues](https://github.com/sjohnston1972/darwin/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity).
 
 ## Documentation
+
+- [Data retention and targeted deletion](docs/RETENTION.md)
+- [Request tracing, audit events, and log redaction](docs/OBSERVABILITY.md)
 
 - [GitHub wiki](https://github.com/sjohnston1972/darwin/wiki)
 - [Wiki source in this repository](docs/wiki/Home.md)

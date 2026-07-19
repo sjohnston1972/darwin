@@ -11,7 +11,10 @@ import {
   mergeRollbackPullRequest,
   mergeEvolutionPullRequest,
 } from './github-actions';
-import type { CodexImplementationManifest } from '@darwin/shared';
+import {
+  LegacyProvenance,
+  type CodexImplementationManifest,
+} from '@darwin/shared';
 
 describe('dispatchEvolutionWorkflow', () => {
   it('dispatches the pinned manifest without exposing the callback secret', async () => {
@@ -19,6 +22,7 @@ describe('dispatchEvolutionWorkflow', () => {
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 204 }));
     const execution = createRepositoryExecution({
+      provenance: LegacyProvenance,
       manifestId: 'manifest-test',
       manifestHash: 'a'.repeat(64),
       analysisId: 'analysis-test',
@@ -75,6 +79,8 @@ describe('dispatchEvolutionWorkflow', () => {
         execution_id: execution.executionId,
         manifest_id: execution.manifestId,
         manifest_hash: 'a'.repeat(64),
+        provenance_class: 'legacy',
+        lab_experiment_id: '',
         repository: 'sjohnston1972/projectflow',
         callback_nonce: 'callback-nonce',
       },
@@ -90,6 +96,7 @@ describe('dispatchEvolutionWorkflow', () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     const execution = {
       ...createRepositoryExecution({
+        provenance: LegacyProvenance,
         manifestId: 'manifest-merge',
         manifestHash: 'f'.repeat(64),
         analysisId: 'analysis-merge',
@@ -159,6 +166,7 @@ describe('dispatchEvolutionWorkflow', () => {
       );
     const released = {
       ...createRepositoryExecution({
+        provenance: LegacyProvenance,
         manifestId: 'manifest-rollback',
         manifestHash: 'a'.repeat(64),
         analysisId: 'analysis-rollback',

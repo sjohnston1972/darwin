@@ -49,8 +49,10 @@ export const createRepositoryExecution = (
   }
   const suffix = manifest.manifestHash.slice(0, 12);
   return RepositoryMutationExecutionSchema.parse({
+    provenance: manifest.provenance,
     executionId: `execution-${suffix}`,
     manifestId: manifest.manifestId,
+    manifestHash: manifest.manifestHash,
     analysisId: manifest.analysisId,
     repository: manifest.repository,
     status: 'prepared',
@@ -89,6 +91,7 @@ export const createRepositoryExecution = (
     createdAt,
     updatedAt: createdAt,
     completedAt: null,
+    version: 0,
   });
 };
 
