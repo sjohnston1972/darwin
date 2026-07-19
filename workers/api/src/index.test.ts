@@ -26,6 +26,7 @@ import {
 } from '@darwin/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import rootPackage from '../../../package.json';
 import {
   handleRequest,
   handleWorkerRequest,
@@ -403,9 +404,9 @@ describe('Darwin API', () => {
     );
     expect(body.service).toBe('darwin-api');
     expect(body).toMatchObject({
-      version: '0.1.0',
+      version: rootPackage.version,
       commitSha: 'local',
-      buildId: 'v0.1.0@local',
+      buildId: `v${rootPackage.version}@local`,
     });
     expect(body.retention).toMatchObject({
       status: 'healthy',
