@@ -1494,10 +1494,12 @@ describe('Darwin API', () => {
     expect(generated.evidenceClass).toBe('measured');
     expect(generated.study.attempts).toBe(1);
     expect(generated.evidenceHash).toMatch(/^[a-f0-9]{64}$/);
+    const generatedSource = generated.applicationMap.source;
+    if (!generatedSource) throw new Error('Generated evidence is unattested.');
     expect(generated.applicationMap).toMatchObject({
       source: {
         repositorySha,
-        sourceHash: generated.applicationMap.source.sourceHash,
+        sourceHash: generatedSource.sourceHash,
       },
       activeGenome: { version: repositorySha.slice(0, 12) },
     });
@@ -2570,6 +2572,46 @@ describe('Darwin API', () => {
       baselineScore: null,
       evolvedScore: null,
       delta: null,
+    });
+
+    const historicalEvidence = EvidencePackSchema.parse({
+      ...evidence,
+      generatedAt: new Date(
+        Date.parse(evidence.generatedAt) + 1_000,
+      ).toISOString(),
+      parserVersion: '1.2.0',
+      applicationMap: { ...evidence.applicationMap, source: undefined },
+    });
+    await getTelemetryRepository().saveEvidence(historicalEvidence);
+
+    const historicalLatestResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence/latest?optional=true',
+      ),
+    );
+    expect(historicalLatestResponse.status).toBe(200);
+    expect(
+      EvidencePackSchema.parse(await historicalLatestResponse.json())
+        .applicationMap.source,
+    ).toBeUndefined();
+
+    const historicalArchivesResponse = await handleRequest(
+      new Request('http://localhost/api/observations/archives?limit=10'),
+    );
+    expect(historicalArchivesResponse.status).toBe(200);
+    expect(
+      ObservationArchivesResponseSchema.parse(
+        await historicalArchivesResponse.json(),
+      ).archives,
+    ).not.toHaveLength(0);
+
+    const historicalAnalysisResponse = await handleRequest(
+      new Request(analysisPath, { method: 'POST' }),
+      liveEnv,
+    );
+    expect(historicalAnalysisResponse.status).toBe(409);
+    await expect(historicalAnalysisResponse.json()).resolves.toMatchObject({
+      error: 'evidence_source_unattested',
     });
   });
 

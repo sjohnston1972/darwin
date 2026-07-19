@@ -1,4 +1,7 @@
-import { EvidencePackSchema } from '@darwin/shared';
+import {
+  EvidenceApplicationMapSchema,
+  EvidencePackSchema,
+} from '@darwin/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -161,7 +164,7 @@ const repositorySnapshot: RepositorySnapshot = {
     productionUrl: 'https://darwin-projectflow.pages.dev/',
     studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
   },
-  applicationMap: pack.applicationMap,
+  applicationMap: EvidenceApplicationMapSchema.parse(pack.applicationMap),
   target: {
     targetId: 'projectflow',
     name: 'ProjectFlow',

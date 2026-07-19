@@ -2269,6 +2269,17 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
+    if (!pack.applicationMap.source) {
+      return json(
+        {
+          error: 'evidence_source_unattested',
+          message:
+            'Generate a new evidence pack from the verified ProjectFlow repository before requesting live reasoning.',
+        },
+        { status: 409 },
+      );
+    }
+    const evidenceSource = pack.applicationMap.source;
     const model = env?.OPENAI_MODEL || 'gpt-5.6';
     const targetConnection = await telemetryRepository.getTargetConnection();
     let repositorySnapshot: Awaited<
@@ -2287,7 +2298,7 @@ export const handleRequest = async (
             branch:
               targetConnection?.repository.branch ||
               configuredTarget(env).branch,
-            commitSha: pack.applicationMap.source.repositorySha,
+            commitSha: evidenceSource.repositorySha,
             githubToken: env?.GITHUB_TOKEN,
             productionUrl:
               targetConnection?.repository.productionUrl ||
