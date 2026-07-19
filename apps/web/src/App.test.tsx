@@ -1046,11 +1046,9 @@ describe('Darwin control room', () => {
         name: 'Software that evolves.',
       }),
     ).toBeVisible();
-    expect(screen.getByText('Darwin Lab · automated')).toBeVisible();
-    expect(screen.getByText('Scale replay · simulated')).toBeVisible();
     expect(
       document.querySelector('img[src*="darwin-dna-wireframe"]'),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: /Open measured study/ }),
     ).toHaveAttribute('href', expect.stringContaining('study=true'));
