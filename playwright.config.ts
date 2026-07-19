@@ -9,8 +9,8 @@ const darwinFixtureCommit = '0123456789abcdef0123456789abcdef01234567';
 
 process.env.VITE_APP_VERSION ??= projectFlowFixtureCommit.slice(0, 12);
 process.env.VITE_COMMIT_SHA ??= projectFlowFixtureCommit;
-process.env.VITE_DARWIN_RELEASE ??= '0.25.0-e2e';
-process.env.VITE_DARWIN_COMMIT_SHA ??= darwinFixtureCommit;
+process.env.VITE_DARWIN_RELEASE = '0.25.0-e2e';
+process.env.VITE_DARWIN_COMMIT_SHA = darwinFixtureCommit;
 
 export default defineConfig({
   testDir: './e2e',
