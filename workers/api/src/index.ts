@@ -29,11 +29,11 @@ import {
   TelemetryReceiptSchema,
   type CodexImplementationManifest,
   type DemoResetExecution,
-  type EvidenceAnalysis,
   type OperationalEvent,
   type OperationalProvider,
   type RepositoryMutationExecution,
   type SimulationResult,
+  type StoredEvidenceAnalysis,
   type StoredEvidencePack,
   type TargetApplicationConnection,
 } from '@darwin/shared';
@@ -250,7 +250,7 @@ const summarizeObservationArchive = ({
   evidence,
 }: {
   execution: RepositoryMutationExecution;
-  analysis: EvidenceAnalysis;
+  analysis: StoredEvidenceAnalysis;
   evidence: StoredEvidencePack;
 }) => {
   const terminalAttempts = evidence.taskAttempts.filter(

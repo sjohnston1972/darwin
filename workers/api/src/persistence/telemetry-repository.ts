@@ -2,6 +2,7 @@ import {
   CodexImplementationManifestSchema,
   DemoResetExecutionSchema,
   EvidenceAnalysisSchema,
+  StoredEvidenceAnalysisSchema,
   StoredEvidencePackSchema,
   EvolutionCycleSchema,
   FitnessOutcomeSchema,
@@ -26,6 +27,7 @@ import {
   type RetentionSweepResult,
   type StoredTelemetryEvent,
   type StudyTelemetryEvent,
+  type StoredEvidenceAnalysis,
   type StoredEvidencePack,
   type TargetApplicationConnection,
 } from '@darwin/shared';
@@ -121,7 +123,7 @@ export interface RepositoryExecutionPage {
 
 export interface ObservationArchiveRecord {
   execution: RepositoryMutationExecution;
-  analysis: EvidenceAnalysis;
+  analysis: StoredEvidenceAnalysis;
   evidence: StoredEvidencePack;
 }
 
@@ -1997,7 +1999,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
             row.execution_id,
           ),
           analysis: parseStoredValue(
-            EvidenceAnalysisSchema,
+            StoredEvidenceAnalysisSchema,
             row.analysis_json,
             'evidence analysis',
             row.analysis_id,
@@ -2051,7 +2053,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
         row.execution_id,
       ),
       analysis: parseStoredValue(
-        EvidenceAnalysisSchema,
+        StoredEvidenceAnalysisSchema,
         row.analysis_json,
         'evidence analysis',
         row.analysis_id,
