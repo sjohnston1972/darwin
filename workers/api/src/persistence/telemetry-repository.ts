@@ -2,7 +2,7 @@ import {
   CodexImplementationManifestSchema,
   DemoResetExecutionSchema,
   EvidenceAnalysisSchema,
-  EvidencePackSchema,
+  StoredEvidencePackSchema,
   EvolutionCycleSchema,
   FitnessOutcomeSchema,
   OperationalEventSchema,
@@ -26,6 +26,7 @@ import {
   type RetentionSweepResult,
   type StoredTelemetryEvent,
   type StudyTelemetryEvent,
+  type StoredEvidencePack,
   type TargetApplicationConnection,
 } from '@darwin/shared';
 
@@ -121,7 +122,7 @@ export interface RepositoryExecutionPage {
 export interface ObservationArchiveRecord {
   execution: RepositoryMutationExecution;
   analysis: EvidenceAnalysis;
-  evidence: EvidencePack;
+  evidence: StoredEvidencePack;
 }
 
 export interface ObservationArchivePage {
@@ -173,8 +174,8 @@ export interface TelemetryRepository {
     workspace: ProjectFlowWorkspace,
   ): Promise<void>;
   saveEvidence(pack: EvidencePack): Promise<void>;
-  getLatestEvidence(studyId: string): Promise<EvidencePack | null>;
-  getEvidence(evidenceId: string): Promise<EvidencePack | null>;
+  getLatestEvidence(studyId: string): Promise<StoredEvidencePack | null>;
+  getEvidence(evidenceId: string): Promise<StoredEvidencePack | null>;
   saveEvidenceAnalysis(
     studyId: string,
     analysis: EvidenceAnalysis,
@@ -282,8 +283,8 @@ export interface TelemetryRepository {
 
 const eventStore = new Map<string, StoredTelemetryEvent>();
 const workspaceStore = new Map<string, ProjectFlowWorkspace>();
-const evidenceStore = new Map<string, EvidencePack>();
-const evidenceByIdStore = new Map<string, EvidencePack>();
+const evidenceStore = new Map<string, StoredEvidencePack>();
+const evidenceByIdStore = new Map<string, StoredEvidencePack>();
 const evidenceAnalysisStore = new Map<
   string,
   { studyId: string; analysis: EvidenceAnalysis }
@@ -1588,7 +1589,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .first<{ evidence_pack_json: string }>();
     return row
       ? parseStoredValue(
-          EvidencePackSchema,
+          StoredEvidencePackSchema,
           row.evidence_pack_json,
           'evidence pack',
           studyId,
@@ -1605,7 +1606,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .first<{ evidence_pack_json: string }>();
     return row
       ? parseStoredValue(
-          EvidencePackSchema,
+          StoredEvidencePackSchema,
           row.evidence_pack_json,
           'evidence pack',
           evidenceId,
@@ -2002,7 +2003,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
             row.analysis_id,
           ),
           evidence: parseStoredValue(
-            EvidencePackSchema,
+            StoredEvidencePackSchema,
             row.evidence_pack_json,
             'evidence pack',
             row.evidence_id,
@@ -2056,7 +2057,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
         row.analysis_id,
       ),
       evidence: parseStoredValue(
-        EvidencePackSchema,
+        StoredEvidencePackSchema,
         row.evidence_pack_json,
         'evidence pack',
         row.evidence_id,

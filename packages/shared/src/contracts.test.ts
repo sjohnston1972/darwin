@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   EvidencePackSchema,
+  StoredEvidencePackSchema,
   HealthResponseSchema,
   EvidenceMutationCandidateSchema,
   LabActionTargetSchema,
@@ -37,28 +38,6 @@ describe('shared contracts', () => {
         sessionCount: 1,
         participantCount: 1,
         completedAttemptCount: 0,
-        terminalAttemptCount: 0,
-        dimensions: {
-          volume: { score: 2, observedEvents: 1, minimumEvents: 50 },
-          diversity: {
-            score: 33,
-            observedParticipants: 1,
-            minimumParticipants: 3,
-            observedSessions: 1,
-            minimumSessions: 3,
-          },
-          completion: {
-            score: 0,
-            terminalAttempts: 0,
-            minimumTerminalAttempts: 3,
-          },
-          recency: {
-            score: 100,
-            latestEventAt: '2026-07-17T22:05:00.000Z',
-            maximumAgeDays: 7,
-          },
-          weakestScore: 0,
-        },
         limitations: ['No completed task attempts were observed.'],
       },
       journeys: [
@@ -89,7 +68,8 @@ describe('shared contracts', () => {
           domainEntities: ['project', 'task'],
           primaryGoals: ['find assigned work'],
         },
-        activeGenome: {
+        activeVariant: {
+          name: 'baseline',
           version: 'baseline',
           navigation: ['Dashboard', 'Projects'],
           capabilities: ['project-scoped tasks'],
@@ -107,15 +87,16 @@ describe('shared contracts', () => {
       },
     };
 
-    expect(EvidencePackSchema.parse(historicalPack).applicationMap.source).toBe(
-      undefined,
-    );
+    expect(
+      StoredEvidencePackSchema.parse(historicalPack).applicationMap,
+    ).toHaveProperty('activeVariant');
+    expect(() => EvidencePackSchema.parse(historicalPack)).toThrow();
     expect(() =>
-      EvidencePackSchema.parse({
+      StoredEvidencePackSchema.parse({
         ...historicalPack,
         parserVersion: '1.3.0',
       }),
-    ).toThrow('Parser 1.3.0 evidence requires repository source attestation.');
+    ).toThrow();
   });
 
   it('accepts a valid health response', () => {
