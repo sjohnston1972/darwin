@@ -48,6 +48,13 @@ export class EvidenceVersionMismatchError extends Error {
   }
 }
 
+export class EvidenceBoundaryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EvidenceBoundaryError';
+  }
+}
+
 interface EvidenceDeploymentBoundary {
   appVersion: string | null;
   measuredCommit: string | null;
@@ -71,6 +78,7 @@ export async function buildEvidencePack(
         : left.receivedAt.localeCompare(right.receivedAt),
     );
   const appVersions = [...new Set(events.map((event) => event.appVersion))];
+  const evidenceClasses = new Set(events.map((event) => classForEvent(event)));
   if (
     appVersions.length > 1 ||
     (deploymentBoundary?.appVersion &&
@@ -78,19 +86,45 @@ export async function buildEvidencePack(
   ) {
     throw new EvidenceVersionMismatchError(appVersions);
   }
+  if (evidenceClasses.size > 1) {
+    throw new EvidenceBoundaryError(
+      'Evidence packs cannot mix measured, automated, and synthetic records.',
+    );
+  }
   const taskAttempts = reconstructAttempts(events, generatedAt);
   const candidates = detectFriction(events, taskAttempts);
   const frictionSignals = await Promise.all(
-    candidates.map((candidate) => signalFromCandidate(candidate)),
+    candidates.slice(0, 999).map((candidate) => signalFromCandidate(candidate)),
   );
   const tasks = summarizeTasks(taskAttempts);
   const evidenceClass = evidenceClassFor(events);
+  const provenance = {
+    evidenceClass:
+      evidenceClass === 'measured'
+        ? ('human_study' as const)
+        : evidenceClass === 'automated'
+          ? ('automated_study' as const)
+          : ('scale_replay' as const),
+    label:
+      evidenceClass === 'measured'
+        ? 'Human study'
+        : evidenceClass === 'automated'
+          ? 'Automated browser study'
+          : 'Scale replay',
+    labExperimentId: null,
+    taskDefinitionId: null,
+    taskDefinitionHash: null,
+    evidencePackId: null,
+    evidenceHash: null,
+    runIds: [],
+  };
   const quality = assessEvidence(events, taskAttempts, generatedAt);
   const journeys = buildJourneys(events);
   const appVersion = appVersions[0] ?? 'unknown';
   const payload = {
     parserVersion,
     evidenceClass,
+    provenance,
     study: {
       studyId,
       appVersion,
@@ -121,71 +155,91 @@ export function reconstructAttempts(
   events: StoredTelemetryEvent[],
   generatedAt: string,
 ): TaskAttempt[] {
-  const starts = events.filter((event) => event.eventType === 'task_started');
-  return starts.map((start) => {
-    const scoped = events.filter(
-      (event) =>
-        event.sessionId === start.sessionId &&
-        event.sequence >= start.sequence &&
-        ('taskAttemptId' in event
-          ? event.taskAttemptId === start.taskAttemptId
-          : true),
-    );
-    const terminal = scoped.find(
-      (
-        event,
-      ): event is Extract<
-        StoredTelemetryEvent,
-        { eventType: 'task_completed' | 'task_failed' }
-      > => terminalTypes.has(event.eventType),
-    );
-    const endSequence = terminal?.sequence ?? Number.POSITIVE_INFINITY;
-    const attemptEvents = scoped.filter(
-      (event) => event.sequence <= endSequence,
-    );
-    const elapsed = Date.parse(generatedAt) - Date.parse(start.occurredAt);
-    const outcome = terminal
-      ? terminal.eventType === 'task_completed'
-        ? 'success'
-        : terminal.outcome
-      : elapsed >= 120_000 ||
-          attemptEvents.some((event) => event.eventType === 'session_ended')
-        ? 'abandoned'
-        : 'open';
-    const durationMs = terminal
-      ? terminal.durationMs
-      : outcome === 'abandoned'
-        ? Math.max(0, elapsed)
-        : null;
-    const routePath = attemptEvents
-      .filter(
-        (event) =>
-          event.eventType === 'page_view' ||
-          event.eventType === 'route_changed',
-      )
-      .map((event) => event.route)
-      .filter(
-        (route, index, routes) => index === 0 || route !== routes[index - 1],
-      );
+  const sessions = new Map<string, StoredTelemetryEvent[]>();
+  for (const event of events) {
+    const session = sessions.get(event.sessionId) ?? [];
+    session.push(event);
+    sessions.set(event.sessionId, session);
+  }
 
-    return {
-      attemptId: start.taskAttemptId,
-      taskId: start.taskId,
-      participantId: start.participantId,
-      sessionId: start.sessionId,
-      appVersion: start.appVersion,
-      source: start.source,
-      outcome,
-      startedAt: start.occurredAt,
-      endedAt: terminal?.occurredAt ?? null,
-      durationMs,
-      interactionCount: attemptEvents.filter((event) =>
-        interactionTypes.has(event.eventType),
-      ).length,
-      routePath,
-      eventIds: attemptEvents.map((event) => event.eventId),
-    };
-  });
+  const attempts: TaskAttempt[] = [];
+  for (const sessionEvents of sessions.values()) {
+    sessionEvents.sort((left, right) => left.sequence - right.sequence);
+    const startIndexes = sessionEvents.flatMap((event, index) =>
+      event.eventType === 'task_started' ? [index] : [],
+    );
+    for (let position = 0; position < startIndexes.length; position += 1) {
+      const startIndex = startIndexes[position]!;
+      const nextStartIndex = startIndexes[position + 1] ?? sessionEvents.length;
+      const start = sessionEvents[startIndex]!;
+      if (start.eventType !== 'task_started') continue;
+      const segment = sessionEvents
+        .slice(startIndex, nextStartIndex)
+        .filter(
+          (event) =>
+            !('taskAttemptId' in event) ||
+            !event.taskAttemptId ||
+            event.taskAttemptId === start.taskAttemptId,
+        );
+      const terminal = segment.find(
+        (
+          event,
+        ): event is Extract<
+          StoredTelemetryEvent,
+          { eventType: 'task_completed' | 'task_failed' }
+        > => terminalTypes.has(event.eventType),
+      );
+      const terminalIndex = terminal ? segment.indexOf(terminal) : -1;
+      const attemptEvents =
+        terminalIndex >= 0 ? segment.slice(0, terminalIndex + 1) : segment;
+      const elapsed = Date.parse(generatedAt) - Date.parse(start.occurredAt);
+      const endedByBoundary = nextStartIndex < sessionEvents.length;
+      const endedBySession = attemptEvents.some(
+        (event) => event.eventType === 'session_ended',
+      );
+      const outcome = terminal
+        ? terminal.eventType === 'task_completed'
+          ? 'success'
+          : terminal.outcome
+        : elapsed >= 120_000 || endedByBoundary || endedBySession
+          ? 'abandoned'
+          : 'open';
+      const durationMs = terminal
+        ? terminal.durationMs
+        : outcome === 'abandoned'
+          ? Math.max(0, elapsed)
+          : null;
+      const routePath = attemptEvents
+        .filter(
+          (event) =>
+            event.eventType === 'page_view' ||
+            event.eventType === 'route_changed',
+        )
+        .map((event) => event.route)
+        .filter(
+          (route, index, routes) => index === 0 || route !== routes[index - 1],
+        );
+
+      attempts.push({
+        attemptId: start.taskAttemptId,
+        taskId: start.taskId,
+        participantId: start.participantId,
+        sessionId: start.sessionId,
+        appVersion: start.appVersion,
+        source: start.source,
+        outcome,
+        startedAt: start.occurredAt,
+        endedAt: terminal?.occurredAt ?? null,
+        durationMs,
+        interactionCount: attemptEvents.filter((event) =>
+          interactionTypes.has(event.eventType),
+        ).length,
+        routePath,
+        eventIds: attemptEvents.map((event) => event.eventId),
+      });
+    }
+  }
+  return attempts;
 }
 
 function detectFriction(
@@ -193,10 +247,18 @@ function detectFriction(
   attempts: TaskAttempt[],
 ): SignalCandidate[] {
   const candidates: SignalCandidate[] = [];
+  const eventsById = new Map(events.map((event) => [event.eventId, event]));
+  const attemptEventsById = new Map(
+    attempts.map((attempt) => [
+      attempt.attemptId,
+      attempt.eventIds.flatMap((eventId) => {
+        const event = eventsById.get(eventId);
+        return event ? [event] : [];
+      }),
+    ]),
+  );
   for (const attempt of attempts) {
-    const attemptEvents = events.filter((event) =>
-      attempt.eventIds.includes(event.eventId),
-    );
+    const attemptEvents = attemptEventsById.get(attempt.attemptId) ?? [];
     const optimum = declaredInteractionBudget[attempt.taskId] ?? 4;
     if (attempt.interactionCount >= Math.ceil(optimum * 1.5)) {
       candidates.push({
@@ -261,19 +323,15 @@ function detectFriction(
     );
     if (!successful.length) continue;
     const searchAttempts = successful.filter((attempt) =>
-      events.some(
-        (event) =>
-          attempt.eventIds.includes(event.eventId) &&
-          event.eventType === 'search_performed',
+      (attemptEventsById.get(attempt.attemptId) ?? []).some(
+        (event) => event.eventType === 'search_performed',
       ),
     );
     if (searchAttempts.length / successful.length > 0.5) {
-      const searchEvents = events.filter(
-        (event) =>
-          event.eventType === 'search_performed' &&
-          searchAttempts.some((attempt) =>
-            attempt.eventIds.includes(event.eventId),
-          ),
+      const searchEvents = searchAttempts.flatMap((attempt) =>
+        (attemptEventsById.get(attempt.attemptId) ?? []).filter(
+          (event) => event.eventType === 'search_performed',
+        ),
       );
       candidates.push({
         ruleId: 'search_dependency',
@@ -519,7 +577,7 @@ async function signalFromCandidate(
     ...(candidate.taskId ? { taskId: candidate.taskId } : {}),
     summary: candidate.summary,
     affectedAttemptIds: [...new Set(candidate.attempts)].sort(),
-    supportingEventIds: uniqueEvents.map((event) => event.eventId),
+    supportingEventIds: uniqueEvents.map((event) => event.eventId).slice(0, 50),
     trace: representativeEvents(uniqueEvents, 12).map(traceEvent),
     support: {
       events: uniqueEvents.length,
@@ -829,15 +887,17 @@ function findRepeatedTarget(events: StoredTelemetryEvent[]) {
   const clicks = events.filter(
     (event) => event.eventType === 'element_clicked',
   );
-  for (let index = 0; index < clicks.length; index += 1) {
-    const start = clicks[index]!;
-    const matches = clicks.filter(
-      (event) =>
-        targetOf(event) === targetOf(start) &&
-        Date.parse(event.occurredAt) - Date.parse(start.occurredAt) >= 0 &&
-        Date.parse(event.occurredAt) - Date.parse(start.occurredAt) <= 2_000,
+  const windows = new Map<string, StoredTelemetryEvent[]>();
+  for (const click of clicks) {
+    const target = targetOf(click);
+    if (!target) continue;
+    const occurredAt = Date.parse(click.occurredAt);
+    const recent = (windows.get(target) ?? []).filter(
+      (event) => occurredAt - Date.parse(event.occurredAt) <= 2_000,
     );
-    if (matches.length >= 3) return matches;
+    recent.push(click);
+    windows.set(target, recent);
+    if (recent.length >= 3) return recent;
   }
   return [];
 }
@@ -860,10 +920,15 @@ function medianInteger(values: number[]) {
 }
 
 function evidenceClassFor(events: StoredTelemetryEvent[]): EvidenceClass {
-  if (events.every((event) => event.source === 'automated')) return 'automated';
-  if (events.every((event) => event.source === 'synthetic')) return 'synthetic';
-  return 'measured';
+  return events[0] ? classForEvent(events[0]) : 'measured';
 }
+
+const classForEvent = (event: StoredTelemetryEvent): EvidenceClass =>
+  event.source === 'automated'
+    ? 'automated'
+    : event.source === 'synthetic'
+      ? 'synthetic'
+      : 'measured';
 
 function canonicalStringify(value: unknown): string {
   if (Array.isArray(value)) {

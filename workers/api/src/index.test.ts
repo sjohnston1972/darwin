@@ -18,6 +18,7 @@ import {
   SimulationSummarySchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
+  StudySessionIssueResponseSchema,
   StudyTelemetrySummarySchema,
   TargetApplicationConnectionSchema,
   TelemetryReceiptSchema,
@@ -25,6 +26,7 @@ import {
 } from '@darwin/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import rootPackage from '../../../package.json';
 import {
   handleRequest,
   handleWorkerRequest,
@@ -38,6 +40,7 @@ import {
 } from './persistence/telemetry-repository';
 import { retentionPolicy } from './persistence/retention';
 import { signTargetRequestForTest } from './security/auth';
+import { issueStudySession } from './security/study-session';
 import {
   hashCallbackBodyForTest,
   signExecutionCallbackForTest,
@@ -168,12 +171,51 @@ const signedTargetRequest = async (
   const sourceOrigin =
     overrides.sourceOrigin ?? 'https://darwin-projectflow.pages.dev';
   const clientKey = overrides.clientKey ?? 'signed-edge-client';
+  const method = body ? 'POST' : 'GET';
+  const bodyDigest = [
+    ...new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)),
+    ),
+  ]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
   const signature = await signTargetRequestForTest(
     secret,
-    [timestamp, targetId, sourceOrigin, clientKey, body].join('\n'),
+    [
+      method,
+      path,
+      timestamp,
+      targetId,
+      sourceOrigin,
+      clientKey,
+      bodyDigest,
+    ].join('\n'),
   );
+  let studySessionToken = overrides.studySessionToken;
+  if (!studySessionToken && path === '/api/telemetry/events' && body) {
+    const event = (JSON.parse(body) as { events?: StudyTelemetryEvent[] })
+      .events?.[0];
+    if (event) {
+      const evidenceClass = event.studyId.startsWith('projectflow-darwin-lab-')
+        ? 'darwin_lab'
+        : event.source === 'real_user'
+          ? 'human_study'
+          : 'automated_study';
+      const session = await issueStudySession(secret, {
+        studyId: event.studyId,
+        participantId: event.participantId,
+        sessionId: event.sessionId,
+        appVersion: event.appVersion,
+        evidenceClass,
+        deploymentOrigin: sourceOrigin,
+        labExperimentId: event.provenance?.labExperimentId ?? null,
+        runId: event.provenance?.runIds[0] ?? null,
+      });
+      studySessionToken = session.token;
+    }
+  }
   return new Request(`https://darwin-api.example${path}`, {
-    method: body ? 'POST' : 'GET',
+    method,
     headers: {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       'X-Darwin-Timestamp': timestamp,
@@ -181,6 +223,9 @@ const signedTargetRequest = async (
       'X-Darwin-Source-Origin': sourceOrigin,
       'X-Darwin-Client-Key': clientKey,
       'X-Darwin-Signature': overrides.signature ?? signature,
+      ...(studySessionToken
+        ? { 'X-Darwin-Study-Session': studySessionToken }
+        : {}),
     },
     ...(body ? { body } : {}),
   });
@@ -191,15 +236,32 @@ const ingestConnectedTelemetry = async (
   environment: Partial<Env> = {},
 ) => {
   const secret = 'projectflow-ingestion-test-secret';
-  const body = JSON.stringify({ events });
-  return handleRequest(
-    await signedTargetRequest('/api/telemetry/events', body, secret),
-    {
-      PROJECTFLOW_INGESTION_SECRET: secret,
-      PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
-      ...environment,
-    },
-  );
+  const configuredEnvironment = {
+    PROJECTFLOW_INGESTION_SECRET: secret,
+    PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
+    ...environment,
+  };
+  const groups = new Map<string, unknown[]>();
+  for (const event of events as StudyTelemetryEvent[]) {
+    const key = [
+      event.studyId,
+      event.participantId,
+      event.sessionId,
+      event.appVersion,
+      event.source,
+    ].join('\n');
+    groups.set(key, [...(groups.get(key) ?? []), event]);
+  }
+  let response = new Response(null, { status: 202 });
+  for (const group of groups.values()) {
+    const body = JSON.stringify({ events: group });
+    response = await handleRequest(
+      await signedTargetRequest('/api/telemetry/events', body, secret),
+      configuredEnvironment,
+    );
+    if (!response.ok) return response;
+  }
+  return response;
 };
 
 const signedCallbackRequest = async ({
@@ -342,9 +404,9 @@ describe('Darwin API', () => {
     );
     expect(body.service).toBe('darwin-api');
     expect(body).toMatchObject({
-      version: '0.1.0',
+      version: rootPackage.version,
       commitSha: 'local',
-      buildId: 'v0.1.0@local',
+      buildId: `v${rootPackage.version}@local`,
     });
     expect(body.retention).toMatchObject({
       status: 'healthy',
@@ -518,7 +580,7 @@ describe('Darwin API', () => {
           actor: 'anonymous',
           action: 'POST /api/demo/reset',
           target: '/api/demo/reset',
-          capability: 'reset',
+          capability: 'delete_data',
           outcome: 'denied',
           reason: 'unauthorized',
         }),
@@ -545,6 +607,119 @@ describe('Darwin API', () => {
     );
     expect(JSON.stringify(auditRecords)).not.toContain('operator-test-token');
     expect(JSON.stringify(auditRecords)).not.toContain('viewer-test-token');
+  });
+
+  it('issues signed study sessions and binds telemetry to their exact subject', async () => {
+    const secret = 'projectflow-ingestion-test-secret';
+    const environment = {
+      PROJECTFLOW_INGESTION_SECRET: secret,
+      PROJECTFLOW_PRODUCTION_URL: 'https://darwin-projectflow.pages.dev/',
+    };
+    const sessionBody = JSON.stringify({
+      studyId: 'projectflow-baseline-study',
+      appVersion: 'baseline',
+      evidenceClass: 'human_study',
+      labExperimentId: null,
+      runId: null,
+    });
+    const sessionResponse = await handleRequest(
+      await signedTargetRequest('/api/study-sessions', sessionBody, secret),
+      environment,
+    );
+    expect(sessionResponse.status).toBe(201);
+    const session = StudySessionIssueResponseSchema.parse(
+      await sessionResponse.json(),
+    );
+    expect(session.claims).toMatchObject({
+      studyId: 'projectflow-baseline-study',
+      appVersion: 'baseline',
+      source: 'real_user',
+      deploymentOrigin: 'https://darwin-projectflow.pages.dev',
+    });
+    expect(session.claims.participantId).toMatch(/^participant-[a-f0-9]{20}$/);
+
+    const event = {
+      ...studyEvent,
+      eventId: crypto.randomUUID(),
+      participantId: session.claims.participantId,
+      sessionId: session.claims.sessionId,
+      provenance: {
+        evidenceClass: 'human_study' as const,
+        label: 'Human study',
+        labExperimentId: null,
+        taskDefinitionId: null,
+        taskDefinitionHash: null,
+        evidencePackId: null,
+        evidenceHash: null,
+        runIds: [],
+      },
+    };
+    const acceptedBody = JSON.stringify({ events: [event] });
+    const accepted = await handleRequest(
+      await signedTargetRequest('/api/telemetry/events', acceptedBody, secret, {
+        studySessionToken: session.token,
+      }),
+      environment,
+    );
+    expect(accepted.status).toBe(202);
+
+    const mismatchedBody = JSON.stringify({
+      events: [
+        {
+          ...event,
+          eventId: crypto.randomUUID(),
+          participantId: 'participant-attacker',
+        },
+      ],
+    });
+    const mismatched = await handleRequest(
+      await signedTargetRequest(
+        '/api/telemetry/events',
+        mismatchedBody,
+        secret,
+        { studySessionToken: session.token },
+      ),
+      environment,
+    );
+    expect(mismatched.status).toBe(403);
+    await expect(mismatched.json()).resolves.toMatchObject({
+      error: 'target_context_forbidden',
+    });
+
+    for (const [label, override] of [
+      ['study', { studyId: 'projectflow-other-study' }],
+      ['session', { sessionId: 'session-fabricated-cohort' }],
+      ['version', { appVersion: '1.0.0' }],
+      ['source', { source: 'automated' as const }],
+    ] as const) {
+      const conflictingBody = JSON.stringify({
+        events: [{ ...event, ...override, eventId: crypto.randomUUID() }],
+      });
+      const conflicting = await handleRequest(
+        await signedTargetRequest(
+          '/api/telemetry/events',
+          conflictingBody,
+          secret,
+          { studySessionToken: session.token },
+        ),
+        environment,
+      );
+      expect(conflicting.status, label).toBe(403);
+      await expect(conflicting.json()).resolves.toMatchObject({
+        error: 'target_context_forbidden',
+      });
+    }
+  });
+
+  it('rejects malformed path encoding before route parameters are decoded', async () => {
+    const response = await handleRequest(
+      new Request('http://localhost/api/studies/%E0%A4%A/events'),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'invalid_path_encoding',
+    });
   });
 
   it('accepts only signed ProjectFlow telemetry with configured provenance', async () => {
@@ -1007,7 +1182,12 @@ describe('Darwin API', () => {
         headers: {
           Authorization: `Bearer ${secret}`,
           'X-Request-ID': requestId,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          confirmation: 'RESET DARWIN DEMO',
+          exportAcknowledged: true,
+        }),
       }),
       { DARWIN_OPERATOR_TOKEN: secret },
     );
@@ -1331,7 +1511,14 @@ describe('Darwin API', () => {
     expect(latest.evidenceHash).toBe(generated.evidenceHash);
 
     const resetResponse = await handleRequest(
-      new Request('http://localhost/api/demo/reset', { method: 'POST' }),
+      new Request('http://localhost/api/demo/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmation: 'RESET DARWIN DEMO',
+          exportAcknowledged: true,
+        }),
+      }),
     );
     expect(
       DemoResetResponseSchema.parse(await resetResponse.json()),
@@ -1439,7 +1626,14 @@ describe('Darwin API', () => {
     };
     const startReset = async () => {
       const response = await handleRequest(
-        new Request('http://localhost/api/demo/reset', { method: 'POST' }),
+        new Request('http://localhost/api/demo/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            confirmation: 'RESET DARWIN DEMO',
+            exportAcknowledged: true,
+          }),
+        }),
         resetEnv,
       );
       const execution = DemoResetResponseSchema.parse(await response.json());
@@ -1799,6 +1993,21 @@ describe('Darwin API', () => {
       alternativeManifest.manifestId,
     );
 
+    const regenerationAfterDispatch = await handleRequest(
+      new Request(
+        `http://localhost/api/evidence-analyses/${first.analysisId}/codex-manifest`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mutationIds: [first.selectedMutation.id] }),
+        },
+      ),
+    );
+    expect(regenerationAfterDispatch.status).toBe(409);
+    await expect(regenerationAfterDispatch.json()).resolves.toMatchObject({
+      error: 'manifest_locked',
+    });
+
     const callbackPath = `http://localhost/api/repository-executions/${execution.executionId}/callback`;
     const callbackRequest = async (
       body: Record<string, unknown>,
@@ -1836,6 +2045,20 @@ describe('Darwin API', () => {
       { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
     );
     expect(crossExecutionCallback.status).toBe(403);
+    const replacedManifestBody = JSON.stringify({ status: 'failed' });
+    const replacedManifestCallback = await handleRequest(
+      await signedCallbackRequest({
+        path: callbackPath,
+        method: 'POST',
+        body: replacedManifestBody,
+        nonce: callbackNonce,
+        executionId: execution.executionId,
+        repository: execution.repository.fullName,
+        manifestHash: manifest.manifestHash,
+      }),
+      { DARWIN_CALLBACK_TOKEN: 'callback-test-token' },
+    );
+    expect(replacedManifestCallback.status).toBe(403);
     const expiredCallback = await handleRequest(
       await callbackRequest(
         { status: 'failed' },
@@ -2413,20 +2636,26 @@ describe('Darwin API', () => {
   });
 
   it('admits only one simulation request at a time', async () => {
-    let releaseBody: ((value: string) => void) | undefined;
+    let releaseBody: (() => void) | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        releaseBody = () => {
+          controller.enqueue(
+            new TextEncoder().encode(
+              JSON.stringify({ seed: 1859, variant: 'baseline' }),
+            ),
+          );
+          controller.close();
+        };
+      },
+    });
     const firstRequest = new Request('http://localhost/api/simulations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed: 1859, variant: 'baseline' }),
-    });
-    vi.spyOn(firstRequest, 'text').mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          releaseBody = resolve;
-        }),
-    );
+      body,
+      duplex: 'half',
+    } as RequestInit);
     const firstResponsePromise = handleRequest(firstRequest);
-    await vi.waitFor(() => expect(releaseBody).toBeTypeOf('function'));
 
     const busyResponse = await handleRequest(
       new Request('http://localhost/api/simulations', {
@@ -2441,7 +2670,7 @@ describe('Darwin API', () => {
       error: 'simulation_busy',
     });
 
-    releaseBody!(JSON.stringify({ seed: 1859, variant: 'baseline' }));
+    releaseBody!();
     expect((await firstResponsePromise).status).toBe(201);
   });
 

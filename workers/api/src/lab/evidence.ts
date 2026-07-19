@@ -235,10 +235,19 @@ export async function buildLabEvidence(
     ),
   );
   const signals = buildSignals(terminalRuns);
+  const runIds = terminalRuns.map((run) => run.runId);
+  const provenance = {
+    ...experiment.provenance,
+    runIds,
+  };
   const hashInput = JSON.stringify({
+    provenance,
     experimentId: experiment.experimentId,
     seed: experiment.seed,
     taskId: experiment.task.taskId,
+    taskDefinitionId: experiment.task.taskDefinitionId,
+    taskDefinitionHash: experiment.task.definitionHash,
+    targetAppVersion: experiment.targetAppVersion,
     runs: terminalRuns.map((run) => ({
       runId: run.runId,
       persona: run.persona,
@@ -255,11 +264,18 @@ export async function buildLabEvidence(
   );
 
   return LabEvidencePackSchema.parse({
-    evidencePackId: `lab-pack-${experiment.experimentId}`,
+    evidencePackId: `lab-pack-${evidenceHash.slice(0, 16)}`,
     experimentId: experiment.experimentId,
     evidenceHash,
     parserVersion: '1.0.0',
-    evidenceClass: 'synthetic',
+    evidenceClass: 'automated',
+    provenance: {
+      ...provenance,
+      evidencePackId: `lab-pack-${evidenceHash.slice(0, 16)}`,
+      evidenceHash,
+    },
+    taskDefinitionId: experiment.task.taskDefinitionId,
+    taskDefinitionHash: experiment.task.definitionHash,
     generatedAt,
     population: {
       planned: experiment.populationSize,
@@ -285,9 +301,9 @@ export async function buildLabEvidence(
         : 0,
     },
     signals,
-    runIds: terminalRuns.map((run) => run.runId),
+    runIds,
     limitations: [
-      'This evidence was produced by synthetic AI agents, not human participants.',
+      'This evidence was produced by Darwin Lab agents operating the real target, not human participants.',
       'Agent friction labels supplement deterministic detectors and are not treated as measured user sentiment.',
       'Results apply only to the configured ProjectFlow build, task, personas, and seed.',
     ],

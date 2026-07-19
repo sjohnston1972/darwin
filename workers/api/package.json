@@ -8,7 +8,8 @@
     "simulate": "tsx src/simulation/cli.ts",
     "build": "wrangler deploy --dry-run --outdir dist",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.thresholds.lines=65 --coverage.thresholds.functions=77 --coverage.thresholds.statements=65 --coverage.thresholds.branches=72"
   },
   "dependencies": {
     "@darwin/shared": "0.1.0"
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250712.0",
     "@types/node": "^24.0.10",
+    "miniflare": "^4.20260710.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",

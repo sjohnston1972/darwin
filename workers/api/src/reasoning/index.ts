@@ -15,6 +15,7 @@ import {
   evolutionReasoningContextVersion,
 } from './generated-context';
 import type { RepositorySnapshot } from '../repository/github-source';
+import { timeOperation } from '../observability';
 
 export const evidencePromptVersion = '3.0.0' as const;
 export const codexAllowedPaths = [
@@ -464,15 +465,9 @@ function normalizeCandidateScore(
     pack.quality.dimensions.weakestScore,
     Math.round(recurrence),
   );
-  const modelDimensions = [
-    candidate.scorecard.userImpact,
-    candidate.scorecard.feasibility,
-    candidate.scorecard.validationClarity,
-  ];
-  const scale = modelDimensions.every((score) => score <= 5) ? 20 : 1;
-  const userImpact = candidate.scorecard.userImpact * scale;
-  const feasibility = candidate.scorecard.feasibility * scale;
-  const validationClarity = candidate.scorecard.validationClarity * scale;
+  const userImpact = candidate.scorecard.userImpact;
+  const feasibility = candidate.scorecard.feasibility;
+  const validationClarity = candidate.scorecard.validationClarity;
   const total = Math.round(
     evidenceStrength * 0.35 +
       userImpact * 0.25 +
@@ -521,55 +516,57 @@ async function callOpenAI(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetcher('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        store: false,
-        prompt_cache_key: `darwin-${evolutionReasoningContextVersion}-${repositorySnapshot?.context.sourceHash.slice(0, 12) ?? 'legacy'}`,
-        prompt_cache_retention: '24h',
-        reasoning: { effort: 'none' },
-        input: [
-          { role: 'system', content: evidenceAnalysisSystemPrompt },
-          { role: 'developer', content: evolutionReasoningContext },
-          ...(repositorySnapshot
-            ? [
-                {
-                  role: 'developer' as const,
-                  content: repositorySnapshot.developerContext,
-                },
-              ]
-            : []),
-          {
-            role: 'user',
-            content: JSON.stringify({
-              evidenceHash: pack.evidenceHash,
-              evidenceClass: pack.evidenceClass,
-              evidenceQuality: pack.quality,
-              taskSummaries: pack.tasks,
-              frictionSignals: pack.frictionSignals,
-              orderedJourneys: pack.journeys,
-              applicationMap: pack.applicationMap,
-            }),
-          },
-        ],
-        text: {
-          verbosity: 'low',
-          format: {
-            type: 'json_schema',
-            name: 'darwin_evidence_analysis',
-            schema: evidenceAnalysisJsonSchema,
-            strict: true,
-          },
+    const response = await timeOperation('openai', 'evidence_analysis', () =>
+      fetcher('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
-        max_output_tokens: 3_500,
+        body: JSON.stringify({
+          model,
+          store: false,
+          prompt_cache_key: `darwin-${evolutionReasoningContextVersion}-${repositorySnapshot?.context.sourceHash.slice(0, 12) ?? 'legacy'}`,
+          prompt_cache_retention: '24h',
+          reasoning: { effort: 'none' },
+          input: [
+            { role: 'system', content: evidenceAnalysisSystemPrompt },
+            { role: 'developer', content: evolutionReasoningContext },
+            ...(repositorySnapshot
+              ? [
+                  {
+                    role: 'developer' as const,
+                    content: repositorySnapshot.developerContext,
+                  },
+                ]
+              : []),
+            {
+              role: 'user',
+              content: JSON.stringify({
+                evidenceHash: pack.evidenceHash,
+                evidenceClass: pack.evidenceClass,
+                evidenceQuality: pack.quality,
+                taskSummaries: pack.tasks,
+                frictionSignals: pack.frictionSignals,
+                orderedJourneys: pack.journeys,
+                applicationMap: pack.applicationMap,
+              }),
+            },
+          ],
+          text: {
+            verbosity: 'low',
+            format: {
+              type: 'json_schema',
+              name: 'darwin_evidence_analysis',
+              schema: evidenceAnalysisJsonSchema,
+              strict: true,
+            },
+          },
+          max_output_tokens: 3_500,
+        }),
+        signal: controller.signal,
       }),
-      signal: controller.signal,
-    });
+    );
     if (!response.ok) {
       throw new EvidenceReasoningError(
         `OpenAI Responses API returned HTTP ${response.status}.`,
@@ -652,6 +649,20 @@ export async function analyseEvidence(
   }
 
   return EvidenceAnalysisSchema.parse({
+    provenance: {
+      ...(pack.provenance ?? {
+        evidenceClass: 'legacy' as const,
+        label: 'Unknown / legacy',
+        labExperimentId: null,
+        taskDefinitionId: null,
+        taskDefinitionHash: null,
+        evidencePackId: null,
+        evidenceHash: null,
+        runIds: [],
+      }),
+      evidencePackId: pack.evidenceId,
+      evidenceHash: pack.evidenceHash,
+    },
     analysisId: `analysis-${cacheKey.slice(0, 12)}`,
     evidenceId: pack.evidenceId,
     evidenceHash: pack.evidenceHash,
@@ -675,8 +686,40 @@ export async function analyseEvidence(
       ...validated.evidenceAssessment,
       quality: pack.quality,
     },
-    selectedMutation: validated.selectedMutation,
-    alternatives: validated.alternatives,
+    selectedMutation: {
+      ...validated.selectedMutation,
+      provenance: {
+        ...(pack.provenance ?? {
+          evidenceClass: 'legacy' as const,
+          label: 'Unknown / legacy',
+          labExperimentId: null,
+          taskDefinitionId: null,
+          taskDefinitionHash: null,
+          evidencePackId: null,
+          evidenceHash: null,
+          runIds: [],
+        }),
+        evidencePackId: pack.evidenceId,
+        evidenceHash: pack.evidenceHash,
+      },
+    },
+    alternatives: validated.alternatives.map((mutation) => ({
+      ...mutation,
+      provenance: {
+        ...(pack.provenance ?? {
+          evidenceClass: 'legacy' as const,
+          label: 'Unknown / legacy',
+          labExperimentId: null,
+          taskDefinitionId: null,
+          taskDefinitionHash: null,
+          evidencePackId: null,
+          evidenceHash: null,
+          runIds: [],
+        }),
+        evidencePackId: pack.evidenceId,
+        evidenceHash: pack.evidenceHash,
+      },
+    })),
     unsupportedIdeasRejected: validated.unsupportedIdeasRejected,
   });
 }
@@ -703,6 +746,7 @@ export async function buildCodexManifest(
           )
           .join('\n\n');
   const payload = {
+    ...(analysis.provenance ? { provenance: analysis.provenance } : {}),
     analysisId: analysis.analysisId,
     mutationId: mutationIds[0]!,
     mutationIds,

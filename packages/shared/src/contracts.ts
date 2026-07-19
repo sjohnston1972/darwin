@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { DarwinProvenanceSchema } from './provenance';
+
 export const PersonaSchema = z.enum([
   'project_manager',
   'developer',
@@ -82,6 +84,7 @@ const StudyEventBaseSchema = z
     studyId: StudyIdentifierSchema,
     appVersion: z.string().min(1).max(32),
     source: StudyTelemetrySourceSchema,
+    provenance: DarwinProvenanceSchema.optional(),
     occurredAt: z.string().datetime(),
     sequence: z.number().int().nonnegative(),
     route: StudyRouteSchema,
@@ -441,6 +444,57 @@ export const StudySessionResponseSchema = z.object({
   events: z.array(StoredTelemetryEventSchema),
 });
 
+export const StudyEvidenceClassSchema = z.enum([
+  'human_study',
+  'automated_study',
+  'darwin_lab',
+]);
+
+export const StudySessionIssueRequestSchema = z
+  .object({
+    studyId: StudyIdentifierSchema,
+    appVersion: z.string().min(1).max(32),
+    evidenceClass: StudyEvidenceClassSchema,
+    labExperimentId: StudyIdentifierSchema.nullable().default(null),
+    runId: StudyIdentifierSchema.nullable().default(null),
+  })
+  .strict()
+  .superRefine((request, context) => {
+    const hasLabIdentity = Boolean(request.labExperimentId && request.runId);
+    if ((request.evidenceClass === 'darwin_lab') !== hasLabIdentity) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Darwin Lab sessions require an experiment and run identity.',
+      });
+    }
+  });
+
+export const StudySessionClaimsSchema = z
+  .object({
+    version: z.literal(1),
+    studyId: StudyIdentifierSchema,
+    participantId: StudyIdentifierSchema,
+    sessionId: StudyIdentifierSchema,
+    appVersion: z.string().min(1).max(32),
+    evidenceClass: StudyEvidenceClassSchema,
+    source: z.enum(['real_user', 'automated']),
+    targetId: z.literal('projectflow'),
+    deploymentOrigin: z.string().url(),
+    labExperimentId: StudyIdentifierSchema.nullable(),
+    runId: StudyIdentifierSchema.nullable(),
+    issuedAt: z.number().int().nonnegative(),
+    expiresAt: z.number().int().positive(),
+  })
+  .strict();
+
+export const StudySessionIssueResponseSchema = z
+  .object({
+    token: z.string().min(32).max(4_096),
+    claims: StudySessionClaimsSchema,
+    expiresAt: z.string().datetime(),
+  })
+  .strict();
+
 export const ProjectFlowProjectSchema = z.object({
   id: StudyIdentifierSchema,
   name: z.string().min(1).max(120),
@@ -656,6 +710,7 @@ export const EvidencePackSchema = z.object({
   generatedAt: z.string().datetime(),
   parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0', '1.3.0']),
   evidenceClass: EvidenceClassSchema,
+  provenance: DarwinProvenanceSchema.optional(),
   study: z.object({
     studyId: StudyIdentifierSchema,
     appVersion: z.string().min(1),
@@ -679,6 +734,7 @@ export const EvidencePackSchema = z.object({
 });
 
 export const EvidenceMutationCandidateSchema = z.object({
+  provenance: DarwinProvenanceSchema.optional(),
   id: StudyIdentifierSchema,
   title: z.string().min(1),
   problem: z.string().min(1),
@@ -784,6 +840,7 @@ export const TargetApplicationConnectionSchema = z.object({
 });
 
 export const EvidenceAnalysisSchema = z.object({
+  provenance: DarwinProvenanceSchema.optional(),
   analysisId: StudyIdentifierSchema,
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -818,6 +875,7 @@ export const EvidenceAnalysisSchema = z.object({
 });
 
 export const CodexImplementationManifestSchema = z.object({
+  provenance: DarwinProvenanceSchema.optional(),
   manifestId: StudyIdentifierSchema,
   manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
   analysisId: StudyIdentifierSchema,
@@ -912,6 +970,13 @@ export const SimulationCreateResponseSchema = z.object({
   run: SimulationRunSchema,
   summary: SimulationSummarySchema,
 });
+
+export const DemoResetRequestSchema = z
+  .object({
+    confirmation: z.literal('RESET DARWIN DEMO'),
+    exportAcknowledged: z.literal(true),
+  })
+  .strict();
 
 export const RepositoryExecutionStatusSchema = z.enum([
   'prepared',
@@ -1029,9 +1094,14 @@ export const RepositoryRollbackSchema = z.object({
 });
 
 export const RepositoryMutationExecutionSchema = z.object({
+  provenance: DarwinProvenanceSchema.optional(),
   executionId: StudyIdentifierSchema,
   revision: z.number().int().nonnegative().default(0),
   manifestId: StudyIdentifierSchema,
+  manifestHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   analysisId: StudyIdentifierSchema,
   repository: RepositoryContextSchema,
   status: RepositoryExecutionStatusSchema,
@@ -1104,6 +1174,7 @@ export const RepositoryRollbackSummarySchema = RepositoryRollbackSchema.pick({
 
 export const RepositoryExecutionSummarySchema =
   RepositoryMutationExecutionSchema.pick({
+    provenance: true,
     executionId: true,
     manifestId: true,
     analysisId: true,
@@ -1205,6 +1276,7 @@ export const ObservationArchiveSchema = z.object({
   evidence: EvidencePackSchema,
   analysis: EvidenceAnalysisSchema,
   execution: RepositoryMutationExecutionSchema.pick({
+    provenance: true,
     executionId: true,
     manifestId: true,
     status: true,
@@ -1216,6 +1288,7 @@ export const ObservationArchiveSchema = z.object({
 export const ObservationArchiveSummarySchema = z.object({
   archiveId: StudyIdentifierSchema,
   evidence: EvidencePackSchema.pick({
+    provenance: true,
     evidenceId: true,
     evidenceHash: true,
     generatedAt: true,
@@ -1231,16 +1304,19 @@ export const ObservationArchiveSummarySchema = z.object({
     }),
   }),
   analysis: EvidenceAnalysisSchema.pick({
+    provenance: true,
     analysisId: true,
     model: true,
     createdAt: true,
   }).extend({
     selectedMutation: EvidenceMutationCandidateSchema.pick({
+      provenance: true,
       id: true,
       title: true,
     }),
   }),
   execution: RepositoryMutationExecutionSchema.pick({
+    provenance: true,
     executionId: true,
     manifestId: true,
     status: true,
@@ -1394,6 +1470,14 @@ export type StoredTelemetryEvent = z.infer<typeof StoredTelemetryEventSchema>;
 export type StudyEventsResponse = z.infer<typeof StudyEventsResponseSchema>;
 export type StudyTelemetrySummary = z.infer<typeof StudyTelemetrySummarySchema>;
 export type StudySessionResponse = z.infer<typeof StudySessionResponseSchema>;
+export type StudyEvidenceClass = z.infer<typeof StudyEvidenceClassSchema>;
+export type StudySessionIssueRequest = z.infer<
+  typeof StudySessionIssueRequestSchema
+>;
+export type StudySessionClaims = z.infer<typeof StudySessionClaimsSchema>;
+export type StudySessionIssueResponse = z.infer<
+  typeof StudySessionIssueResponseSchema
+>;
 export type ProjectFlowProject = z.infer<typeof ProjectFlowProjectSchema>;
 export type ProjectFlowTask = z.infer<typeof ProjectFlowTaskSchema>;
 export type ProjectFlowWorkspace = z.infer<typeof ProjectFlowWorkspaceSchema>;

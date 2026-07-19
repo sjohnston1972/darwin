@@ -3,33 +3,31 @@ import {
   CodexManifestRequestSchema,
   DemoResetCallbackSchema,
   DemoResetExecutionSchema,
+  DemoResetRequestSchema,
   DemoResetResponseSchema,
-  DiagnosticsResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
   FitnessOutcomeSchema,
   GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
+  LabExperimentSchema,
   ObservationArchiveDetailResponseSchema,
   ObservationArchivesResponseSchema,
-  OperationalTelemetryMetricsSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
   RepositoryMutationExecutionSchema,
   RepositoryRollbackCallbackSchema,
-  RetentionDeletionResponseSchema,
-  RetentionSweepResultSchema,
   SimulationRequestSchema,
-  StudyIdentifierSchema,
   StudyEventsResponseSchema,
   StudySessionResponseSchema,
+  StudySessionIssueRequestSchema,
   StudyTelemetrySummarySchema,
   StudyTelemetryEventSchema,
   TargetApplicationConnectionSchema,
   TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
-  type HealthResponse,
+  type CodexImplementationManifest,
   type DemoResetExecution,
   type EvidenceAnalysis,
   type EvidencePack,
@@ -64,6 +62,7 @@ import {
   updateRepositoryRollback,
   updateRepositoryExecution,
 } from './repository/execution';
+import { forceFailStrandedExecution } from './repository/recovery';
 import {
   GitHubMergeStateUnknownError,
   dispatchRollbackWorkflow,
@@ -99,7 +98,14 @@ import {
   e2eFixturesEnabled,
 } from './testing/e2e-fixtures';
 import { handleLabRequest } from './lab/handler';
+import { handleOperationalRoutes } from './routes/operations';
 import { getLabRepository } from './lab/lab-repository';
+import {
+  anonymousStudyParticipantId,
+  issueStudySession,
+  verifyStudySessionToken,
+} from './security/study-session';
+import { PayloadTooLargeError, readBoundedBody } from './security/bounded-body';
 
 export interface Env {
   DB?: D1Database;
@@ -139,9 +145,13 @@ export interface Env {
 }
 
 const defaultCorsHeaders = {
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+  'Access-Control-Allow-Headers':
+    'Content-Type, Authorization, X-Request-ID, X-Darwin-Study-Session',
   'Access-Control-Expose-Headers': 'X-Request-ID',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
 };
 
 const openAIKey = (env?: Partial<Env>) =>
@@ -173,6 +183,7 @@ const checkSummary = (checks: RepositoryMutationExecution['checks']) => ({
 });
 
 const summarizeExecution = (execution: RepositoryMutationExecution) => ({
+  ...(execution.provenance ? { provenance: execution.provenance } : {}),
   executionId: execution.executionId,
   manifestId: execution.manifestId,
   analysisId: execution.analysisId,
@@ -212,6 +223,18 @@ const summarizeExecution = (execution: RepositoryMutationExecution) => ({
   completedAt: execution.completedAt,
 });
 
+const manifestMatchesExecution = (
+  manifest: CodexImplementationManifest,
+  execution: RepositoryMutationExecution,
+) =>
+  manifest.manifestId === execution.manifestId &&
+  (!execution.manifestHash ||
+    manifest.manifestHash === execution.manifestHash) &&
+  manifest.repository?.fullName === execution.repository.fullName &&
+  manifest.repository?.baseSha === execution.baseSha &&
+  JSON.stringify(manifest.provenance ?? null) ===
+    JSON.stringify(execution.provenance ?? null);
+
 const median = (values: number[]) => {
   if (!values.length) return null;
   const ordered = [...values].sort((left, right) => left - right);
@@ -236,6 +259,7 @@ const summarizeObservationArchive = ({
   return {
     archiveId: execution.executionId,
     evidence: {
+      ...(evidence.provenance ? { provenance: evidence.provenance } : {}),
       evidenceId: evidence.evidenceId,
       evidenceHash: evidence.evidenceHash,
       generatedAt: evidence.generatedAt,
@@ -257,15 +281,20 @@ const summarizeObservationArchive = ({
       },
     },
     analysis: {
+      ...(analysis.provenance ? { provenance: analysis.provenance } : {}),
       analysisId: analysis.analysisId,
       model: analysis.model,
       createdAt: analysis.createdAt,
       selectedMutation: {
+        ...(analysis.selectedMutation.provenance
+          ? { provenance: analysis.selectedMutation.provenance }
+          : {}),
         id: analysis.selectedMutation.id,
         title: analysis.selectedMutation.title,
       },
     },
     execution: {
+      ...(execution.provenance ? { provenance: execution.provenance } : {}),
       executionId: execution.executionId,
       manifestId: execution.manifestId,
       status: execution.status,
@@ -470,7 +499,7 @@ const targetProvenanceAllowed = (
   return (
     (event.studyId === measuredStudy && event.source === 'real_user') ||
     (event.studyId === automatedStudy && event.source === 'automated') ||
-    (event.studyId.startsWith(`${labStudy}-`) && event.source === 'synthetic')
+    (event.studyId.startsWith(`${labStudy}-`) && event.source === 'automated')
   );
 };
 
@@ -713,6 +742,18 @@ export const handleRequest = async (
   const providerFetch = (
     pack?: Parameters<typeof createE2EBoundaryFetch>[0],
   ) => (useE2EFixtures ? createE2EBoundaryFetch(pack) : undefined);
+
+  try {
+    decodeURI(pathname);
+  } catch {
+    return json(
+      {
+        error: 'invalid_path_encoding',
+        message: 'The request path contains invalid percent encoding.',
+      },
+      { status: 400 },
+    );
+  }
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -984,29 +1025,183 @@ export const handleRequest = async (
     }
   };
 
-  if (request.method === 'GET' && pathname === '/api/health') {
-    const version = env?.DARWIN_RELEASE || rootPackage.version;
-    const commitSha = env?.DARWIN_COMMIT_SHA || 'local';
-    const response: HealthResponse = {
-      status: 'ok',
-      service: 'darwin-api',
-      version,
-      commitSha,
-      buildId: `v${version}@${commitSha.slice(0, 7)}`,
-      retention: await telemetryRepository.getRetentionHealth(
-        activeRetentionPolicy,
-        new Date().toISOString(),
-      ),
-      analysis: {
-        mode: 'live',
-        model: env?.OPENAI_MODEL || 'gpt-5.6',
-        liveModelAvailable:
-          env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
-      },
-      timestamp: new Date().toISOString(),
-    };
+  const operationalResponse = await handleOperationalRoutes({
+    request,
+    url,
+    repository: telemetryRepository,
+    json,
+    requestId: trace.requestId,
+    retentionPolicy: activeRetentionPolicy,
+    release: env?.DARWIN_RELEASE || rootPackage.version,
+    commitSha: env?.DARWIN_COMMIT_SHA || 'local',
+    model: env?.OPENAI_MODEL || 'gpt-5.6',
+    liveModelAvailable:
+      env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
+  });
+  if (operationalResponse) return operationalResponse;
 
-    return json(response);
+  if (request.method === 'POST' && pathname === '/api/study-sessions') {
+    let body: string;
+    try {
+      body = await readBoundedBody(request, 16_384);
+    } catch (error) {
+      return json(
+        error instanceof PayloadTooLargeError
+          ? {
+              error: 'payload_too_large',
+              message: 'Study-session request is too large.',
+            }
+          : {
+              error: 'invalid_request_body',
+              message: 'Study-session request could not be read.',
+            },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
+      );
+    }
+    const targetAuthorization = await authorizeTargetRequest(
+      request,
+      body,
+      env,
+    );
+    if (!targetAuthorization.ok) {
+      logAuthorizationDecision(
+        trace,
+        'target',
+        false,
+        targetAuthorization.error,
+      );
+      return json(
+        {
+          error: targetAuthorization.error,
+          message: targetAuthorization.message,
+        },
+        { status: targetAuthorization.status },
+      );
+    }
+    logAuthorizationDecision(trace, 'target', true);
+    const targetSignature = request.headers.get('X-Darwin-Signature');
+    if (
+      targetSignature &&
+      !(await telemetryRepository.consumeTargetRequestSignature(
+        targetSignature.toLowerCase(),
+        new Date().toISOString(),
+      ))
+    ) {
+      return json(
+        {
+          error: 'target_request_replayed',
+          message: 'Study-session request replay rejected.',
+        },
+        { status: 409 },
+      );
+    }
+    let input: ReturnType<typeof StudySessionIssueRequestSchema.parse>;
+    try {
+      input = StudySessionIssueRequestSchema.parse(JSON.parse(body));
+    } catch {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Study-session context is invalid.',
+        },
+        { status: 400 },
+      );
+    }
+    const measuredStudy =
+      env?.PROJECTFLOW_STUDY_ID || 'projectflow-baseline-study';
+    const automatedStudy =
+      env?.PROJECTFLOW_AUTOMATED_STUDY_ID ||
+      'projectflow-baseline-automated-study';
+    let participantId: string;
+    let sessionId: string | undefined;
+    if (input.evidenceClass === 'human_study') {
+      if (input.studyId !== measuredStudy) {
+        return json(
+          {
+            error: 'study_session_context_forbidden',
+            message: 'Human study context is not configured.',
+          },
+          { status: 403 },
+        );
+      }
+      participantId = await anonymousStudyParticipantId(
+        targetAuthorization.identity.clientKey,
+        input.studyId,
+        input.appVersion,
+        input.evidenceClass,
+      );
+    } else if (input.evidenceClass === 'automated_study') {
+      if (input.studyId !== automatedStudy) {
+        return json(
+          {
+            error: 'study_session_context_forbidden',
+            message: 'Automated study context is not configured.',
+          },
+          { status: 403 },
+        );
+      }
+      participantId = await anonymousStudyParticipantId(
+        targetAuthorization.identity.clientKey,
+        input.studyId,
+        input.appVersion,
+        input.evidenceClass,
+      );
+    } else {
+      const experiment = input.labExperimentId
+        ? await getLabRepository(env?.DB).getExperiment(input.labExperimentId)
+        : null;
+      const run = experiment?.runs.find(
+        (candidate) => candidate.runId === input.runId,
+      );
+      if (
+        !experiment ||
+        !run ||
+        experiment.studyId !== input.studyId ||
+        experiment.targetAppVersion !== input.appVersion ||
+        new URL(experiment.targetUrl).origin !==
+          targetAuthorization.identity.sourceOrigin
+      ) {
+        return json(
+          {
+            error: 'study_session_context_forbidden',
+            message:
+              'Darwin Lab session does not match an active immutable run.',
+          },
+          { status: 403 },
+        );
+      }
+      participantId = run.participantId;
+      sessionId = run.sessionId;
+    }
+    const localRequest = ['localhost', '127.0.0.1', '::1'].includes(
+      url.hostname,
+    );
+    const secret =
+      env?.PROJECTFLOW_INGESTION_SECRET ||
+      (localRequest ? 'darwin-local-study-session' : undefined);
+    if (!secret) {
+      return json(
+        {
+          error: 'study_session_unavailable',
+          message: 'Study-session signing is not configured.',
+        },
+        { status: 503 },
+      );
+    }
+    const issued = await issueStudySession(secret, {
+      studyId: input.studyId,
+      participantId,
+      sessionId,
+      appVersion: input.appVersion,
+      evidenceClass: input.evidenceClass,
+      deploymentOrigin: targetAuthorization.identity.sourceOrigin,
+      labExperimentId: input.labExperimentId,
+      runId: input.runId,
+    });
+    return json(issued, {
+      status: 201,
+      headers: { 'Cache-Control': 'no-store' },
+    });
   }
 
   const labResponse = await handleLabRequest(
@@ -1016,129 +1211,6 @@ export const handleRequest = async (
     operatorIdentity,
   );
   if (labResponse) return labResponse;
-
-  if (request.method === 'GET' && pathname === '/api/diagnostics') {
-    const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
-    const limit = Number.isFinite(requestedLimit)
-      ? Math.min(100, Math.max(1, Math.round(requestedLimit)))
-      : 50;
-    const [events, metrics] = await Promise.all([
-      telemetryRepository.listOperationalAuditEvents(limit),
-      telemetryRepository.summarizeOperationalMetrics(100),
-    ]);
-    return json(
-      DiagnosticsResponseSchema.parse({
-        requestId: trace.requestId,
-        generatedAt: new Date().toISOString(),
-        retentionDays: 30,
-        events,
-        metrics,
-      }),
-    );
-  }
-
-  if (request.method === 'GET' && pathname === '/api/operations/metrics') {
-    const metrics = await telemetryRepository.getOperationalMetrics();
-    return json(
-      OperationalTelemetryMetricsSchema.parse({
-        updatedAt: metrics.updatedAt,
-        ...metrics.counts,
-      }),
-    );
-  }
-
-  if (request.method === 'POST' && pathname === '/api/retention/sweep') {
-    return json(
-      RetentionSweepResultSchema.parse(
-        await telemetryRepository.runRetentionSweep(
-          activeRetentionPolicy,
-          new Date().toISOString(),
-        ),
-      ),
-    );
-  }
-
-  const participantDeletionMatch = pathname.match(
-    /^\/api\/studies\/([^/]+)\/participants\/([^/]+)$/,
-  );
-  if (request.method === 'DELETE' && participantDeletionMatch) {
-    const studyId = StudyIdentifierSchema.safeParse(
-      decodeURIComponent(participantDeletionMatch[1]!),
-    );
-    const participantId = StudyIdentifierSchema.safeParse(
-      decodeURIComponent(participantDeletionMatch[2]!),
-    );
-    if (!studyId.success || !participantId.success) {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Study and participant identifiers are invalid.',
-        },
-        { status: 400 },
-      );
-    }
-    return json(
-      RetentionDeletionResponseSchema.parse({
-        status: 'deleted',
-        scope: 'participant',
-        studyId: studyId.data,
-        participantId: participantId.data,
-        deleted: await telemetryRepository.deleteParticipant(
-          studyId.data,
-          participantId.data,
-        ),
-      }),
-    );
-  }
-
-  const studyDeletionMatch = pathname.match(/^\/api\/studies\/([^/]+)$/);
-  if (request.method === 'DELETE' && studyDeletionMatch) {
-    const studyId = StudyIdentifierSchema.safeParse(
-      decodeURIComponent(studyDeletionMatch[1]!),
-    );
-    if (!studyId.success) {
-      return json(
-        { error: 'invalid_request', message: 'Study identifier is invalid.' },
-        { status: 400 },
-      );
-    }
-    return json(
-      RetentionDeletionResponseSchema.parse({
-        status: 'deleted',
-        scope: 'study',
-        studyId: studyId.data,
-        deleted: await telemetryRepository.deleteStudy(studyId.data),
-      }),
-    );
-  }
-
-  const executionDeletionMatch = pathname.match(
-    /^\/api\/repository-executions\/([^/]+)\/artifacts$/,
-  );
-  if (request.method === 'DELETE' && executionDeletionMatch) {
-    const executionId = StudyIdentifierSchema.safeParse(
-      decodeURIComponent(executionDeletionMatch[1]!),
-    );
-    if (!executionId.success) {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Execution identifier is invalid.',
-        },
-        { status: 400 },
-      );
-    }
-    return json(
-      RetentionDeletionResponseSchema.parse({
-        status: 'deleted',
-        scope: 'execution',
-        executionId: executionId.data,
-        deleted: await telemetryRepository.deleteExecutionArtifacts(
-          executionId.data,
-        ),
-      }),
-    );
-  }
 
   if (request.method === 'GET' && pathname === '/api/genome') {
     try {
@@ -1261,8 +1333,17 @@ export const handleRequest = async (
     trace.beforeState = 'disconnected';
     let input: unknown;
     try {
-      input = await request.json();
-    } catch {
+      input = JSON.parse(await readBoundedBody(request, 16_000));
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Target request is too large.',
+          },
+          { status: 413 },
+        );
+      }
       return json(
         { error: 'invalid_request', message: 'Request body must be JSON.' },
         { status: 400 },
@@ -1431,8 +1512,16 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    const body = await request.text();
-    if (new TextEncoder().encode(body).byteLength > 32_000) {
+    let body: string;
+    try {
+      body = await readBoundedBody(request, 32_000);
+    } catch (error) {
+      if (!(error instanceof PayloadTooLargeError)) {
+        return json(
+          { error: 'invalid_callback', message: 'Callback body is invalid.' },
+          { status: 400 },
+        );
+      }
       return json(
         { error: 'payload_too_large', message: 'Callback body is too large.' },
         { status: 413 },
@@ -1506,6 +1595,38 @@ export const handleRequest = async (
 
   if (request.method === 'POST' && pathname === '/api/demo/reset') {
     trace.beforeState = 'active_cycle';
+    let resetRequest: unknown;
+    try {
+      resetRequest = JSON.parse(await readBoundedBody(request, 16_000));
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Reset request is too large.',
+          },
+          { status: 413 },
+        );
+      }
+      return json(
+        {
+          error: 'invalid_reset_confirmation',
+          message:
+            'Reset requires the exact confirmation and export acknowledgement.',
+        },
+        { status: 400 },
+      );
+    }
+    if (!DemoResetRequestSchema.safeParse(resetRequest).success) {
+      return json(
+        {
+          error: 'invalid_reset_confirmation',
+          message:
+            'Reset requires the exact confirmation and export acknowledgement.',
+        },
+        { status: 400 },
+      );
+    }
     const active = await telemetryRepository.getLatestResetExecution();
     if (active && !['complete', 'failed'].includes(active.status)) {
       trace.afterState = active.status;
@@ -1587,21 +1708,11 @@ export const handleRequest = async (
   }
 
   if (request.method === 'POST' && pathname === '/api/telemetry/events') {
-    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-    if (contentLength > 256_000) {
-      return json(
-        {
-          error: 'payload_too_large',
-          message: 'Telemetry batch is too large.',
-        },
-        { status: 413 },
-      );
-    }
-
     let body: string;
     try {
-      body = await request.text();
-      if (new TextEncoder().encode(body).byteLength > 256_000) {
+      body = await readBoundedBody(request, 256_000);
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
         return json(
           {
             error: 'payload_too_large',
@@ -1610,7 +1721,6 @@ export const handleRequest = async (
           { status: 413 },
         );
       }
-    } catch {
       return json(
         {
           error: 'invalid_request_body',
@@ -1680,6 +1790,36 @@ export const handleRequest = async (
       );
     }
 
+    const suppliedStudySession = request.headers.get('X-Darwin-Study-Session');
+    const localRequest = ['localhost', '127.0.0.1', '::1'].includes(
+      url.hostname,
+    );
+    const studySessionSecret =
+      env?.PROJECTFLOW_INGESTION_SECRET ||
+      (suppliedStudySession && localRequest
+        ? 'darwin-local-study-session'
+        : undefined);
+    const studySessionVerification = studySessionSecret
+      ? await verifyStudySessionToken(suppliedStudySession, studySessionSecret)
+      : null;
+    if (studySessionVerification && !studySessionVerification.ok) {
+      await telemetryRepository.incrementOperationalMetrics(
+        { contextRejected: 1 },
+        new Date().toISOString(),
+      );
+      return json(
+        {
+          error: studySessionVerification.error,
+          message: studySessionVerification.message,
+        },
+        { status: 401 },
+      );
+    }
+    const studySessionClaims =
+      studySessionVerification?.ok === true
+        ? studySessionVerification.claims
+        : null;
+
     let input: unknown;
     try {
       input = JSON.parse(body);
@@ -1740,9 +1880,59 @@ export const handleRequest = async (
           targetAuthorization.identity.sourceOrigin,
           targetConnection.ingestion.allowedOrigins,
         ));
+    let labSessionExperiment = null as Awaited<
+      ReturnType<ReturnType<typeof getLabRepository>['getExperiment']>
+    >;
+    if (
+      studySessionClaims?.evidenceClass === 'darwin_lab' &&
+      studySessionClaims.labExperimentId
+    ) {
+      labSessionExperiment = await getLabRepository(env?.DB).getExperiment(
+        studySessionClaims.labExperimentId,
+      );
+    }
+    const sessionContextAllowed = (event: (typeof parsedEvents)[number]) => {
+      if (!studySessionClaims) return true;
+      const expectedProvenanceClass =
+        studySessionClaims.evidenceClass === 'human_study'
+          ? 'human_study'
+          : studySessionClaims.evidenceClass === 'automated_study'
+            ? 'automated_study'
+            : 'darwin_lab';
+      if (
+        event.studyId !== studySessionClaims.studyId ||
+        event.participantId !== studySessionClaims.participantId ||
+        event.sessionId !== studySessionClaims.sessionId ||
+        event.appVersion !== studySessionClaims.appVersion ||
+        event.source !== studySessionClaims.source ||
+        targetAuthorization.identity.targetId !== studySessionClaims.targetId ||
+        targetAuthorization.identity.sourceOrigin !==
+          studySessionClaims.deploymentOrigin ||
+        (event.provenance !== undefined &&
+          event.provenance.evidenceClass !== expectedProvenanceClass)
+      ) {
+        return false;
+      }
+      if (studySessionClaims.evidenceClass !== 'darwin_lab') return true;
+      const run = labSessionExperiment?.runs.find(
+        (candidate) => candidate.runId === studySessionClaims.runId,
+      );
+      return Boolean(
+        labSessionExperiment &&
+        run &&
+        event.provenance?.labExperimentId ===
+          labSessionExperiment.experimentId &&
+        event.provenance?.taskDefinitionId ===
+          labSessionExperiment.task.taskDefinitionId &&
+        event.provenance?.taskDefinitionHash ===
+          labSessionExperiment.task.definitionHash &&
+        event.provenance?.runIds.includes(run.runId),
+      );
+    };
     const events = parsedEvents.filter(
       (event) =>
         scopedOriginAllowed &&
+        sessionContextAllowed(event) &&
         targetProvenanceAllowed(event, env) &&
         (scopedStudies.has(event.studyId) || isLabStudy(event.studyId, env)) &&
         isAllowedTargetVersion(
@@ -1886,9 +2076,9 @@ export const handleRequest = async (
     if (isLabStudy(studyId, env)) {
       return json(
         {
-          error: 'synthetic_evidence_boundary',
+          error: 'lab_evidence_boundary',
           message:
-            'Darwin Lab telemetry can be analysed only through its synthetic evidence pack.',
+            'Darwin Lab observations can be analysed only through their automated Lab evidence pack.',
         },
         { status: 409 },
       );
@@ -1901,13 +2091,12 @@ export const handleRequest = async (
         { status: 400 },
       );
     }
-    const events = (
-      await telemetryRepository.listEvents(
-        studyId,
-        10_000,
-        cycle.studyId === studyId ? cycle.startedAt : null,
-      )
-    ).filter((event) => event.source === source);
+    const events = await telemetryRepository.listEvents(
+      studyId,
+      10_000,
+      cycle.studyId === studyId ? cycle.startedAt : null,
+      source,
+    );
     if (!events.length) {
       return json(
         {
@@ -2058,7 +2247,7 @@ export const handleRequest = async (
     if (isLabStudy(studyId, env)) {
       return json(
         {
-          error: 'synthetic_evidence_boundary',
+          error: 'lab_evidence_boundary',
           message:
             'Darwin Lab telemetry cannot enter the measured reasoning workflow.',
         },
@@ -2249,9 +2438,18 @@ export const handleRequest = async (
       }
       let input: unknown = {};
       try {
-        const text = await request.text();
+        const text = await readBoundedBody(request, 16_000);
         input = text ? JSON.parse(text) : {};
-      } catch {
+      } catch (error) {
+        if (error instanceof PayloadTooLargeError) {
+          return json(
+            {
+              error: 'payload_too_large',
+              message: 'Manifest request is too large.',
+            },
+            { status: 413 },
+          );
+        }
         return json(
           { error: 'invalid_request', message: 'Manifest request is invalid.' },
           { status: 400 },
@@ -2294,6 +2492,22 @@ export const handleRequest = async (
       ) {
         return json(CodexImplementationManifestSchema.parse(existing));
       }
+      const dispatchedExecution =
+        await telemetryRepository.getRepositoryExecutionByAnalysis(analysisId);
+      if (
+        existing &&
+        dispatchedExecution &&
+        dispatchedExecution.status !== 'failed'
+      ) {
+        return json(
+          {
+            error: 'manifest_locked',
+            message:
+              'This analysis already has a dispatched immutable manifest.',
+          },
+          { status: 409 },
+        );
+      }
       const manifest = await buildCodexManifest(
         analysis,
         'repository-bound',
@@ -2301,8 +2515,11 @@ export const handleRequest = async (
         mutations,
       );
       await telemetryRepository.saveCodexManifest(manifest);
+      const persisted =
+        (await telemetryRepository.getCodexManifestById(manifest.manifestId)) ??
+        manifest;
       trace.afterState = 'manifest_created';
-      return json(CodexImplementationManifestSchema.parse(manifest), {
+      return json(CodexImplementationManifestSchema.parse(persisted), {
         status: 201,
       });
     }
@@ -2329,12 +2546,47 @@ export const handleRequest = async (
     const existing = await telemetryRepository.getRepositoryExecutionByManifest(
       manifest.manifestId,
     );
+    const linkDarwinLabExecution = async (
+      execution: RepositoryMutationExecution,
+    ) => {
+      const experimentId = manifest.provenance?.labExperimentId;
+      if (
+        manifest.provenance?.evidenceClass !== 'darwin_lab' ||
+        !experimentId
+      ) {
+        return;
+      }
+      const labRepository = getLabRepository(env?.DB);
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const experiment = await labRepository.getExperiment(experimentId);
+        if (
+          !experiment?.selection ||
+          experiment.selection.manifestId !== manifest.manifestId ||
+          experiment.selection.executionId === execution.executionId
+        ) {
+          return;
+        }
+        const linked = LabExperimentSchema.parse({
+          ...experiment,
+          selection: {
+            ...experiment.selection,
+            executionId: execution.executionId,
+          },
+        });
+        if (await labRepository.compareAndSwapExperiment(experiment, linked)) {
+          return;
+        }
+      }
+    };
     if (request.method === 'GET') {
-      return existing
-        ? json(RepositoryMutationExecutionSchema.parse(existing))
-        : new Response(null, { status: 204, headers: corsHeaders });
+      if (!existing) {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+      await linkDarwinLabExecution(existing);
+      return json(RepositoryMutationExecutionSchema.parse(existing));
     }
     if (existing && existing.status !== 'failed') {
+      await linkDarwinLabExecution(existing);
       return json(RepositoryMutationExecutionSchema.parse(existing));
     }
     trace.beforeState = existing?.status ?? 'not_started';
@@ -2370,6 +2622,7 @@ export const handleRequest = async (
     ) {
       return currentExecutionAfterConflict(execution.executionId);
     }
+    await linkDarwinLabExecution(execution);
     try {
       const callbackCredential = await issueExecutionCallbackCredential(
         execution.executionId,
@@ -2462,11 +2715,14 @@ export const handleRequest = async (
     }
     try {
       const rollback = createRepositoryRollback(execution);
-      const manifest = await telemetryRepository.getCodexManifest(
-        execution.analysisId,
+      const manifest = await telemetryRepository.getCodexManifestById(
+        execution.manifestId,
       );
       if (!manifest) {
         throw new Error('The retained execution manifest could not be loaded.');
+      }
+      if (!manifestMatchesExecution(manifest, execution)) {
+        throw new Error('The retained execution manifest identity is invalid.');
       }
       const withRollback = attachRepositoryRollback(execution, rollback);
       if (
@@ -2562,6 +2818,66 @@ export const handleRequest = async (
         );
   }
 
+  const repositoryRecoveryMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/recovery\/force-fail$/,
+  );
+  if (request.method === 'POST' && repositoryRecoveryMatch) {
+    let input: unknown;
+    try {
+      input = JSON.parse(await readBoundedBody(request, 1_024));
+    } catch (error) {
+      return json(
+        {
+          error:
+            error instanceof PayloadTooLargeError
+              ? 'payload_too_large'
+              : 'confirmation_required',
+          message: 'A bounded recovery confirmation is required.',
+        },
+        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
+      );
+    }
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Object.keys(input).length !== 1 ||
+      (input as { confirmation?: unknown }).confirmation !==
+        'FAIL STRANDED EXECUTION'
+    ) {
+      return json(
+        {
+          error: 'confirmation_required',
+          message: 'Type FAIL STRANDED EXECUTION to use recovery.',
+        },
+        { status: 400 },
+      );
+    }
+    const executionId = decodeURIComponent(repositoryRecoveryMatch[1]!);
+    const recovery = await forceFailStrandedExecution(
+      telemetryRepository,
+      executionId,
+    );
+    if (recovery.outcome === 'not_found') {
+      return json(
+        { error: 'not_found', message: 'Repository execution not found.' },
+        { status: 404 },
+      );
+    }
+    if (recovery.outcome === 'too_recent') {
+      return json(
+        {
+          error: 'recovery_window_active',
+          message: 'The workflow is still inside its bounded recovery window.',
+          eligibleAt: recovery.eligibleAt,
+        },
+        { status: 409 },
+      );
+    }
+    return json(RepositoryMutationExecutionSchema.parse(recovery.execution), {
+      status: recovery.outcome === 'recovered' ? 200 : 409,
+    });
+  }
+
   const repositoryFitnessMatch = pathname.match(
     /^\/api\/repository-executions\/([^/]+)\/fitness$/,
   );
@@ -2636,12 +2952,21 @@ export const handleRequest = async (
     const execution =
       await telemetryRepository.getRepositoryExecution(executionId);
     const manifest = execution
-      ? await telemetryRepository.getCodexManifest(execution.analysisId)
+      ? await telemetryRepository.getCodexManifestById(execution.manifestId)
       : null;
     if (!execution || !manifest) {
       return json(
         { error: 'not_found', message: 'Repository manifest not found.' },
         { status: 404 },
+      );
+    }
+    if (!manifestMatchesExecution(manifest, execution)) {
+      return json(
+        {
+          error: 'manifest_identity_mismatch',
+          message: 'Execution manifest identity does not match dispatch.',
+        },
+        { status: 409 },
       );
     }
     const verification = await verifyExecutionCallback({
@@ -2684,27 +3009,37 @@ export const handleRequest = async (
       );
     }
     trace.beforeState = execution.rollback?.status ?? execution.status;
-    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-    if (contentLength > 750_000) {
+    let body: string;
+    try {
+      body = await readBoundedBody(request, 750_000);
+    } catch (error) {
+      if (!(error instanceof PayloadTooLargeError)) {
+        return json(
+          { error: 'invalid_callback', message: 'Callback body is invalid.' },
+          { status: 400 },
+        );
+      }
       return json(
         { error: 'payload_too_large', message: 'Callback body is too large.' },
         { status: 413 },
       );
     }
-    const body = await request.text();
-    if (new TextEncoder().encode(body).byteLength > 750_000) {
-      return json(
-        { error: 'payload_too_large', message: 'Callback body is too large.' },
-        { status: 413 },
-      );
-    }
-    const manifest = await telemetryRepository.getCodexManifest(
-      execution.analysisId,
+    const manifest = await telemetryRepository.getCodexManifestById(
+      execution.manifestId,
     );
     if (!manifest) {
       return json(
         { error: 'not_found', message: 'Repository manifest not found.' },
         { status: 404 },
+      );
+    }
+    if (!manifestMatchesExecution(manifest, execution)) {
+      return json(
+        {
+          error: 'manifest_identity_mismatch',
+          message: 'Execution manifest identity does not match dispatch.',
+        },
+        { status: 409 },
       );
     }
     const verification = await verifyExecutionCallback({
@@ -2715,7 +3050,7 @@ export const handleRequest = async (
         await telemetryRepository.getExecutionCallbackCredential(executionId),
       executionId,
       repository: execution.repository.fullName,
-      manifestHash: manifest.manifestHash,
+      manifestHash: execution.manifestHash ?? manifest.manifestHash,
     });
     if (!verification.ok) {
       logAuthorizationDecision(
@@ -2788,27 +3123,37 @@ export const handleRequest = async (
       );
     }
     trace.beforeState = execution.status;
-    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-    if (contentLength > 750_000) {
+    let body: string;
+    try {
+      body = await readBoundedBody(request, 750_000);
+    } catch (error) {
+      if (!(error instanceof PayloadTooLargeError)) {
+        return json(
+          { error: 'invalid_callback', message: 'Callback body is invalid.' },
+          { status: 400 },
+        );
+      }
       return json(
         { error: 'payload_too_large', message: 'Callback body is too large.' },
         { status: 413 },
       );
     }
-    const body = await request.text();
-    if (new TextEncoder().encode(body).byteLength > 750_000) {
-      return json(
-        { error: 'payload_too_large', message: 'Callback body is too large.' },
-        { status: 413 },
-      );
-    }
-    const manifest = await telemetryRepository.getCodexManifest(
-      execution.analysisId,
+    const manifest = await telemetryRepository.getCodexManifestById(
+      execution.manifestId,
     );
     if (!manifest) {
       return json(
         { error: 'not_found', message: 'Repository manifest not found.' },
         { status: 404 },
+      );
+    }
+    if (!manifestMatchesExecution(manifest, execution)) {
+      return json(
+        {
+          error: 'manifest_identity_mismatch',
+          message: 'Execution manifest identity does not match dispatch.',
+        },
+        { status: 409 },
       );
     }
     const verification = await verifyExecutionCallback({
@@ -2819,7 +3164,7 @@ export const handleRequest = async (
         await telemetryRepository.getExecutionCallbackCredential(executionId),
       executionId,
       repository: execution.repository.fullName,
-      manifestHash: manifest.manifestHash,
+      manifestHash: execution.manifestHash ?? manifest.manifestHash,
     });
     if (!verification.ok) {
       logAuthorizationDecision(
@@ -3230,18 +3575,15 @@ export const handleRequest = async (
     const participantId = decodeURIComponent(participantWorkspaceMatch[2]!);
     let workspaceBody = '';
     if (request.method === 'PUT') {
-      const contentLength = Number(request.headers.get('Content-Length') ?? 0);
-      if (contentLength > 256_000) {
-        return json(
-          {
-            error: 'payload_too_large',
-            message: 'Workspace body is too large.',
-          },
-          { status: 413 },
-        );
-      }
-      workspaceBody = await request.text();
-      if (new TextEncoder().encode(workspaceBody).byteLength > 256_000) {
+      try {
+        workspaceBody = await readBoundedBody(request, 256_000);
+      } catch (error) {
+        if (!(error instanceof PayloadTooLargeError)) {
+          return json(
+            { error: 'invalid_request', message: 'Workspace body is invalid.' },
+            { status: 400 },
+          );
+        }
         return json(
           {
             error: 'payload_too_large',
@@ -3272,6 +3614,56 @@ export const handleRequest = async (
       );
     }
     logAuthorizationDecision(trace, 'target', true);
+    const targetSignature = request.headers.get('X-Darwin-Signature');
+    if (
+      targetSignature &&
+      !(await telemetryRepository.consumeTargetRequestSignature(
+        targetSignature.toLowerCase(),
+        new Date().toISOString(),
+      ))
+    ) {
+      return json(
+        {
+          error: 'target_request_replayed',
+          message: 'Workspace request replay rejected.',
+        },
+        { status: 409 },
+      );
+    }
+    const suppliedStudySession = request.headers.get('X-Darwin-Study-Session');
+    const localRequest = ['localhost', '127.0.0.1', '::1'].includes(
+      url.hostname,
+    );
+    const studySessionSecret =
+      env?.PROJECTFLOW_INGESTION_SECRET ||
+      (suppliedStudySession && localRequest
+        ? 'darwin-local-study-session'
+        : undefined);
+    if (studySessionSecret) {
+      const verification = await verifyStudySessionToken(
+        suppliedStudySession,
+        studySessionSecret,
+      );
+      if (
+        !verification.ok ||
+        verification.claims.studyId !== studyId ||
+        verification.claims.participantId !== participantId ||
+        verification.claims.deploymentOrigin !==
+          targetAuthorization.identity.sourceOrigin
+      ) {
+        return json(
+          {
+            error: verification.ok
+              ? 'study_session_subject_mismatch'
+              : verification.error,
+            message: verification.ok
+              ? 'Workspace path does not match the study session.'
+              : verification.message,
+          },
+          { status: 403 },
+        );
+      }
+    }
     if (!targetStudyAllowed(studyId, env)) {
       return json(
         { error: 'study_forbidden', message: 'The study is not configured.' },
@@ -3356,24 +3748,12 @@ export const handleRequest = async (
     simulationInFlight = true;
     try {
       const maximumSimulationBodyBytes = 4_096;
-      const declaredBodyBytes = Number(
-        request.headers.get('Content-Length') ?? 0,
-      );
-      if (declaredBodyBytes > maximumSimulationBodyBytes) {
-        return json(
-          {
-            error: 'payload_too_large',
-            message: 'Simulation request body is too large.',
-          },
-          { status: 413 },
-        );
-      }
       let input: unknown;
       try {
-        const body = await request.text();
-        if (
-          new TextEncoder().encode(body).byteLength > maximumSimulationBodyBytes
-        ) {
+        const body = await readBoundedBody(request, maximumSimulationBodyBytes);
+        input = JSON.parse(body);
+      } catch (error) {
+        if (error instanceof PayloadTooLargeError) {
           return json(
             {
               error: 'payload_too_large',
@@ -3382,8 +3762,6 @@ export const handleRequest = async (
             { status: 413 },
           );
         }
-        input = JSON.parse(body);
-      } catch {
         return json(
           {
             error: 'invalid_request',
@@ -3613,6 +3991,12 @@ export const handleWorkerRequest = async (
       {
         error: 'internal_error',
         message: 'Darwin API could not complete the request.',
+        ...(e2eFixturesEnabled(
+          env.DARWIN_E2E_FIXTURES,
+          new URL(request.url).hostname,
+        ) && error instanceof Error
+          ? { fixtureDiagnostic: error.message.slice(0, 500) }
+          : {}),
       },
       {
         status: 500,

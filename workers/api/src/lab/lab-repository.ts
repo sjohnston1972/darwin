@@ -1,11 +1,33 @@
 import {
+  LabAgentActionRecordSchema,
+  LabAgentRunSchema,
   LabExperimentSchema,
+  type LabAgentActionRecord,
+  type LabAgentRun,
   type LabExperiment,
   type LabExperimentStatus,
 } from '@darwin/shared';
 
 export interface LabRepository {
   saveExperiment(experiment: LabExperiment): Promise<void>;
+  compareAndSwapExperiment(
+    expected: LabExperiment,
+    next: LabExperiment,
+  ): Promise<LabExperiment | null>;
+  createRun(
+    experiment: LabExperiment,
+    run: LabAgentRun,
+  ): Promise<LabAgentRun | null>;
+  appendAction(
+    experimentId: string,
+    runId: string,
+    action: LabAgentActionRecord,
+  ): Promise<'created' | 'existing' | 'conflict'>;
+  finishRun(
+    experimentId: string,
+    expected: LabAgentRun,
+    finished: LabAgentRun,
+  ): Promise<LabAgentRun | null>;
   getExperiment(experimentId: string): Promise<LabExperiment | null>;
   listExperiments(status?: LabExperimentStatus): Promise<LabExperiment[]>;
   reset(): Promise<void>;
@@ -15,6 +37,29 @@ const experimentStore = new Map<string, LabExperiment>();
 
 const cloneExperiment = (experiment: LabExperiment) =>
   LabExperimentSchema.parse(structuredClone(experiment));
+const cloneRun = (run: LabAgentRun) =>
+  LabAgentRunSchema.parse(structuredClone(run));
+const isSameTerminalRun = (left: LabAgentRun, right: LabAgentRun) =>
+  left.status === right.status &&
+  left.finishedAt === right.finishedAt &&
+  left.taskOutcome === right.taskOutcome &&
+  left.error === right.error;
+const safeDiagnosticId = (value: string) =>
+  value.replace(/[^a-zA-Z0-9._:-]/g, '?').slice(0, 128);
+const parseStoredLabValue = <T>(
+  schema: { parse(value: unknown): T },
+  json: string,
+  kind: string,
+  recordId: string,
+) => {
+  try {
+    return schema.parse(JSON.parse(json));
+  } catch {
+    throw new Error(
+      `Stored ${kind} record ${safeDiagnosticId(recordId)} is corrupt.`,
+    );
+  }
+};
 
 export class InMemoryLabRepository implements LabRepository {
   async saveExperiment(experiment: LabExperiment) {
@@ -24,6 +69,82 @@ export class InMemoryLabRepository implements LabRepository {
   async getExperiment(experimentId: string) {
     const experiment = experimentStore.get(experimentId);
     return experiment ? cloneExperiment(experiment) : null;
+  }
+
+  async compareAndSwapExperiment(expected: LabExperiment, next: LabExperiment) {
+    const current = experimentStore.get(expected.experimentId);
+    if (
+      !current ||
+      current.status !== expected.status ||
+      current.version !== expected.version
+    ) {
+      return null;
+    }
+    const persisted = LabExperimentSchema.parse({
+      ...next,
+      version: expected.version + 1,
+    });
+    experimentStore.set(expected.experimentId, cloneExperiment(persisted));
+    return cloneExperiment(persisted);
+  }
+
+  async createRun(experiment: LabExperiment, run: LabAgentRun) {
+    const current = experimentStore.get(experiment.experimentId);
+    if (!current || current.status !== 'running') return null;
+    if (
+      current.runs.some(
+        (candidate) =>
+          candidate.runId === run.runId ||
+          candidate.populationOrdinal === run.populationOrdinal,
+      )
+    ) {
+      return null;
+    }
+    current.runs.push(LabAgentRunSchema.parse(structuredClone(run)));
+    return LabAgentRunSchema.parse(structuredClone(run));
+  }
+
+  async appendAction(
+    experimentId: string,
+    runId: string,
+    rawAction: LabAgentActionRecord,
+  ) {
+    const action = LabAgentActionRecordSchema.parse(rawAction);
+    const run = experimentStore
+      .get(experimentId)
+      ?.runs.find((candidate) => candidate.runId === runId);
+    if (!run || run.status !== 'running') return 'conflict' as const;
+    const existing = run.actions.find(
+      (candidate) =>
+        candidate.actionId === action.actionId ||
+        candidate.ordinal === action.ordinal,
+    );
+    if (existing) {
+      return JSON.stringify(existing) === JSON.stringify(action)
+        ? ('existing' as const)
+        : ('conflict' as const);
+    }
+    run.actions.push(action);
+    return 'created' as const;
+  }
+
+  async finishRun(
+    experimentId: string,
+    expected: LabAgentRun,
+    finished: LabAgentRun,
+  ) {
+    const experiment = experimentStore.get(experimentId);
+    const index = experiment?.runs.findIndex(
+      (candidate) => candidate.runId === expected.runId,
+    );
+    if (!experiment || index === undefined || index < 0) return null;
+    const current = experiment.runs[index]!;
+    if (current.status !== expected.status) {
+      return isSameTerminalRun(current, finished) ? cloneRun(current) : null;
+    }
+    const persisted = LabAgentRunSchema.parse(structuredClone(finished));
+    experiment.runs[index] = persisted;
+    return cloneRun(persisted);
   }
 
   async listExperiments(status?: LabExperimentStatus) {
@@ -43,15 +164,17 @@ export class D1LabRepository implements LabRepository {
 
   async saveExperiment(experiment: LabExperiment) {
     const parsed = LabExperimentSchema.parse(experiment);
+    const projection = LabExperimentSchema.parse({ ...parsed, runs: [] });
     const updatedAt = new Date().toISOString();
     await this.database
       .prepare(
         `INSERT INTO lab_experiments (
-          experiment_id, status, created_at, updated_at, payload_json
-        ) VALUES (?, ?, ?, ?, ?)
+          experiment_id, status, created_at, updated_at, version, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(experiment_id) DO UPDATE SET
           status = excluded.status,
           updated_at = excluded.updated_at,
+          version = excluded.version,
           payload_json = excluded.payload_json`,
       )
       .bind(
@@ -59,59 +182,10 @@ export class D1LabRepository implements LabRepository {
         parsed.status,
         parsed.createdAt,
         updatedAt,
-        JSON.stringify(parsed),
+        parsed.version,
+        JSON.stringify(projection),
       )
       .run();
-
-    for (const run of parsed.runs) {
-      await this.database
-        .prepare(
-          `INSERT INTO lab_agent_runs (
-            run_id, experiment_id, status, persona, participant_id, session_id,
-            started_at, finished_at, payload_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(run_id) DO UPDATE SET
-            status = excluded.status,
-            finished_at = excluded.finished_at,
-            payload_json = excluded.payload_json`,
-        )
-        .bind(
-          run.runId,
-          parsed.experimentId,
-          run.status,
-          run.persona,
-          run.participantId,
-          run.sessionId,
-          run.startedAt,
-          run.finishedAt,
-          JSON.stringify(run),
-        )
-        .run();
-
-      for (const action of run.actions) {
-        await this.database
-          .prepare(
-            `INSERT INTO lab_agent_actions (
-              action_id, run_id, experiment_id, ordinal, occurred_at,
-              action_type, outcome, payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(action_id) DO UPDATE SET
-              outcome = excluded.outcome,
-              payload_json = excluded.payload_json`,
-          )
-          .bind(
-            action.actionId,
-            run.runId,
-            parsed.experimentId,
-            action.ordinal,
-            action.occurredAt,
-            action.action,
-            action.outcome,
-            JSON.stringify(action),
-          )
-          .run();
-      }
-    }
 
     if (parsed.evidence) {
       await this.database
@@ -120,9 +194,7 @@ export class D1LabRepository implements LabRepository {
             evidence_pack_id, experiment_id, evidence_hash, generated_at,
             payload_json
           ) VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(evidence_pack_id) DO UPDATE SET
-            evidence_hash = excluded.evidence_hash,
-            payload_json = excluded.payload_json`,
+          ON CONFLICT(evidence_pack_id) DO NOTHING`,
         )
         .bind(
           parsed.evidence.evidencePackId,
@@ -141,7 +213,7 @@ export class D1LabRepository implements LabRepository {
             analysis_id, experiment_id, evidence_pack_id, model, created_at,
             payload_json
           ) VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(analysis_id) DO UPDATE SET payload_json = excluded.payload_json`,
+          ON CONFLICT(analysis_id) DO NOTHING`,
         )
         .bind(
           parsed.analysis.analysisId,
@@ -160,7 +232,7 @@ export class D1LabRepository implements LabRepository {
           `INSERT INTO lab_selection_results (
             selection_id, experiment_id, mutation_id, selected_at, payload_json
           ) VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(selection_id) DO UPDATE SET payload_json = excluded.payload_json`,
+          ON CONFLICT(selection_id) DO NOTHING`,
         )
         .bind(
           parsed.selection.selectionId,
@@ -173,6 +245,235 @@ export class D1LabRepository implements LabRepository {
     }
   }
 
+  async compareAndSwapExperiment(expected: LabExperiment, next: LabExperiment) {
+    const persisted = LabExperimentSchema.parse({
+      ...next,
+      version: expected.version + 1,
+      runs: [],
+    });
+    const result = await this.database
+      .prepare(
+        `UPDATE lab_experiments
+         SET status = ?, updated_at = ?, version = ?, payload_json = ?
+         WHERE experiment_id = ? AND status = ? AND version = ?`,
+      )
+      .bind(
+        persisted.status,
+        new Date().toISOString(),
+        persisted.version,
+        JSON.stringify(persisted),
+        expected.experimentId,
+        expected.status,
+        expected.version,
+      )
+      .run();
+    if ((result.meta.changes ?? 0) !== 1) return null;
+    await this.saveArtifactRecords(persisted);
+    return this.getExperiment(expected.experimentId);
+  }
+
+  private async saveArtifactRecords(experiment: LabExperiment) {
+    if (experiment.evidence) {
+      await this.database
+        .prepare(
+          `INSERT INTO lab_evidence_records (
+            evidence_pack_id, experiment_id, evidence_hash, generated_at,
+            payload_json
+          ) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(evidence_pack_id) DO NOTHING`,
+        )
+        .bind(
+          experiment.evidence.evidencePackId,
+          experiment.experimentId,
+          experiment.evidence.evidenceHash,
+          experiment.evidence.generatedAt,
+          JSON.stringify(experiment.evidence),
+        )
+        .run();
+    }
+    if (experiment.analysis) {
+      await this.database
+        .prepare(
+          `INSERT INTO lab_analyses (
+            analysis_id, experiment_id, evidence_pack_id, model, created_at,
+            payload_json
+          ) VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(analysis_id) DO NOTHING`,
+        )
+        .bind(
+          experiment.analysis.analysisId,
+          experiment.experimentId,
+          experiment.analysis.evidencePackId,
+          experiment.analysis.model,
+          experiment.analysis.createdAt,
+          JSON.stringify(experiment.analysis),
+        )
+        .run();
+    }
+    if (experiment.selection) {
+      await this.database
+        .prepare(
+          `INSERT INTO lab_selection_results (
+            selection_id, experiment_id, mutation_id, selected_at, payload_json
+          ) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(selection_id) DO NOTHING`,
+        )
+        .bind(
+          experiment.selection.selectionId,
+          experiment.experimentId,
+          experiment.selection.mutationId,
+          experiment.selection.selectedAt,
+          JSON.stringify(experiment.selection),
+        )
+        .run();
+    }
+  }
+
+  async createRun(experiment: LabExperiment, rawRun: LabAgentRun) {
+    const run = LabAgentRunSchema.parse({ ...rawRun, actions: [] });
+    const result = await this.database
+      .prepare(
+        `INSERT INTO lab_agent_runs (
+          run_id, experiment_id, population_ordinal, status, persona,
+          participant_id, session_id, started_at, finished_at, payload_json
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM lab_experiments
+          WHERE experiment_id = ? AND status = 'running'
+        )
+        ON CONFLICT DO NOTHING`,
+      )
+      .bind(
+        run.runId,
+        experiment.experimentId,
+        run.populationOrdinal,
+        run.status,
+        run.persona,
+        run.participantId,
+        run.sessionId,
+        run.startedAt,
+        run.finishedAt,
+        JSON.stringify(run),
+        experiment.experimentId,
+      )
+      .run();
+    return (result.meta.changes ?? 0) === 1 ? run : null;
+  }
+
+  async appendAction(
+    experimentId: string,
+    runId: string,
+    rawAction: LabAgentActionRecord,
+  ) {
+    const action = LabAgentActionRecordSchema.parse(rawAction);
+    const result = await this.database
+      .prepare(
+        `INSERT INTO lab_agent_actions (
+          action_id, run_id, experiment_id, ordinal, occurred_at,
+          action_type, outcome, payload_json
+        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM lab_agent_runs
+          WHERE run_id = ? AND experiment_id = ? AND status = 'running'
+        )
+        ON CONFLICT DO NOTHING`,
+      )
+      .bind(
+        action.actionId,
+        runId,
+        experimentId,
+        action.ordinal,
+        action.occurredAt,
+        action.action,
+        action.outcome,
+        JSON.stringify(action),
+        runId,
+        experimentId,
+      )
+      .run();
+    if ((result.meta.changes ?? 0) === 1) return 'created' as const;
+    const row = await this.database
+      .prepare(
+        `SELECT action_id, payload_json FROM lab_agent_actions
+         WHERE run_id = ? AND (action_id = ? OR ordinal = ?) LIMIT 1`,
+      )
+      .bind(runId, action.actionId, action.ordinal)
+      .first<{ action_id: string; payload_json: string }>();
+    if (!row) return 'conflict' as const;
+    const existing = parseStoredLabValue(
+      LabAgentActionRecordSchema,
+      row.payload_json,
+      'Lab action',
+      row.action_id,
+    );
+    return JSON.stringify(existing) === JSON.stringify(action)
+      ? ('existing' as const)
+      : ('conflict' as const);
+  }
+
+  async finishRun(
+    experimentId: string,
+    expected: LabAgentRun,
+    rawFinished: LabAgentRun,
+  ) {
+    const finished = LabAgentRunSchema.parse({
+      ...rawFinished,
+      actions: [],
+    });
+    const result = await this.database
+      .prepare(
+        `UPDATE lab_agent_runs
+         SET status = ?, finished_at = ?, payload_json = ?
+         WHERE run_id = ? AND experiment_id = ? AND status = ?`,
+      )
+      .bind(
+        finished.status,
+        finished.finishedAt,
+        JSON.stringify(finished),
+        expected.runId,
+        experimentId,
+        expected.status,
+      )
+      .run();
+    if ((result.meta.changes ?? 0) === 1) {
+      return this.getRun(expected.runId);
+    }
+    const current = await this.getRun(expected.runId);
+    return current && isSameTerminalRun(current, finished) ? current : null;
+  }
+
+  private async getRun(runId: string) {
+    const row = await this.database
+      .prepare('SELECT payload_json FROM lab_agent_runs WHERE run_id = ?')
+      .bind(runId)
+      .first<{ payload_json: string }>();
+    if (!row) return null;
+    const run = parseStoredLabValue(
+      LabAgentRunSchema,
+      row.payload_json,
+      'Lab run',
+      runId,
+    );
+    const actions = await this.database
+      .prepare(
+        `SELECT action_id, payload_json FROM lab_agent_actions
+         WHERE run_id = ? ORDER BY ordinal ASC`,
+      )
+      .bind(runId)
+      .all<{ action_id: string; payload_json: string }>();
+    return LabAgentRunSchema.parse({
+      ...run,
+      actions: actions.results.map((action) =>
+        parseStoredLabValue(
+          LabAgentActionRecordSchema,
+          action.payload_json,
+          'Lab action',
+          action.action_id,
+        ),
+      ),
+    });
+  }
+
   async getExperiment(experimentId: string) {
     const row = await this.database
       .prepare(
@@ -180,23 +481,46 @@ export class D1LabRepository implements LabRepository {
       )
       .bind(experimentId)
       .first<{ payload_json: string }>();
-    return row ? LabExperimentSchema.parse(JSON.parse(row.payload_json)) : null;
+    if (!row) return null;
+    const projection = parseStoredLabValue(
+      LabExperimentSchema,
+      row.payload_json,
+      'Lab experiment',
+      experimentId,
+    );
+    const runRows = await this.database
+      .prepare(
+        `SELECT run_id FROM lab_agent_runs
+         WHERE experiment_id = ? ORDER BY population_ordinal ASC`,
+      )
+      .bind(experimentId)
+      .all<{ run_id: string }>();
+    const runs = await Promise.all(
+      runRows.results.map((run) => this.getRun(run.run_id)),
+    );
+    return LabExperimentSchema.parse({
+      ...projection,
+      runs: runs.filter((run): run is LabAgentRun => Boolean(run)),
+    });
   }
 
   async listExperiments(status?: LabExperimentStatus) {
     const statement = status
       ? this.database
           .prepare(
-            `SELECT payload_json FROM lab_experiments
+            `SELECT experiment_id FROM lab_experiments
              WHERE status = ? ORDER BY created_at DESC`,
           )
           .bind(status)
       : this.database.prepare(
-          'SELECT payload_json FROM lab_experiments ORDER BY created_at DESC',
+          'SELECT experiment_id FROM lab_experiments ORDER BY created_at DESC',
         );
-    const result = await statement.all<{ payload_json: string }>();
-    return result.results.map((row) =>
-      LabExperimentSchema.parse(JSON.parse(row.payload_json)),
+    const result = await statement.all<{ experiment_id: string }>();
+    const experiments = await Promise.all(
+      result.results.map((row) => this.getExperiment(row.experiment_id)),
+    );
+    return experiments.filter((experiment): experiment is LabExperiment =>
+      Boolean(experiment),
     );
   }
 

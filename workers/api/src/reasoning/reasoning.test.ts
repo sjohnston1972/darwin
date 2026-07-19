@@ -426,8 +426,8 @@ describe('evidence-backed reasoning v2', () => {
     );
   });
 
-  it('normalizes a model-supplied five-point scorecard to percentages', () => {
-    const fivePointCandidate = (id: string, score: number) => ({
+  it('keeps legitimate low percentage scores low when ranking candidates', () => {
+    const scoredCandidate = (id: string, score: number) => ({
       ...candidate(id, score),
       scorecard: {
         evidenceStrength: score,
@@ -440,21 +440,52 @@ describe('evidence-backed reasoning v2', () => {
     const normalized = validateModelOutput(
       {
         ...modelOutput,
-        selectedMutation: fivePointCandidate('direct-my-work', 5),
+        selectedMutation: scoredCandidate('direct-my-work', 5),
         alternatives: [
-          fivePointCandidate('dashboard-work-queue', 4),
-          fivePointCandidate('global-search', 3),
+          scoredCandidate('dashboard-work-queue', 70),
+          scoredCandidate('global-search', 40),
         ],
       },
       pack,
     );
 
-    expect(normalized.selectedMutation.scorecard).toMatchObject({
-      userImpact: 100,
-      feasibility: 100,
-      validationClarity: 100,
-    });
-    expect(normalized.selectedMutation.scorecard.total).toBe(77);
+    expect(normalized.selectedMutation.id).toBe('dashboard-work-queue');
+    expect(normalized.selectedMutation.scorecard.userImpact).toBe(70);
+    expect(normalized.alternatives).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'direct-my-work',
+          scorecard: expect.objectContaining({
+            userImpact: 5,
+            feasibility: 5,
+            validationClarity: 5,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it.each([0, 5, 100])(
+    'accepts the declared integer score boundary %s',
+    (score) => {
+      const scored = candidate('score-boundary', score);
+      const validated = validateModelOutput(
+        { ...modelOutput, selectedMutation: scored },
+        pack,
+      );
+      const retained = [
+        validated.selectedMutation,
+        ...validated.alternatives,
+      ].find((item) => item.id === 'score-boundary');
+      expect(retained?.scorecard.userImpact).toBe(score);
+    },
+  );
+
+  it.each([-1, 100.5, 101])('rejects an invalid score of %s', (score) => {
+    const invalid = candidate('score-invalid', score);
+    expect(() =>
+      validateModelOutput({ ...modelOutput, selectedMutation: invalid }, pack),
+    ).toThrow();
   });
 
   it('fails closed without live GPT instead of returning a substitute mutation', async () => {

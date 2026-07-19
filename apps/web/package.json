@@ -7,7 +7,8 @@
     "dev": "vite --port 5173",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.thresholds.lines=70 --coverage.thresholds.functions=44 --coverage.thresholds.statements=70 --coverage.thresholds.branches=65"
   },
   "dependencies": {
     "@darwin/shared": "0.1.0",

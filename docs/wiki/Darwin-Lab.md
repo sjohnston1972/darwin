@@ -1,19 +1,22 @@
 # Darwin Lab
 
-Darwin Lab is Darwin's synthetic usability-testing workspace. It gives a
-bounded population of independent, inexpensive AI agents one fixed goal and
-lets each agent operate ProjectFlow through the visible interface in a fresh
-Playwright browser context.
+Darwin Lab is Darwin's real-target automated usability workspace. An operator
+defines a goal, start route, hidden success criterion, application version,
+personas, population, budgets, and seed. A bounded population of independent AI
+browser workers then operates ProjectFlow through its visible interface in
+fresh Playwright browser contexts.
 
-> Synthetic usability testing complements human research. It does not replace
-> it.
+> Automated target observations complement human research. They do not replace
+> it and are never presented as human evidence.
 
 ## Evidence boundary
 
-Lab interactions are real semantic telemetry emitted by ProjectFlow, but the
-actor provenance is always `synthetic`. Lab studies use experiment-scoped study
-IDs and are never included in human cohorts, measured fitness, or the
-10,000-event scale replay.
+Lab interactions are real semantic telemetry emitted by ProjectFlow. Their
+source is `automated`, and every experiment, run, event, evidence pack, mutation,
+manifest, execution, eval, and fossil record carries a **Darwin Lab** provenance
+record. That record binds the experiment, immutable task-definition hash, and
+run IDs. Lab studies use experiment-scoped study IDs and are never included in
+human cohorts, measured fitness, or the separate 10,000-event scale replay.
 
 Agents do not receive the hidden answer oracle, source code, private APIs,
 database access, selectors, or a correct navigation path. Each run has an
@@ -25,7 +28,7 @@ storage.
 1. Start Darwin and ProjectFlow locally.
 2. Open **Darwin Lab** in the Darwin navigation.
 3. Confirm the target is an allowed local, test, preview, or staging origin.
-4. Create the fixed Project Apollo discovery experiment.
+4. Define the task and create the experiment.
 5. Queue the population.
 6. Run `npm run lab:runner` from the Darwin repository.
 7. Inspect the live population, run replay, task outcomes, and linked
@@ -54,9 +57,9 @@ abandoned, timed out, blocked, or system error.
 ## Evidence and mutation flow
 
 ```text
-bounded synthetic population
+bounded automated population
   -> isolated browser actions
-  -> synthetic-provenance semantic telemetry
+  -> signed automated telemetry with Darwin Lab provenance
   -> deterministic friction detectors
   -> hashed Lab evidence pack
   -> one evidence-citing GPT-5.6 analysis
@@ -70,7 +73,7 @@ A behavioural eval is not a prescribed click path. It records the user goal,
 the hidden oracle boundary, pass criteria, forbidden outcomes, action budget,
 seed, target snapshot, and supporting `L-EV-*` IDs. Its Codex brief says to
 make the eval pass without changing the oracle, thresholds, seed, telemetry
-provenance, or protected paths. This turns an observed synthetic failure into
+provenance, or protected paths. This turns an observed automated failure into
 an executable acceptance test that can be rerun after a candidate mutation.
 
 The retained eval is available through `GET /api/behavioural-evals` and is

@@ -49,14 +49,15 @@ describe('Darwin Lab API', () => {
     expect(createdResponse.status).toBe(201);
     expect(created.studyId).toMatch(/^projectflow-darwin-lab-/);
 
-    const syntheticEvent = {
+    const automatedEvent = {
       schemaVersion: 1,
       eventId: '00000000-0000-4000-8000-000000000901',
       sessionId: 'lab-session-telemetry',
       participantId: 'lab-agent-telemetry',
       studyId: created.studyId,
       appVersion: 'baseline',
-      source: 'synthetic',
+      source: 'automated',
+      provenance: created.provenance,
       occurredAt: '2026-07-18T10:00:00.000Z',
       sequence: 0,
       route: '/lab/dashboard',
@@ -64,7 +65,7 @@ describe('Darwin Lab API', () => {
       eventType: 'session_started',
     };
     const telemetryResponse = await handleRequest(
-      request('/api/telemetry/events', 'POST', { events: [syntheticEvent] }),
+      request('/api/telemetry/events', 'POST', { events: [automatedEvent] }),
     );
     expect(
       TelemetryReceiptSchema.parse(await telemetryResponse.json()),
@@ -77,7 +78,7 @@ describe('Darwin Lab API', () => {
     );
     expect(crossedBoundary.status).toBe(409);
     await expect(crossedBoundary.json()).resolves.toMatchObject({
-      error: 'synthetic_evidence_boundary',
+      error: 'lab_evidence_boundary',
     });
 
     await handleRequest(
@@ -100,6 +101,11 @@ describe('Darwin Lab API', () => {
           viewport: { class: 'desktop', width: 1440, height: 960 },
           agentModel: 'gpt-5.6-luna',
           startedAt: '2026-07-18T10:00:00.000Z',
+          populationOrdinal: index,
+          studyId: created.studyId,
+          taskDefinitionId: created.task.taskDefinitionId,
+          taskDefinitionHash: created.task.definitionHash,
+          appVersion: created.targetAppVersion,
         }),
       );
       await handleRequest(
@@ -124,6 +130,7 @@ describe('Darwin Lab API', () => {
               accessibilityNodeCount: 80,
               telemetryEventIds: [],
               error: null,
+              provenance: { ...created.provenance, runIds: [runId] },
             },
           },
         ),
@@ -150,7 +157,12 @@ describe('Darwin Lab API', () => {
     );
     const completed = LabExperimentSchema.parse(await completedResponse.json());
     expect(completed.status).toBe('completed');
-    expect(completed.evidence?.evidenceClass).toBe('synthetic');
+    expect(completed.evidence?.evidenceClass).toBe('automated');
+    expect(completed.evidence?.provenance).toMatchObject({
+      evidenceClass: 'darwin_lab',
+      labExperimentId: created.experimentId,
+      taskDefinitionHash: created.task.definitionHash,
+    });
     expect(completed.evidence?.population.completed).toBe(8);
     expect(completed.evidence?.signals).toEqual(
       expect.arrayContaining([

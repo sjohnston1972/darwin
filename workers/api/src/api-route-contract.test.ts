@@ -37,4 +37,29 @@ describe('API route contract', () => {
       findApiRoute('POST', '/api/studies/study-1/analyse-evidence'),
     ).toMatchObject({ capability: 'reason' });
   });
+
+  it('reserves destructive maintenance for delete-data authority', () => {
+    for (const [method, path] of [
+      ['POST', '/api/retention/sweep'],
+      ['DELETE', '/api/studies/study-1'],
+      ['DELETE', '/api/studies/study-1/participants/participant-1'],
+      ['DELETE', '/api/repository-executions/execution-1/artifacts'],
+      ['POST', '/api/demo/reset'],
+    ] as const) {
+      expect(findApiRoute(method, path)).toMatchObject({
+        capability: 'delete_data',
+      });
+    }
+  });
+
+  it('does not let observe-only viewers mutate Darwin Lab state', () => {
+    for (const [method, path] of [
+      ['PUT', '/api/lab/experiments/lab-exp-1'],
+      ['POST', '/api/lab/experiments/lab-exp-1/cancel'],
+      ['POST', '/api/lab/experiments/lab-exp-1/rebuild-evidence'],
+      ['POST', '/api/lab/experiments/lab-exp-1/codex-manifest'],
+    ] as const) {
+      expect(findApiRoute(method, path)?.capability).not.toBe('observe');
+    }
+  });
 });

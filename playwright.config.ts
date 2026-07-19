@@ -5,24 +5,33 @@ const projectFlowDirectory = path.resolve(
   process.env.PROJECTFLOW_E2E_DIR ?? '../projectflow',
 );
 const projectFlowFixtureCommit = '1'.repeat(40);
+const darwinFixtureCommit = '0123456789abcdef0123456789abcdef01234567';
 
 process.env.VITE_APP_VERSION ??= projectFlowFixtureCommit.slice(0, 12);
 process.env.VITE_COMMIT_SHA ??= projectFlowFixtureCommit;
+process.env.VITE_DARWIN_RELEASE ??= '0.25.0-e2e';
+process.env.VITE_DARWIN_COMMIT_SHA ??= darwinFixtureCommit;
 
 export default defineConfig({
-  testDir: '.',
-  testMatch: ['apps/web/e2e/**/*.spec.ts', 'tests/e2e/**/*.spec.ts'],
+  testDir: './e2e',
   outputDir: './test-results/e2e',
   fullyParallel: false,
   workers: 1,
   timeout: 90_000,
-  expect: { timeout: 15_000 },
+  expect: {
+    timeout: 15_000,
+    toHaveScreenshot: {
+      animations: 'disabled',
+      maxDiffPixelRatio: 0.01,
+    },
+  },
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI
     ? [['line'], ['html', { open: 'never' }]]
     : [['list'], ['html', { open: 'never' }]],
-  snapshotPathTemplate: '{testFileDir}/screenshots/{arg}-{platform}{ext}',
+  snapshotPathTemplate:
+    '{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}',
   use: {
     baseURL: 'http://localhost:5173',
     colorScheme: 'dark',
@@ -33,10 +42,24 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
+      name: 'desktop',
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },
+      },
+    },
+    {
+      name: 'mobile-390',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 390, height: 844 },
+      },
+    },
+    {
+      name: 'tablet',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 820, height: 1180 },
       },
     },
   ],

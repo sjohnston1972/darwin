@@ -25,14 +25,15 @@
 4. Select one or more mutation candidates. Explain score, confidence,
    alternatives, validation plan and tradeoffs.
 
-## Behavioural CI alternative
+## Darwin Lab alternative
 
-If presenting the Codex-quality thesis, use the synthetic path instead:
+If presenting the configurable real-target observation thesis, use Darwin Lab:
 
-1. Open **Darwin Lab** and run the bounded Project Apollo population against an
-   approved preview target.
+1. Open **Darwin Lab**, define a bounded ProjectFlow task, and run its population
+   against an approved real target deployment.
 2. Show independent browser attempts, hidden-oracle outcomes, and `L-EV-*`
-   friction evidence. State explicitly that it is synthetic.
+   friction evidence. State explicitly that the actors are automated but their
+   actions and telemetry are real target observations carrying a Darwin Lab chip.
 3. Click **Promote to behavioural eval**. Show the generated `BE-###` goal,
    pass criteria, action threshold, seed, and cited evidence IDs.
 4. Expand the **Codex acceptance brief**. Explain that Codex must make the
@@ -64,7 +65,7 @@ Closing line:
 > Darwin observed real behavior, reasoned over the exact source, and evolved the
 > application through a controlled repository change.
 
-Behavioural CI closing line:
+Darwin Lab closing line:
 
 > Codex checks whether software builds. Darwin checks whether users can use it,
 > then keeps the failure as a test.

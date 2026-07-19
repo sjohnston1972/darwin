@@ -12,6 +12,17 @@ import {
 } from './reasoning';
 
 const timestamp = '2026-07-18T10:00:00.000Z';
+const taskHash = 'a'.repeat(64);
+const provenance = {
+  evidenceClass: 'darwin_lab' as const,
+  label: 'Darwin Lab',
+  labExperimentId: 'lab-exp-test',
+  taskDefinitionId: 'lab-task-test',
+  taskDefinitionHash: taskHash,
+  evidencePackId: null,
+  evidenceHash: null,
+  runIds: [] as string[],
+};
 const decisionRequest = LabAgentDecisionRequestSchema.parse({
   experimentId: 'lab-exp-test',
   runId: 'lab-run-test',
@@ -31,14 +42,24 @@ const experiment = LabExperimentSchema.parse({
   studyId: 'projectflow-darwin-lab-test',
   name: 'Reasoning test',
   targetUrl: 'http://localhost:5174/',
+  targetAppVersion: '1.0.0',
   task: {
+    taskDefinitionId: 'lab-task-test',
+    definitionVersion: 1,
+    definitionHash: taskHash,
     taskId: 'find-apollo-assignees',
     name: 'Find Project Apollo assignees',
     instruction: 'Find everyone assigned to Project Apollo.',
     successDescription:
       'The agent identifies the complete Project Apollo assignment set.',
+    startRoute: '/study/dashboard',
+    successCriterion: {
+      type: 'semantic_marker',
+      markerId: 'apollo-assignees-complete',
+    },
   },
   populationSize: 8,
+  personaAllocation: [{ persona: 'novice', count: 8 }],
   maxActions: 12,
   maxDurationMs: 180_000,
   seed: 1859,
@@ -52,6 +73,10 @@ const experiment = LabExperimentSchema.parse({
   analysis: null,
   selection: null,
   error: null,
+  evidenceError: null,
+  archivedAt: null,
+  version: 0,
+  provenance,
 });
 
 const evidence = LabEvidencePackSchema.parse({
@@ -59,7 +84,15 @@ const evidence = LabEvidencePackSchema.parse({
   experimentId: experiment.experimentId,
   evidenceHash: 'a'.repeat(64),
   parserVersion: '1.0.0',
-  evidenceClass: 'synthetic',
+  evidenceClass: 'automated',
+  provenance: {
+    ...provenance,
+    evidencePackId: 'lab-pack-test',
+    evidenceHash: 'a'.repeat(64),
+    runIds: ['lab-run-test'],
+  },
+  taskDefinitionId: 'lab-task-test',
+  taskDefinitionHash: taskHash,
   generatedAt: timestamp,
   population: { planned: 8, completed: 8, successful: 2, abandoned: 2 },
   metrics: {

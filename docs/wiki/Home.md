@@ -36,7 +36,7 @@ measured interaction
 - [Getting Started](Getting-Started.md): local installation and first run.
 - [Architecture](Architecture.md): components, data flow, persistence, and trust boundaries.
 - [Telemetry and Evidence](Telemetry-and-Evidence.md): captured signals, privacy boundary, parsing, and evidence quality.
-- [Darwin Lab](Darwin-Lab.md): bounded synthetic populations, isolation, evidence, and safety boundaries.
+- [Darwin Lab](Darwin-Lab.md): bounded real-target automation, provenance, evidence, and safety boundaries.
 - [AI and Mutation Workflow](AI-and-Mutation-Workflow.md): GPT context, structured validation, Codex manifest, release, and rollback.
 - [Demo Runbook](Demo-Runbook.md): reliable three-minute presentation flow.
 - [Operations and Deployment](Operations-and-Deployment.md): Cloudflare, D1, secrets, deployment, and smoke tests.

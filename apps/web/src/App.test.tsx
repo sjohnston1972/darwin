@@ -593,7 +593,7 @@ const resetExecution = (status: 'queued' | 'failed' | 'complete') => ({
     branch: repository.branch,
     studyUrl: repository.studyUrl,
   },
-  baselineTag: 'demo-baseline-v2',
+  baselineTag: 'demo-baseline-v3',
   policyHash: 'a'.repeat(64),
   repositoryResetDispatched: status !== 'complete',
   workflowRunId: status === 'complete' ? null : 901,
@@ -1041,9 +1041,16 @@ describe('Darwin control room', () => {
     render(<App />);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Darwin' }),
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Software that evolves.',
+      }),
     ).toBeVisible();
-    expect(screen.getByText('Helping your software evolve.')).toBeVisible();
+    expect(screen.getByText('Darwin Lab · automated')).toBeVisible();
+    expect(screen.getByText('Scale replay · simulated')).toBeVisible();
+    expect(
+      document.querySelector('img[src*="darwin-dna-wireframe"]'),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: /Open measured study/ }),
     ).toHaveAttribute('href', expect.stringContaining('study=true'));
@@ -1612,7 +1619,13 @@ describe('Darwin control room', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/api/demo/reset'),
-        { method: 'POST' },
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            confirmation: 'RESET DARWIN DEMO',
+            exportAcknowledged: true,
+          }),
+        }),
       ),
     );
     await waitFor(() =>

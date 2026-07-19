@@ -2,6 +2,7 @@ import {
   StudyTelemetryEventSchema,
   TelemetryBatchSchema,
   TelemetryReceiptSchema,
+  type DarwinProvenance,
   type StudyTelemetryEvent,
   type TelemetryReceipt,
   type ViewportClass,
@@ -16,6 +17,8 @@ export interface TelemetryClientConfig {
   participantId: string;
   endpoint?: string;
   source?: ClientSource;
+  provenance?: DarwinProvenance;
+  studySessionToken?: string;
   sessionId?: string;
   initialRoute?: string;
   flushIntervalMs?: number;
@@ -412,7 +415,12 @@ export class DarwinTelemetryClient {
     try {
       const response = await this.fetcher(this.config.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.config.studySessionToken
+            ? { 'X-Darwin-Study-Session': this.config.studySessionToken }
+            : {}),
+        },
         body: JSON.stringify(batch),
         keepalive: true,
       });
@@ -1035,6 +1043,7 @@ export class DarwinTelemetryClient {
       sequence: this.sequence++,
       route: this.currentRoute,
       viewport: getViewportClass(),
+      ...(this.config.provenance ? { provenance: this.config.provenance } : {}),
       ...event,
     };
     const parsed = StudyTelemetryEventSchema.parse(candidate);

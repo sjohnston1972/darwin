@@ -2,6 +2,15 @@ name: Deploy Darwin
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing semantic version tag to deploy
+        required: true
+        type: string
+
+concurrency:
+  group: darwin-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -10,28 +19,26 @@ jobs:
     permissions:
       actions: read
       contents: read
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      DARWIN_OPERATOR_TOKEN: ${{ secrets.DARWIN_OPERATOR_TOKEN }}
-      REQUIRE_DARWIN_RELEASE_TAG: '1'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.release_tag }}
       - name: Check out the tagged ProjectFlow baseline
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: sjohnston1972/projectflow
-          ref: demo-baseline-v2
+          ref: demo-baseline-v3
           path: .artifacts/projectflow-target
       - name: Require successful CI for this commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_sha=$(git rev-parse HEAD)
           conclusion=$(gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=10" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${release_sha}&status=completed&per_page=10" \
             --jq '.workflow_runs | first | .conclusion // "missing"')
           test "$conclusion" = "success" || {
-            echo "CI must pass for ${GITHUB_SHA}; current result: ${conclusion}"
+            echo "CI must pass for ${release_sha}; current result: ${conclusion}"
             exit 1
           }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -39,18 +46,29 @@ jobs:
           node-version: 22
           cache: npm
       - name: Resolve release tag and workflow commit
-        run: node scripts/build-metadata.mjs --require-release-tag --github-env
+        env:
+          DARWIN_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          export DARWIN_COMMIT_SHA="$(git rev-parse HEAD)"
+          node scripts/build-metadata.mjs --require-release-tag --github-env
       - run: npm ci
       - run: npm ci --prefix .artifacts/projectflow-target
       - run: npx playwright install --with-deps chromium
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run test
+      - run: npm run test:coverage
       - run: npm audit --audit-level=high
       - name: Run the complete browser demo suite before deploy
         env:
           PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target
         run: npm run test:e2e
-      - run: npm run deploy
-      - run: npm run smoke:production
+      - name: Migrate and deploy Cloudflare applications
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
+      - name: Verify deployed commit and clean smoke telemetry
+        env:
+          DARWIN_OPERATOR_TOKEN: ${{ secrets.DARWIN_OPERATOR_TOKEN }}
+        run: npm run smoke:production

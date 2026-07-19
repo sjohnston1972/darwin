@@ -1155,6 +1155,92 @@ a:focus-visible {
   inset: 0;
 }
 
+.hero-selection-visual {
+  position: absolute;
+  z-index: 0;
+  right: 2%;
+  top: 14%;
+  width: min(46%, 620px);
+  height: 72%;
+  opacity: 0.65;
+  background:
+    linear-gradient(
+      145deg,
+      transparent 0 22%,
+      rgb(185 243 107 / 22%) 22.2% 22.6%,
+      transparent 22.8% 48%,
+      rgb(185 243 107 / 16%) 48.2% 48.5%,
+      transparent 48.7%
+    ),
+    radial-gradient(circle at 20% 72%, rgb(185 243 107 / 20%), transparent 28%);
+}
+
+.hero-selection-visual i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1px solid #b9f36b;
+  border-radius: 50%;
+  background: #101211;
+  box-shadow: 0 0 24px rgb(185 243 107 / 28%);
+}
+
+.hero-selection-visual i:nth-child(1) {
+  left: 8%;
+  top: 70%;
+}
+.hero-selection-visual i:nth-child(2) {
+  left: 35%;
+  top: 40%;
+}
+.hero-selection-visual i:nth-child(3) {
+  left: 62%;
+  top: 56%;
+}
+.hero-selection-visual i:nth-child(4) {
+  left: 88%;
+  top: 22%;
+}
+
+.hero-evidence-classes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.hero-evidence-classes span {
+  border: 1px solid #363d39;
+  padding: 5px 8px;
+  background: rgb(16 18 17 / 74%);
+  color: #aeb8b1;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provenance-chip {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  border: 1px solid #46504a;
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #181c1a;
+  color: #aeb8b1;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.provenance-chip.provenance-darwin_lab {
+  border-color: rgb(185 243 107 / 48%);
+  background: rgb(185 243 107 / 9%);
+  color: #cafa8d;
+}
+
 .hero-dna-visual {
   position: absolute;
   z-index: 0;
@@ -2044,6 +2130,34 @@ a:focus-visible {
   border: 1px solid #29373d;
   border-radius: 4px;
   font-size: 11px;
+}
+
+.artifact-filter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px;
+  color: #71848a;
+  border-top: 1px solid #243137;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.artifact-filter select {
+  min-width: 180px;
+  height: 34px;
+  padding: 0 9px;
+  color: #c2cdd1;
+  background: #0b1418;
+  border: 1px solid #29373d;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .evidence-signals {
@@ -5383,6 +5497,7 @@ html[data-theme='light'] .top-pressure-grid button,
 html[data-theme='light'] .pressure-group-list,
 html[data-theme='light'] .evidence-signals,
 html[data-theme='light'] .signal-filters select,
+html[data-theme='light'] .artifact-filter select,
 html[data-theme='light'] .signal-pagination button,
 html[data-theme='light'] .signal-raw-events {
   border-color: #cbd8e2;
@@ -5727,6 +5842,15 @@ html[data-theme='light'] .error-band {
 }
 
 @media (max-width: 900px) {
+  .artifact-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .artifact-filter select {
+    width: 100%;
+  }
+
   .signal-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

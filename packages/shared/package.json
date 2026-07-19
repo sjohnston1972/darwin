@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.thresholds.lines=71 --coverage.thresholds.functions=0 --coverage.thresholds.statements=71 --coverage.thresholds.branches=19"
   },
   "dependencies": {
     "zod": "^3.25.76"

@@ -8,6 +8,7 @@ import {
   type LabExperiment,
 } from '@darwin/shared';
 import { z } from 'zod';
+import { timeOperation } from '../observability';
 
 export const labAgentPromptVersion = '1.0.0' as const;
 export const labAnalysisPromptVersion = '1.0.0' as const;
@@ -129,9 +130,9 @@ const analysisJsonSchema = {
   additionalProperties: false,
 } as const;
 
-const agentSystemPrompt = `You are one bounded synthetic usability-study participant operating ProjectFlow only through its rendered accessibility tree. Adopt the supplied persona. Choose exactly one next action that advances the assigned task. Do not claim success from the task wording; use only UI evidence. Never reveal chain-of-thought. The expectation is one compact sentence describing the expected UI result. Prefer semantic IDs or accessible roles and names. Stay on the supplied target origin. If the task is complete choose submit; if no safe progress is possible choose abandon.`;
+const agentSystemPrompt = `You are one bounded automated usability-study participant operating the real ProjectFlow target only through its rendered accessibility tree. Adopt the supplied persona. Choose exactly one next action that advances the assigned task. Do not claim success from the task wording; use only UI evidence. Never reveal chain-of-thought. The expectation is one compact sentence describing the expected UI result. Prefer semantic IDs or accessible roles and names. Stay on the supplied target origin. If the task is complete choose submit; if no safe progress is possible choose abandon.`;
 
-const analysisSystemPrompt = `You are Darwin Lab's population analyst. Analyse only the supplied synthetic evidence pack. Synthetic agents complement human studies and are never real-user evidence. Return one to three bounded ProjectFlow mutation candidates. Every problem and mutation must cite only supplied L-EV evidence IDs. Do not invent post-mutation fitness. Prefer the smallest functional change that addresses recurrent population-level selection pressure. Include a measurable retest plan and material tradeoffs. Return only structured output.`;
+const analysisSystemPrompt = `You are Darwin Lab's population analyst. Analyse only the supplied evidence pack derived from automated Playwright interactions with the verified real ProjectFlow target. Darwin Lab agents are automated and are never human participants or human fitness evidence. Return one to three bounded ProjectFlow mutation candidates. Every problem and mutation must cite only supplied L-EV evidence IDs. Do not invent post-mutation fitness. Prefer the smallest functional change that addresses recurrent population-level selection pressure. Include a measurable automated retest plan and material tradeoffs. Return only structured output.`;
 
 export class LabReasoningError extends Error {
   constructor(message: string) {
@@ -171,33 +172,35 @@ const callStructuredOutput = async (
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetcher('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        store: false,
-        reasoning: { effort: 'none' },
-        input: [
-          { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify(input) },
-        ],
-        text: {
-          verbosity: 'low',
-          format: {
-            type: 'json_schema',
-            name: schemaName,
-            schema,
-            strict: true,
-          },
+    const response = await timeOperation('openai', 'lab_reasoning', () =>
+      fetcher('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
-        max_output_tokens: maxOutputTokens,
+        body: JSON.stringify({
+          model,
+          store: false,
+          reasoning: { effort: 'none' },
+          input: [
+            { role: 'system', content: system },
+            { role: 'user', content: JSON.stringify(input) },
+          ],
+          text: {
+            verbosity: 'low',
+            format: {
+              type: 'json_schema',
+              name: schemaName,
+              schema,
+              strict: true,
+            },
+          },
+          max_output_tokens: maxOutputTokens,
+        }),
+        signal: controller.signal,
       }),
-      signal: controller.signal,
-    });
+    );
     if (!response.ok) {
       throw new LabReasoningError(
         `OpenAI Responses API returned HTTP ${response.status}.`,
@@ -322,6 +325,7 @@ export async function analyseLabEvidence(
     throw new LabReasoningError('Analysis cited unsupported Lab evidence.');
   }
   return LabAnalysisSchema.parse({
+    provenance: evidence.provenance,
     analysisId: `lab-analysis-${crypto.randomUUID()}`,
     experimentId: experiment.experimentId,
     evidencePackId: evidence.evidencePackId,
@@ -330,5 +334,9 @@ export async function analyseLabEvidence(
     promptVersion: labAnalysisPromptVersion,
     createdAt: options.createdAt ?? new Date().toISOString(),
     ...output,
+    mutations: output.mutations.map((mutation) => ({
+      ...mutation,
+      provenance: evidence.provenance,
+    })),
   });
 }

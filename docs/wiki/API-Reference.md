@@ -11,7 +11,7 @@ Measured-flow JSON contracts are defined in [`packages/shared/src/contracts.ts`]
 
 ## Access boundaries
 
-`GET /api/health` is deliberately public. `GET /api/auth/session` validates the current operator credential. Control-plane routes require `Authorization: Bearer <DARWIN_OPERATOR_TOKEN>` and enforce a capability such as observe, inspect evidence, reason, execute, release, reset, connect, or simulate.
+`GET /api/health` is deliberately public. `GET /api/auth/session` validates the current operator credential. Control-plane routes require `Authorization: Bearer <DARWIN_OPERATOR_TOKEN>` and enforce a capability such as observe, inspect evidence, reason, execute, release, reset, delete data, connect, or simulate.
 
 ProjectFlow telemetry and participant-workspace routes require a signed target request derived from `PROJECTFLOW_INGESTION_SECRET`. Repository workflow routes require execution-scoped signatures derived from `DARWIN_CALLBACK_TOKEN`. Protected responses use `Cache-Control: no-store`.
 
@@ -69,7 +69,7 @@ The default events response contains only total event, session, participant, and
 | DELETE | `/api/studies/:studyId`                             | delete one study and its derived artifacts           |
 | DELETE | `/api/repository-executions/:executionId/artifacts` | delete one execution and callback material           |
 
-These routes require the `reset` capability. They return aggregate deletion counts and never return deleted content. See [Data retention and deletion](../RETENTION.md) for lifetimes and quota defaults.
+These routes require the `delete_data` capability. They return aggregate deletion counts and never return deleted content. See [Data retention and deletion](../RETENTION.md) for lifetimes and quota defaults.
 
 The initial `/events/raw` response returns the most recent bounded window and an opaque `cursor`. Reuse that cursor to receive only later events. `hasMore: true` means another immediate delta is available; an empty delta retains the same cursor. Cursors combine receive time and event ID so events received in the same millisecond are not dropped.
 
@@ -109,19 +109,19 @@ Fitness calculation requires a released execution, its archived baseline evidenc
 ## Behavioural CI
 
 Behavioural evals are retained, outcome-based acceptance contracts created from
-recurring synthetic Lab failures. They preserve the goal, oracle boundary,
+recurring automated Lab failures. They preserve the goal, oracle boundary,
 thresholds, seed, target snapshot, and supporting evidence IDs for future
 Codex validation.
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| GET | `/api/behavioural-evals` | list retained behavioural acceptance tests |
-| POST | `/api/lab/experiments/:experimentId/promote-eval` | promote completed synthetic evidence into an eval |
+| Method | Route                                             | Purpose                                            |
+| ------ | ------------------------------------------------- | -------------------------------------------------- |
+| GET    | `/api/behavioural-evals`                          | list retained behavioural acceptance tests         |
+| POST   | `/api/lab/experiments/:experimentId/promote-eval` | promote completed Darwin Lab evidence into an eval |
 
 ## Darwin Lab
 
 Darwin Lab accepts only configured local, test, preview, or staging target
-origins. All experiment records and evidence have synthetic provenance and are
+origins. All experiment records and evidence have Darwin Lab provenance and are
 excluded from measured study cohorts and fitness.
 
 | Method | Route                                                    | Purpose                                         |
@@ -131,7 +131,7 @@ excluded from measured study cohorts and fitness.
 | GET    | `/api/lab/experiments/:experimentId`                     | inspect population, replay, evidence, and state |
 | POST   | `/api/lab/experiments/:experimentId/start`               | queue a draft experiment for a browser runner   |
 | POST   | `/api/lab/experiments/:experimentId/claim`               | claim queued work for one runner                |
-| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated synthetic agent run          |
+| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated automated browser run        |
 | POST   | `/api/lab/experiments/:experimentId/runs/:runId/actions` | append one bounded semantic action              |
 | POST   | `/api/lab/experiments/:experimentId/runs/:runId/finish`  | close a run and finalize population evidence    |
 | POST   | `/api/lab/agent-decision`                                | ask the cheap model for one UI action           |

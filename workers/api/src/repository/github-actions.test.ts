@@ -20,6 +20,16 @@ describe('dispatchEvolutionWorkflow', () => {
       .fn<typeof fetch>()
       .mockResolvedValue(new Response(null, { status: 204 }));
     const execution = createRepositoryExecution({
+      provenance: {
+        evidenceClass: 'darwin_lab',
+        label: 'Darwin Lab',
+        labExperimentId: 'experiment-test',
+        taskDefinitionId: 'task-definition-test',
+        taskDefinitionHash: '9'.repeat(64),
+        evidencePackId: 'lab-evidence-test',
+        evidenceHash: 'b'.repeat(64),
+        runIds: ['run-test'],
+      },
       manifestId: 'manifest-test',
       manifestHash: 'a'.repeat(64),
       analysisId: 'analysis-test',
@@ -78,6 +88,8 @@ describe('dispatchEvolutionWorkflow', () => {
         manifest_hash: 'a'.repeat(64),
         repository: 'sjohnston1972/projectflow',
         callback_nonce: 'callback-nonce',
+        provenance_class: 'darwin_lab',
+        lab_experiment_id: 'experiment-test',
       },
     });
   });

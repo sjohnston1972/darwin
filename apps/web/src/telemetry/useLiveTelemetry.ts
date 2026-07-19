@@ -1165,6 +1165,11 @@ export function useLiveTelemetry({
     try {
       const response = await apiFetch(`${apiBaseUrl}/api/demo/reset`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmation: 'RESET DARWIN DEMO',
+          exportAcknowledged: true,
+        }),
       });
       const payload = (await response.json()) as {
         message?: string;
