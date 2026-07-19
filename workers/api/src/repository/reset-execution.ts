@@ -9,7 +9,7 @@ import {
 
 export const resetPolicyHash =
   'bf8a84e3a46ebd0a3d507007d058af0a1e3ad895c6c52d258fdf83e6db07a48c';
-export const resetBaselineTag = 'demo-baseline-v2';
+export const resetBaselineTag = 'demo-baseline-v3';
 
 const transitions: Record<DemoResetStatus, DemoResetStatus[]> = {
   queued: ['running', 'failed'],

@@ -593,7 +593,7 @@ const resetExecution = (status: 'queued' | 'failed' | 'complete') => ({
     branch: repository.branch,
     studyUrl: repository.studyUrl,
   },
-  baselineTag: 'demo-baseline-v2',
+  baselineTag: 'demo-baseline-v3',
   policyHash: 'a'.repeat(64),
   repositoryResetDispatched: status !== 'complete',
   workflowRunId: status === 'complete' ? null : 901,

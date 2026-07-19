@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: sjohnston1972/projectflow
-          ref: demo-baseline-v2
+          ref: demo-baseline-v3
           path: .artifacts/projectflow-target
       - name: Require successful CI for this commit
         env:
