@@ -50,6 +50,10 @@ jobs:
         env:
           PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target
         run: set -o pipefail; npm run test:e2e -- --grep "@smoke" 2>&1 | tee ci-logs/e2e-smoke.log
+      - name: Browser visual regression
+        env:
+          PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target
+        run: set -o pipefail; npx playwright test --grep visual 2>&1 | tee ci-logs/e2e-visual.log
       - name: Build
         run: set -o pipefail; npm run build 2>&1 | tee ci-logs/build.log
       - name: Audit dependencies
