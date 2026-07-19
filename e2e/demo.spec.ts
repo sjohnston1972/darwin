@@ -399,6 +399,15 @@ for (const [name, path] of Object.entries({
     if (name === 'observations' || name === 'mutations') {
       await expect(page.getByText('incremental updates')).toBeVisible();
     }
+    if (name === 'status') {
+      await expect(
+        page.getByRole('heading', { name: 'Operational diagnostics' }),
+      ).toBeVisible();
+      await page.addStyleTag({
+        content:
+          'aside[aria-labelledby="operational-diagnostics-title"] { display: none !important; }',
+      });
+    }
     await expect(page).toHaveScreenshot(`${name}.png`, {
       fullPage: true,
       mask: [page.locator('time')],
