@@ -176,22 +176,59 @@ for (const [label, url, title, connectSource] of [
 
 const eventId = '00000000-0000-4000-8000-000000001859';
 const studyId = 'projectflow-baseline-automated-study';
-const participantId = 'participant-production-smoke';
+const appVersion = '1.0.0';
+const studySession = (await (
+  await requireOk(
+    await fetch(`${projectFlowUrl}/api/darwin/study-sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studyId,
+        appVersion,
+        evidenceClass: 'automated_study',
+        labExperimentId: null,
+        runId: null,
+      }),
+    }),
+    'Automated study session',
+  )
+).json()) as {
+  token: string;
+  claims: {
+    studyId: string;
+    participantId: string;
+    sessionId: string;
+    appVersion: string;
+    evidenceClass: string;
+    source: string;
+  };
+};
+if (
+  !studySession.token ||
+  studySession.claims.studyId !== studyId ||
+  studySession.claims.appVersion !== appVersion ||
+  studySession.claims.evidenceClass !== 'automated_study' ||
+  studySession.claims.source !== 'automated'
+) {
+  throw new Error('Automated study session returned unexpected claims.');
+}
+const { participantId, sessionId } = studySession.claims;
 await requireOk(
   await fetch(`${projectFlowUrl}/api/darwin/telemetry/events`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'X-Darwin-Study-Session': studySession.token,
     },
     body: JSON.stringify({
       events: [
         {
           schemaVersion: 1,
           eventId,
-          sessionId: 'session-production-smoke',
+          sessionId,
           participantId,
           studyId,
-          appVersion: '1.0.0',
+          appVersion,
           source: 'automated',
           occurredAt: new Date().toISOString(),
           sequence: 0,
