@@ -50,17 +50,10 @@ jobs:
         env:
           PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target
         run: set -o pipefail; npm run test:e2e -- --grep "@smoke" 2>&1 | tee ci-logs/e2e-smoke.log
-      - name: Generate Linux visual baselines for hero removal
+      - name: Browser visual regression
         env:
           PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target
-        run: npx playwright test --grep visual --update-snapshots=all
-      - name: Upload generated Linux visual baselines
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: hero-removal-linux-baselines-${{ github.sha }}
-          path: e2e/demo.spec.ts-snapshots/*-linux.png
-          if-no-files-found: error
-          retention-days: 3
+        run: set -o pipefail; npx playwright test --grep visual 2>&1 | tee ci-logs/e2e-visual.log
       - name: Build
         run: set -o pipefail; npm run build 2>&1 | tee ci-logs/build.log
       - name: Audit dependencies
