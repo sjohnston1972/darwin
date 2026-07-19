@@ -1,6 +1,6 @@
 {
   "name": "darwin",
-  "version": "0.25.3",
+  "version": "0.25.4",
   "private": true,
   "type": "module",
   "description": "Darwin - helping your software evolve.",

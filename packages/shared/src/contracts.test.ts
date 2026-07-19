@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  EvidencePackSchema,
   HealthResponseSchema,
   EvidenceMutationCandidateSchema,
   LabActionTargetSchema,
@@ -12,6 +13,111 @@ import {
 } from './index';
 
 describe('shared contracts', () => {
+  it('reads historical evidence without weakening current source attestation', () => {
+    const historicalPack = {
+      evidenceId: 'evidence-historical',
+      evidenceHash: 'a'.repeat(64),
+      generatedAt: '2026-07-17T22:05:28.480Z',
+      parserVersion: '1.2.0',
+      evidenceClass: 'measured',
+      study: {
+        studyId: 'projectflow-baseline-study',
+        appVersion: '1.0.0',
+        sourceEventCount: 1,
+        participants: 1,
+        sessions: 1,
+        attempts: 0,
+      },
+      taskAttempts: [],
+      tasks: [],
+      quality: {
+        strength: 'insufficient',
+        score: 20,
+        eventCount: 1,
+        sessionCount: 1,
+        participantCount: 1,
+        completedAttemptCount: 0,
+        terminalAttemptCount: 0,
+        dimensions: {
+          volume: { score: 2, observedEvents: 1, minimumEvents: 50 },
+          diversity: {
+            score: 33,
+            observedParticipants: 1,
+            minimumParticipants: 3,
+            observedSessions: 1,
+            minimumSessions: 3,
+          },
+          completion: {
+            score: 0,
+            terminalAttempts: 0,
+            minimumTerminalAttempts: 3,
+          },
+          recency: {
+            score: 100,
+            latestEventAt: '2026-07-17T22:05:00.000Z',
+            maximumAgeDays: 7,
+          },
+          weakestScore: 0,
+        },
+        limitations: ['No completed task attempts were observed.'],
+      },
+      journeys: [
+        {
+          journeyId: 'J-001',
+          appVersion: '1.0.0',
+          source: 'real_user',
+          viewport: 'desktop',
+          eventCount: 1,
+          events: [
+            {
+              eventRef: 'E-001',
+              sequence: 0,
+              offsetMs: 0,
+              eventType: 'route_changed',
+              route: '/study/dashboard',
+              attributes: {},
+            },
+          ],
+        },
+      ],
+      frictionSignals: [],
+      applicationMap: {
+        product: {
+          name: 'ProjectFlow',
+          purpose: 'Project management workspace.',
+          primaryUser: 'Knowledge worker.',
+          domainEntities: ['project', 'task'],
+          primaryGoals: ['find assigned work'],
+        },
+        activeGenome: {
+          version: 'baseline',
+          navigation: ['Dashboard', 'Projects'],
+          capabilities: ['project-scoped tasks'],
+        },
+        interfaceInventory: [
+          {
+            area: 'task-discovery',
+            purpose: 'Find assigned work.',
+            primaryActions: ['open project'],
+          },
+        ],
+        routes: ['/study/dashboard'],
+        mutableAreas: ['navigation'],
+        protectedAreas: ['telemetry'],
+      },
+    };
+
+    expect(EvidencePackSchema.parse(historicalPack).applicationMap.source).toBe(
+      undefined,
+    );
+    expect(() =>
+      EvidencePackSchema.parse({
+        ...historicalPack,
+        parserVersion: '1.3.0',
+      }),
+    ).toThrow('Parser 1.3.0 evidence requires repository source attestation.');
+  });
+
   it('accepts a valid health response', () => {
     expect(
       HealthResponseSchema.parse({

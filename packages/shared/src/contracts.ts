@@ -704,7 +704,12 @@ export const EvidenceApplicationMapSchema = z.object({
   protectedAreas: z.array(z.string().min(1)),
 });
 
-export const EvidencePackSchema = z.object({
+const HistoricalEvidenceApplicationMapSchema =
+  EvidenceApplicationMapSchema.extend({
+    source: EvidenceApplicationMapSchema.shape.source.optional(),
+  });
+
+const EvidencePackRecordSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   generatedAt: z.string().datetime(),
@@ -730,8 +735,21 @@ export const EvidencePackSchema = z.object({
   quality: EvidenceQualitySchema,
   journeys: z.array(EvidenceJourneySchema).min(1).max(50),
   frictionSignals: z.array(EvidenceSignalSchema),
-  applicationMap: EvidenceApplicationMapSchema,
+  applicationMap: HistoricalEvidenceApplicationMapSchema,
 });
+
+export const EvidencePackSchema = EvidencePackRecordSchema.superRefine(
+  (pack, context) => {
+    if (pack.parserVersion === '1.3.0' && !pack.applicationMap.source) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['applicationMap', 'source'],
+        message:
+          'Parser 1.3.0 evidence requires repository source attestation.',
+      });
+    }
+  },
+);
 
 export const EvidenceMutationCandidateSchema = z.object({
   provenance: DarwinProvenanceSchema.optional(),
@@ -1287,7 +1305,7 @@ export const ObservationArchiveSchema = z.object({
 
 export const ObservationArchiveSummarySchema = z.object({
   archiveId: StudyIdentifierSchema,
-  evidence: EvidencePackSchema.pick({
+  evidence: EvidencePackRecordSchema.pick({
     provenance: true,
     evidenceId: true,
     evidenceHash: true,
