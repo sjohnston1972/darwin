@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   HealthResponseSchema,
   EvidenceMutationCandidateSchema,
+  OperationalTelemetryMetricsSchema,
+  StudyTelemetrySummarySchema,
   StudyTelemetryEventSchema,
   TelemetryBatchSchema,
 } from './contracts';
@@ -14,10 +16,26 @@ describe('shared contracts', () => {
         status: 'ok',
         service: 'darwin-api',
         version: '0.1.0',
-        build: {
-          release: '0.1.0',
-          commit: '0123456789abcdef0123456789abcdef01234567',
-          identifier: '0.1.0+0123456',
+        commitSha: 'a'.repeat(40),
+        buildId: 'v0.1.0@aaaaaaa',
+        retention: {
+          status: 'healthy',
+          policy: {
+            version: '1.0.0',
+            rawTelemetryDays: 30,
+            workspaceDays: 30,
+            derivedEvidenceDays: 90,
+            executionArtifactDays: 30,
+            fossilRecordDays: 365,
+            operationalAuditDays: 90,
+            maxEventsPerStudy: 50_000,
+            maxEventsPerTarget: 250_000,
+          },
+          eventCount: 0,
+          studyCount: 0,
+          largestStudyEventCount: 0,
+          expiredRecordCount: 0,
+          lastSweepAt: null,
         },
         analysis: {
           mode: 'live',
@@ -27,6 +45,27 @@ describe('shared contracts', () => {
         timestamp: '2026-07-16T12:00:00.000Z',
       }),
     ).toMatchObject({ status: 'ok', service: 'darwin-api' });
+  });
+
+  it('validates non-negative operational telemetry counters', () => {
+    const metrics = {
+      updatedAt: '2026-07-18T08:00:00.000Z',
+      telemetryRequests: 8,
+      acceptedEvents: 3,
+      rejectedEvents: 2,
+      duplicateEvents: 1,
+      authenticationRejected: 1,
+      replayRejected: 1,
+      contextRejected: 1,
+      rateLimited: 0,
+    };
+    expect(OperationalTelemetryMetricsSchema.parse(metrics)).toEqual(metrics);
+    expect(() =>
+      OperationalTelemetryMetricsSchema.parse({
+        ...metrics,
+        authenticationRejected: -1,
+      }),
+    ).toThrow();
   });
 
   it('rejects live mutation confidence outside the supported range', () => {
@@ -64,6 +103,24 @@ describe('shared contracts', () => {
     };
 
     expect(() => EvidenceMutationCandidateSchema.parse(proposal)).toThrow();
+  });
+
+  it('keeps the default telemetry summary aggregate-only', () => {
+    const summary = {
+      studyId: 'projectflow-baseline-study',
+      count: 24,
+      sessionCount: 3,
+      participantCount: 2,
+      behaviorSignalCount: 6,
+    };
+    expect(StudyTelemetrySummarySchema.parse(summary)).toEqual(summary);
+    expect(() =>
+      StudyTelemetrySummarySchema.parse({
+        ...summary,
+        events: [],
+        sessionCounts: { 'session-sensitive': 12 },
+      }),
+    ).toThrow();
   });
 
   it('accepts an attempt-scoped real study event with provenance', () => {

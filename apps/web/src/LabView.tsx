@@ -4,6 +4,7 @@ import {
   LabExperimentsResponseSchema,
   RepositoryMutationExecutionSchema,
   type LabAgentRun,
+  type BehaviouralEval,
   type LabExperiment,
   type LabPersona,
   type RepositoryMutationExecution,
@@ -294,27 +295,40 @@ export function DarwinLabView({
 
   return (
     <div className="lab-workspace">
-      <section className="lab-hero" aria-labelledby="lab-title">
-        <div>
-          <p className="section-label">
-            <FlaskConical size={14} /> Automated usability laboratory
+      <section className="hero-band lab-hero" aria-labelledby="lab-title">
+        <img
+          className="hero-dna-visual lab-trace-visual"
+          src="/assets/darwin-behavioural-trace-wireframe.png"
+          alt=""
+          aria-hidden="true"
+        />
+        <div className="relative z-10 max-w-3xl">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
+            <FlaskConical size={14} /> Synthetic telemetry laboratory
           </p>
-          <h1 id="lab-title">Darwin Lab</h1>
-          <p className="lab-tagline">
+          <h1
+            id="lab-title"
+            className="mt-5 text-4xl font-semibold sm:text-5xl lg:text-[56px] lg:leading-[1.05]"
+          >
+            Darwin Lab
+          </h1>
+          <p className="mt-3 text-xl text-white sm:text-2xl lab-tagline">
             Evolve software before real users arrive.
           </p>
-          <p className="lab-copy">
-            Assign a bounded population a real usability task. Each agent
-            operates the verified ProjectFlow deployment in an isolated browser
-            and returns inspectable automated observations.
+          <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base lab-copy">
+            A bounded population of inexpensive AI agents operates the real
+            ProjectFlow interface in isolated browsers. Their traces stay
+            synthetic, reproducible, and separate from measured human evidence.
           </p>
         </div>
-        <div className="lab-boundary-card">
-          <span>
-            <ShieldCheck size={15} /> Evidence boundary
-          </span>
-          <strong>DARWIN LAB</strong>
-          <small>Never included in human cohorts or measured fitness.</small>
+        <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
+          <div className="lab-boundary-card">
+            <span>
+              <ShieldCheck size={15} /> Evidence boundary
+            </span>
+            <strong>SYNTHETIC ONLY</strong>
+            <small>Never included in human cohorts or measured fitness.</small>
+          </div>
         </div>
       </section>
 
@@ -891,6 +905,83 @@ export function DarwinLabView({
         </section>
       )}
 
+      {selected?.evidence && (
+        <section
+          className="surface-panel lab-evidence-panel"
+          aria-labelledby="behavioural-eval-title"
+        >
+          <div className="panel-heading">
+            <div>
+              <p className="section-label">Behavioural CI</p>
+              <h2 id="behavioural-eval-title">
+                {selected.behaviouralEval
+                  ? `${selected.behaviouralEval.evalId} · retained acceptance test`
+                  : 'Turn this failure into a permanent eval'}
+              </h2>
+            </div>
+            {selected.behaviouralEval && (
+              <span className="lab-status status-analysed">
+                <CheckCircle2 size={14} /> {selected.behaviouralEval.status}
+              </span>
+            )}
+          </div>
+          {selected.behaviouralEval ? (
+            <div>
+              <BehaviouralEvalSummary evaluation={selected.behaviouralEval} />
+              <button
+                className="secondary-action mt-4"
+                type="button"
+                disabled={
+                  working !== null ||
+                  selected.status === 'awaiting_runner' ||
+                  selected.status === 'running'
+                }
+                onClick={() =>
+                  void mutateExperiment(
+                    'rerun-eval',
+                    `/api/lab/experiments/${encodeURIComponent(selected.experimentId)}/rerun-eval`,
+                  )
+                }
+              >
+                {working === 'rerun-eval'
+                  ? 'Rerunning…'
+                  : 'Rerun behavioural eval'}
+              </button>
+            </div>
+          ) : (
+            <div className="lab-next-action">
+              <div>
+                <strong>Observed failure → executable contract</strong>
+                <span>
+                  Preserve the goal, oracle, seed, and thresholds. Codex must
+                  make this eval pass without being given a click path.
+                </span>
+              </div>
+              <button
+                className="primary-action"
+                type="button"
+                disabled={
+                  working !== null || selected.evidence.signals.length === 0
+                }
+                onClick={() =>
+                  void mutateExperiment(
+                    'promote-eval',
+                    `/api/lab/experiments/${encodeURIComponent(selected.experimentId)}/promote-eval`,
+                  )
+                }
+              >
+                {working === 'promote-eval' ? (
+                  <CircleDashed className="is-spinning" size={16} />
+                ) : (
+                  <ShieldCheck size={16} />
+                )}
+                Promote to behavioural eval
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
       {selected?.analysis && (
         <section className="surface-panel lab-mutation-panel">
           <div className="panel-heading">
@@ -1001,6 +1092,35 @@ export function DarwinLabView({
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+function BehaviouralEvalSummary({
+  evaluation,
+}: {
+  evaluation: BehaviouralEval;
+}) {
+  return (
+    <div className="lab-evidence-summary">
+      <span>{evaluation.goal}</span>
+      <span>≤ {evaluation.maxActions} actions</span>
+      <span>
+        {percent(evaluation.baseline.completionRate)} baseline completion
+      </span>
+      <span>{evaluation.evidenceIds.join(' · ')}</span>
+      {evaluation.lastRun && (
+        <span>
+          Last run: {percent(evaluation.lastRun.completionRate)} ·{' '}
+          {evaluation.lastRun.medianActions ?? '—'} median actions
+        </span>
+      )}
+      <details className="w-full">
+        <summary>Codex acceptance brief</summary>
+        <p className="mt-3 whitespace-pre-line text-sm text-mist">
+          {evaluation.codexBrief}
+        </p>
+      </details>
     </div>
   );
 }

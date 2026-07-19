@@ -9,6 +9,13 @@ try {
 const apiUrl = 'https://darwin-api.stevie-johnston.workers.dev';
 const controlRoomUrl = 'https://darwin-control-room.pages.dev';
 const projectFlowUrl = 'https://darwin-projectflow.pages.dev';
+const expectedRelease = process.env.DARWIN_RELEASE?.trim();
+const expectedCommit = process.env.DARWIN_COMMIT_SHA?.trim();
+if (!expectedRelease || !expectedCommit) {
+  throw new Error(
+    'DARWIN_RELEASE and DARWIN_COMMIT_SHA are required for production smoke tests.',
+  );
+}
 const operatorToken = process.env.DARWIN_OPERATOR_TOKEN?.trim();
 if (!operatorToken) {
   throw new Error(
@@ -30,6 +37,9 @@ const requireOk = async (response: Response, label: string) => {
   }
   return response;
 };
+
+const sleep = (durationMs: number) =>
+  new Promise((resolve) => setTimeout(resolve, durationMs));
 
 const expectedSecurityHeaders = {
   'content-security-policy': [
@@ -79,36 +89,66 @@ const fetchPageWithSecurityPolicy = async (
       return response;
     } catch (error) {
       lastError = error;
-      if (attempt < 6)
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      if (attempt < 6) await sleep(2_000);
     }
   }
   throw lastError;
 };
 
-const health = (await (
-  await requireOk(await fetch(`${apiUrl}/api/health`), 'API health')
-).json()) as {
+type HealthResponse = {
   status: string;
   version: string;
-  build: { release: string; commit: string; identifier: string };
+  commitSha: string;
+  buildId: string;
 };
-if (
-  health.status !== 'ok' ||
-  health.build.release !== expectedRelease ||
-  health.build.commit !== expectedCommit
-) {
-  throw new Error(`Unexpected API health response: ${JSON.stringify(health)}`);
-}
 
-const targetConnection = (await (
-  await requireOk(
-    await fetch(`${apiUrl}/api/target-connection`, {
-      headers: operatorHeaders,
-    }),
-    'Target connection',
-  )
-).json()) as {
+const expectedBuildId = `v${expectedRelease}@${expectedCommit.slice(0, 7)}`;
+const fetchExpectedHealth = async () => {
+  let lastHealth: HealthResponse | undefined;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 15; attempt += 1) {
+    try {
+      const response = await requireOk(
+        await fetch(`${apiUrl}/api/health`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        }),
+        'API health',
+      );
+      lastHealth = (await response.json()) as HealthResponse;
+      if (
+        lastHealth.status === 'ok' &&
+        lastHealth.version === expectedRelease &&
+        lastHealth.commitSha === expectedCommit &&
+        lastHealth.buildId === expectedBuildId
+      ) {
+        return lastHealth;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 15) await sleep(2_000);
+  }
+  if (lastHealth) {
+    throw new Error(
+      `Unexpected API health response after deployment propagation window: ${JSON.stringify(lastHealth)}`,
+    );
+  }
+  throw lastError;
+};
+
+const health = await fetchExpectedHealth();
+
+const targetConnectionResponse = await requireOk(
+  await fetch(`${apiUrl}/api/target-connection`, {
+    headers: operatorHeaders,
+  }),
+  'Target connection',
+);
+if (targetConnectionResponse.status === 204) {
+  throw new Error('ProjectFlow target connection is not configured.');
+}
+const targetConnection = (await targetConnectionResponse.json()) as {
   status: string;
   repository: {
     fullName: string;
@@ -141,10 +181,9 @@ for (const [label, url, title, connectSource] of [
   if (!html.includes(title)) throw new Error(`${label} HTML title is missing.`);
 }
 
-const eventHex = expectedCommit.slice(0, 32);
-const eventId = `${eventHex.slice(0, 8)}-${eventHex.slice(8, 12)}-4${eventHex.slice(13, 16)}-a${eventHex.slice(17, 20)}-${eventHex.slice(20, 32)}`;
+const eventId = '00000000-0000-4000-8000-000000001859';
 const studyId = 'projectflow-baseline-automated-study';
-const participantId = `smoke-${expectedCommit.slice(0, 12)}`;
+const participantId = 'participant-production-smoke';
 await requireOk(
   await fetch(`${projectFlowUrl}/api/darwin/telemetry/events`, {
     method: 'POST',
@@ -156,7 +195,7 @@ await requireOk(
         {
           schemaVersion: 1,
           eventId,
-          sessionId: `smoke-session-${expectedCommit.slice(0, 12)}`,
+          sessionId: 'session-production-smoke',
           participantId,
           studyId,
           appVersion: '1.0.0',
@@ -175,7 +214,7 @@ await requireOk(
 
 const stored = (await (
   await requireOk(
-    await fetch(`${apiUrl}/api/studies/${studyId}/events?limit=50`, {
+    await fetch(`${apiUrl}/api/studies/${studyId}/events/raw?limit=50`, {
       headers: operatorHeaders,
     }),
     'D1 telemetry query',
@@ -200,22 +239,20 @@ if (
   );
 }
 
-await requireOk(
-  await fetch(`${apiUrl}/api/retention/delete`, {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      ...operatorHeaders,
-    },
-    body: JSON.stringify({
-      scope: 'participant',
-      studyId,
-      participantId,
-      confirmation: 'DELETE',
-    }),
-  }),
-  'Smoke telemetry cleanup',
-);
+const smokeDeletion = (await (
+  await requireOk(
+    await fetch(
+      `${apiUrl}/api/studies/${studyId}/participants/${participantId}`,
+      { method: 'DELETE', headers: operatorHeaders },
+    ),
+    'Smoke telemetry cleanup',
+  )
+).json()) as { deleted: { telemetryEvents: number } };
+if (smokeDeletion.deleted.telemetryEvents < 1) {
+  throw new Error(
+    'The deterministic smoke telemetry event was not cleaned up.',
+  );
+}
 
 const simulation = (await (
   await requireOk(
@@ -244,6 +281,7 @@ console.log(
       projectFlowUrl,
       targetCommit: targetConnection.repository.baseSha,
       d1EventId: eventId,
+      d1EventDeleted: smokeDeletion.deleted.telemetryEvents,
       simulationEvents: simulation.run.eventCount,
     },
     null,

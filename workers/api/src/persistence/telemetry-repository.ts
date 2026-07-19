@@ -1,51 +1,38 @@
 import {
-  CodexImplementationManifestSchema,
-  EvidenceAnalysisSchema,
-  EvidencePackSchema,
-  OperationalAuditEventSchema,
-  ProjectFlowWorkspaceSchema,
+  EvolutionCycleSchema,
+  FitnessOutcomeSchema,
   RepositoryMutationExecutionSchema,
-  StudyTelemetryEventSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
+  type DemoResetExecution,
   type EvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
-  type ObservationArchive,
-  type OperationalAuditEvent,
+  type FitnessOutcome,
+  type OperationalEvent,
+  type OperationalMetricSummary,
   type ProjectFlowWorkspace,
   type RepositoryMutationExecution,
-  type StorageHealth,
+  type RetentionDeletedCounts,
+  type RetentionHealth,
+  type RetentionPolicy,
+  type RetentionSweepResult,
   type StoredTelemetryEvent,
   type StudyTelemetryEvent,
   type TargetApplicationConnection,
 } from '@darwin/shared';
 
-interface StoredValueSchema<T> {
-  parse(value: unknown): T;
-}
-
-const safeDiagnosticId = (value: string) =>
-  value.replace(/[^a-zA-Z0-9._:-]/g, '?').slice(0, 128);
-
-const parseStoredValue = <T>(
-  schema: StoredValueSchema<T>,
-  json: string,
-  kind: string,
-  recordId: string,
-) => {
-  try {
-    return schema.parse(JSON.parse(json));
-  } catch {
-    throw new Error(
-      `Stored ${kind} record ${safeDiagnosticId(recordId)} is corrupt.`,
-    );
-  }
-};
+import {
+  addDeletedCounts,
+  emptyDeletedCounts,
+  expiresAt,
+  retentionPolicy,
+} from './retention';
 
 export interface TelemetryInsertResult {
   accepted: number;
   duplicates: number;
+  sequenceConflicts: number;
   quotaRejected: number;
 }
 
@@ -56,21 +43,33 @@ export interface TelemetryEventSummary {
   behaviorSignalCount: number;
 }
 
-export interface PageCursor {
-  updatedAt: string;
-  executionId: string;
+export const operationalMetricNames = [
+  'telemetryRequests',
+  'acceptedEvents',
+  'rejectedEvents',
+  'duplicateEvents',
+  'authenticationRejected',
+  'replayRejected',
+  'contextRejected',
+  'rateLimited',
+] as const;
+
+export type OperationalMetricName = (typeof operationalMetricNames)[number];
+export type OperationalMetricCounts = Record<OperationalMetricName, number>;
+
+export interface OperationalMetricsSnapshot {
+  updatedAt: string | null;
+  counts: OperationalMetricCounts;
 }
 
-export interface RepositoryExecutionPage {
-  items: RepositoryMutationExecution[];
+export interface EventPageCursor {
+  receivedAt: string;
+  eventId: string;
+}
+
+export interface TelemetryEventPage {
+  events: StoredTelemetryEvent[];
   hasMore: boolean;
-  cursor: PageCursor | null;
-}
-
-export interface RetentionResult {
-  deletedRecords: number;
-  compactedExecutions: number;
-  completedAt: string;
 }
 
 export interface ExecutionCallbackCredential {
@@ -80,12 +79,39 @@ export interface ExecutionCallbackCredential {
   createdAt: string;
 }
 
+export interface CursorPageOptions {
+  limit: number;
+  cursor?: string | null;
+}
+
+export interface RepositoryExecutionPage {
+  executions: RepositoryMutationExecution[];
+  nextCursor: string | null;
+}
+
+export interface ObservationArchiveRecord {
+  execution: RepositoryMutationExecution;
+  analysis: EvidenceAnalysis;
+  evidence: EvidencePack;
+}
+
+export interface ObservationArchivePage {
+  archives: ObservationArchiveRecord[];
+  nextCursor: string | null;
+}
+
+export interface PersistenceOperationMetric {
+  operation: string;
+  durationMs: number;
+  outcome: 'success' | 'failure';
+  errorCode: string | null;
+}
+
 export interface TelemetryRepository {
   insertEvents(
     events: StudyTelemetryEvent[],
     receivedAt: string,
-    maximumStudyEvents?: number,
-    maximumTargetEvents?: number,
+    policy?: RetentionPolicy,
   ): Promise<TelemetryInsertResult>;
   listEvents(
     studyId: string,
@@ -93,6 +119,12 @@ export interface TelemetryRepository {
     receivedAfter?: string | null,
     source?: StudyTelemetryEvent['source'],
   ): Promise<StoredTelemetryEvent[]>;
+  listEventPage(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+    cursor?: EventPageCursor | null,
+  ): Promise<TelemetryEventPage>;
   summarizeEvents(
     studyId: string,
     receivedAfter?: string | null,
@@ -132,11 +164,8 @@ export interface TelemetryRepository {
   ): Promise<CodexImplementationManifest | null>;
   saveRepositoryExecution(
     execution: RepositoryMutationExecution,
-  ): Promise<void>;
-  compareAndSwapRepositoryExecution(
-    expected: RepositoryMutationExecution,
-    next: RepositoryMutationExecution,
-  ): Promise<RepositoryMutationExecution | null>;
+    expected: RepositoryMutationExecution | null,
+  ): Promise<boolean>;
   getRepositoryExecution(
     executionId: string,
   ): Promise<RepositoryMutationExecution | null>;
@@ -147,21 +176,21 @@ export interface TelemetryRepository {
     analysisId: string,
   ): Promise<RepositoryMutationExecution | null>;
   listRepositoryExecutions(): Promise<RepositoryMutationExecution[]>;
-  listRepositoryExecutionsPage(
-    limit: number,
-    cursor?: PageCursor | null,
+  listRepositoryExecutionPage(
+    options: CursorPageOptions,
   ): Promise<RepositoryExecutionPage>;
   getObservationArchive(
     executionId: string,
-  ): Promise<ObservationArchive | null>;
-  listObservationArchivesPage(
-    limit: number,
-    cursor?: PageCursor | null,
-  ): Promise<{
-    items: ObservationArchive[];
-    hasMore: boolean;
-    cursor: PageCursor | null;
-  }>;
+  ): Promise<ObservationArchiveRecord | null>;
+  listObservationArchivePage(
+    options: CursorPageOptions,
+  ): Promise<ObservationArchivePage>;
+  saveResetExecution(execution: DemoResetExecution): Promise<void>;
+  getResetExecution(resetId: string): Promise<DemoResetExecution | null>;
+  getLatestResetExecution(): Promise<DemoResetExecution | null>;
+  saveFitnessOutcome(outcome: FitnessOutcome): Promise<void>;
+  getFitnessOutcome(executionId: string): Promise<FitnessOutcome | null>;
+  listFitnessOutcomes(): Promise<FitnessOutcome[]>;
   saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ): Promise<void>;
@@ -173,22 +202,53 @@ export interface TelemetryRepository {
     signature: string,
     usedAt: string,
   ): Promise<boolean>;
+  consumeTargetRequestSignature(
+    signature: string,
+    usedAt: string,
+  ): Promise<boolean>;
+  incrementOperationalMetrics(
+    increments: Partial<OperationalMetricCounts>,
+    updatedAt: string,
+  ): Promise<void>;
+  getOperationalMetrics(): Promise<OperationalMetricsSnapshot>;
   getEvolutionCycle(): Promise<EvolutionCycle>;
-  advanceEvolutionCycle(): Promise<EvolutionCycle>;
+  advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ): Promise<EvolutionCycle>;
+  resetEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ): Promise<EvolutionCycle>;
   getTargetConnection(): Promise<TargetApplicationConnection | null>;
   saveTargetConnection(connection: TargetApplicationConnection): Promise<void>;
   deleteTargetConnection(): Promise<void>;
-  getStorageHealth(
-    eventQuotaPerStudy: number,
-    eventQuotaPerTarget?: number,
-  ): Promise<StorageHealth>;
-  compactRetention(now?: string): Promise<RetentionResult>;
-  deleteParticipant(studyId: string, participantId: string): Promise<number>;
-  deleteStudy(studyId: string): Promise<number>;
-  deleteExecution(executionId: string): Promise<number>;
-  recordAuditEvent(event: OperationalAuditEvent): Promise<void>;
-  listAuditEvents(limit: number): Promise<OperationalAuditEvent[]>;
-  reset(): Promise<void>;
+  getRetentionHealth(
+    policy: RetentionPolicy,
+    now: string,
+  ): Promise<RetentionHealth>;
+  runRetentionSweep(
+    policy: RetentionPolicy,
+    now: string,
+  ): Promise<RetentionSweepResult>;
+  deleteParticipant(
+    studyId: string,
+    participantId: string,
+  ): Promise<RetentionDeletedCounts>;
+  deleteStudy(studyId: string): Promise<RetentionDeletedCounts>;
+  deleteExecutionArtifacts(
+    executionId: string,
+  ): Promise<RetentionDeletedCounts>;
+  saveOperationalEvents(events: OperationalEvent[]): Promise<void>;
+  listOperationalAuditEvents(limit: number): Promise<OperationalEvent[]>;
+  summarizeOperationalMetrics(
+    limit: number,
+  ): Promise<OperationalMetricSummary[]>;
+  reset(options?: { preserveResetExecutions?: boolean }): Promise<void>;
 }
 
 const eventStore = new Map<string, StoredTelemetryEvent>();
@@ -199,11 +259,22 @@ const evidenceAnalysisStore = new Map<
   string,
   { studyId: string; analysis: EvidenceAnalysis }
 >();
+const analysisStudyStore = new Map<
+  string,
+  { studyId: string; createdAt: string }
+>();
 const manifestStore = new Map<string, CodexImplementationManifest>();
+const manifestStudyStore = new Map<string, string>();
 const repositoryExecutionStore = new Map<string, RepositoryMutationExecution>();
-const auditEventStore = new Map<string, OperationalAuditEvent>();
+const executionStudyStore = new Map<string, string>();
+const resetExecutionStore = new Map<string, DemoResetExecution>();
+const fitnessOutcomeStore = new Map<string, FitnessOutcome>();
 const callbackCredentialStore = new Map<string, ExecutionCallbackCredential>();
 const callbackSignatureStore = new Set<string>();
+const targetRequestSignatureStore = new Map<string, string>();
+const operationalMetricStore = new Map<OperationalMetricName, number>();
+let operationalMetricsUpdatedAt: string | null = null;
+const operationalEventStore = new Map<string, OperationalEvent>();
 let targetConnectionStore: TargetApplicationConnection | null = null;
 let lastRetentionRunAt: string | null = null;
 const retentionPolicyVersion = '2026-07-19.1';
@@ -214,7 +285,80 @@ const defaultEvolutionCycle = (): EvolutionCycle => ({
   studyId: baselineStudyId,
   startedAt: null,
   genomeEvolutionCount: 0,
+  measuredCommit: null,
+  appVersion: null,
+  deploymentVerifiedAt: null,
 });
+const emptyOperationalMetricCounts = (): OperationalMetricCounts =>
+  Object.fromEntries(
+    operationalMetricNames.map((name) => [name, 0]),
+  ) as OperationalMetricCounts;
+let evolutionCycleStore = defaultEvolutionCycle();
+let latestRetentionSweep: RetentionSweepResult | null = null;
+
+interface ExecutionCursor {
+  updatedAt: string;
+  executionId: string;
+}
+
+const encodeExecutionCursor = (execution: RepositoryMutationExecution) =>
+  btoa(`${execution.updatedAt}\n${execution.executionId}`)
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
+
+const decodeExecutionCursor = (
+  cursor?: string | null,
+): ExecutionCursor | null => {
+  if (!cursor) return null;
+  try {
+    const normalized = cursor.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      '=',
+    );
+    const [updatedAt, executionId, ...extra] = atob(padded).split('\n');
+    if (
+      !updatedAt ||
+      !executionId ||
+      extra.length > 0 ||
+      Number.isNaN(Date.parse(updatedAt))
+    ) {
+      throw new Error('invalid_cursor');
+    }
+    return { updatedAt, executionId };
+  } catch {
+    throw new Error('invalid_cursor');
+  }
+};
+
+const executionPrecedesCursor = (
+  execution: RepositoryMutationExecution,
+  cursor: ExecutionCursor,
+) =>
+  execution.updatedAt < cursor.updatedAt ||
+  (execution.updatedAt === cursor.updatedAt &&
+    execution.executionId < cursor.executionId);
+
+const paginateExecutions = (
+  executions: RepositoryMutationExecution[],
+  options: CursorPageOptions,
+): RepositoryExecutionPage => {
+  const cursor = decodeExecutionCursor(options.cursor);
+  const eligible = cursor
+    ? executions.filter((execution) =>
+        executionPrecedesCursor(execution, cursor),
+      )
+    : executions;
+  const page = eligible.slice(0, options.limit);
+  return {
+    executions: page,
+    nextCursor:
+      eligible.length > options.limit && page.length
+        ? encodeExecutionCursor(page.at(-1)!)
+        : null,
+  };
+};
 
 const workspaceKey = (studyId: string, participantId: string) =>
   `${studyId}:${participantId}`;
@@ -228,35 +372,73 @@ const behaviorSignalEventTypes = new Set<StudyTelemetryEvent['eventType']>([
   'viewport_zoom_changed',
 ]);
 
+const isExpired = (timestamp: string, days: number, now: string) =>
+  expiresAt(timestamp, days) <= now;
+
+const compactExecution = (
+  execution: RepositoryMutationExecution,
+): RepositoryMutationExecution => ({
+  ...execution,
+  patch: null,
+  codex: { ...execution.codex, finalMessage: null },
+  rollback: execution.rollback
+    ? { ...execution.rollback, patch: null }
+    : execution.rollback,
+});
+
+const executionHasLargeArtifacts = (execution: RepositoryMutationExecution) =>
+  Boolean(
+    execution.patch ||
+    execution.codex.finalMessage ||
+    execution.rollback?.patch,
+  );
+
 export class InMemoryTelemetryRepository implements TelemetryRepository {
   async insertEvents(
     events: StudyTelemetryEvent[],
     receivedAt: string,
-    maximumStudyEvents = 100_000,
-    maximumTargetEvents = 1_000_000,
+    policy = retentionPolicy(),
   ) {
     let accepted = 0;
     let duplicates = 0;
+    let sequenceConflicts = 0;
     let quotaRejected = 0;
+    const studyCounts = new Map<string, number>();
+    for (const stored of eventStore.values()) {
+      studyCounts.set(
+        stored.studyId,
+        (studyCounts.get(stored.studyId) ?? 0) + 1,
+      );
+    }
     for (const event of events) {
       if (eventStore.has(event.eventId)) {
         duplicates += 1;
         continue;
       }
-      const studyCount = [...eventStore.values()].filter(
-        (stored) => stored.studyId === event.studyId,
-      ).length;
+      const sequenceConflict = [...eventStore.values()].some(
+        (stored) =>
+          stored.studyId === event.studyId &&
+          stored.participantId === event.participantId &&
+          stored.sessionId === event.sessionId &&
+          stored.sequence === event.sequence,
+      );
+      if (sequenceConflict) {
+        sequenceConflicts += 1;
+        continue;
+      }
+      const studyCount = studyCounts.get(event.studyId) ?? 0;
       if (
-        studyCount >= maximumStudyEvents ||
-        eventStore.size >= maximumTargetEvents
+        eventStore.size >= policy.maxEventsPerTarget ||
+        studyCount >= policy.maxEventsPerStudy
       ) {
         quotaRejected += 1;
         continue;
       }
       eventStore.set(event.eventId, { ...event, receivedAt });
+      studyCounts.set(event.studyId, studyCount + 1);
       accepted += 1;
     }
-    return { accepted, duplicates, quotaRejected };
+    return { accepted, duplicates, sequenceConflicts, quotaRejected };
   }
 
   async listEvents(
@@ -278,6 +460,36 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
           : left.receivedAt.localeCompare(right.receivedAt),
       )
       .slice(-limit);
+  }
+
+  async listEventPage(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+    cursor?: EventPageCursor | null,
+  ) {
+    const ordered = [...eventStore.values()]
+      .filter(
+        (event) =>
+          event.studyId === studyId &&
+          (!receivedAfter || event.receivedAt > receivedAfter),
+      )
+      .sort((left, right) =>
+        left.receivedAt === right.receivedAt
+          ? left.eventId.localeCompare(right.eventId)
+          : left.receivedAt.localeCompare(right.receivedAt),
+      );
+    if (!cursor) return { events: ordered.slice(-limit), hasMore: false };
+    const eligible = ordered.filter(
+      (event) =>
+        event.receivedAt > cursor.receivedAt ||
+        (event.receivedAt === cursor.receivedAt &&
+          event.eventId > cursor.eventId),
+    );
+    return {
+      events: eligible.slice(0, limit),
+      hasMore: eligible.length > limit,
+    };
   }
 
   async listSession(
@@ -346,6 +558,10 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
 
   async saveEvidenceAnalysis(studyId: string, analysis: EvidenceAnalysis) {
     evidenceAnalysisStore.set(analysis.cacheKey, { studyId, analysis });
+    analysisStudyStore.set(analysis.analysisId, {
+      studyId,
+      createdAt: analysis.createdAt,
+    });
   }
 
   async getEvidenceAnalysisByCacheKey(cacheKey: string) {
@@ -372,9 +588,9 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   }
 
   async saveCodexManifest(manifest: CodexImplementationManifest) {
-    if (!manifestStore.has(manifest.manifestId)) {
-      manifestStore.set(manifest.manifestId, manifest);
-    }
+    manifestStore.set(manifest.analysisId, manifest);
+    const lineage = analysisStudyStore.get(manifest.analysisId);
+    if (lineage) manifestStudyStore.set(manifest.analysisId, lineage.studyId);
   }
 
   async getCodexManifest(analysisId: string) {
@@ -390,31 +606,42 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return manifestStore.get(manifestId) ?? null;
   }
 
-  async saveRepositoryExecution(execution: RepositoryMutationExecution) {
-    repositoryExecutionStore.set(
-      execution.executionId,
-      RepositoryMutationExecutionSchema.parse(execution),
-    );
-  }
-
-  async compareAndSwapRepositoryExecution(
-    expected: RepositoryMutationExecution,
-    next: RepositoryMutationExecution,
+  async saveRepositoryExecution(
+    execution: RepositoryMutationExecution,
+    expected: RepositoryMutationExecution | null,
   ) {
-    const current = repositoryExecutionStore.get(expected.executionId);
+    if (
+      (expected === null && execution.revision !== 0) ||
+      (expected !== null &&
+        (execution.executionId !== expected.executionId ||
+          execution.revision !== expected.revision + 1))
+    ) {
+      return false;
+    }
+    const current = repositoryExecutionStore.get(execution.executionId);
+    if (expected === null) {
+      if (current || execution.revision !== 0) return false;
+      repositoryExecutionStore.set(execution.executionId, execution);
+      const lineage = analysisStudyStore.get(execution.analysisId);
+      if (lineage) {
+        executionStudyStore.set(execution.executionId, lineage.studyId);
+      }
+      return true;
+    }
     if (
       !current ||
+      current.revision !== expected.revision ||
       current.status !== expected.status ||
-      current.version !== expected.version
+      (current.rollback?.status ?? null) !== (expected.rollback?.status ?? null)
     ) {
-      return null;
+      return false;
     }
-    const persisted = RepositoryMutationExecutionSchema.parse({
-      ...next,
-      version: expected.version + 1,
-    });
-    repositoryExecutionStore.set(expected.executionId, persisted);
-    return persisted;
+    repositoryExecutionStore.set(execution.executionId, execution);
+    const lineage = analysisStudyStore.get(execution.analysisId);
+    if (lineage) {
+      executionStudyStore.set(execution.executionId, lineage.studyId);
+    }
+    return true;
   }
 
   async getRepositoryExecution(executionId: string) {
@@ -438,10 +665,76 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   }
 
   async listRepositoryExecutions() {
-    return [...repositoryExecutionStore.values()].sort(
-      (left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt) ||
-        right.executionId.localeCompare(left.executionId),
+    return [...repositoryExecutionStore.values()].sort((left, right) =>
+      right.updatedAt === left.updatedAt
+        ? right.executionId.localeCompare(left.executionId)
+        : right.updatedAt.localeCompare(left.updatedAt),
+    );
+  }
+
+  async listRepositoryExecutionPage(options: CursorPageOptions) {
+    return paginateExecutions(await this.listRepositoryExecutions(), options);
+  }
+
+  async getObservationArchive(executionId: string) {
+    const execution = await this.getRepositoryExecution(executionId);
+    if (!execution || !['released', 'failed'].includes(execution.status)) {
+      return null;
+    }
+    const analysis = await this.getEvidenceAnalysis(execution.analysisId);
+    if (!analysis) return null;
+    const evidence = await this.getEvidence(analysis.evidenceId);
+    return evidence ? { execution, analysis, evidence } : null;
+  }
+
+  async listObservationArchivePage(options: CursorPageOptions) {
+    const completed = (await this.listRepositoryExecutions()).filter(
+      (execution) => ['released', 'failed'].includes(execution.status),
+    );
+    const page = paginateExecutions(completed, options);
+    const analysisById = new Map(
+      [...evidenceAnalysisStore.values()].map(({ analysis }) => [
+        analysis.analysisId,
+        analysis,
+      ]),
+    );
+    const archives = page.executions.flatMap((execution) => {
+      const analysis = analysisById.get(execution.analysisId);
+      const evidence = analysis
+        ? evidenceByIdStore.get(analysis.evidenceId)
+        : undefined;
+      return analysis && evidence ? [{ execution, analysis, evidence }] : [];
+    });
+    return { archives, nextCursor: page.nextCursor };
+  }
+
+  async saveResetExecution(execution: DemoResetExecution) {
+    resetExecutionStore.set(execution.resetId, execution);
+  }
+
+  async getResetExecution(resetId: string) {
+    return resetExecutionStore.get(resetId) ?? null;
+  }
+
+  async getLatestResetExecution() {
+    return (
+      [...resetExecutionStore.values()]
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .at(-1) ?? null
+    );
+  }
+
+  async saveFitnessOutcome(outcome: FitnessOutcome) {
+    fitnessOutcomeStore.set(outcome.executionId, outcome);
+  }
+
+  async getFitnessOutcome(executionId: string) {
+    return fitnessOutcomeStore.get(executionId) ?? null;
+  }
+
+  async listFitnessOutcomes() {
+    return [...fitnessOutcomeStore.values()].sort((left, right) =>
+      right.generatedAt.localeCompare(left.generatedAt),
     );
   }
 
@@ -544,6 +837,42 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     return true;
   }
 
+  async consumeTargetRequestSignature(signature: string, usedAt: string) {
+    const expiresBefore = Date.parse(usedAt) - 10 * 60 * 1_000;
+    for (const [storedSignature, storedAt] of targetRequestSignatureStore) {
+      if (Date.parse(storedAt) < expiresBefore) {
+        targetRequestSignatureStore.delete(storedSignature);
+      }
+    }
+    if (targetRequestSignatureStore.has(signature)) return false;
+    targetRequestSignatureStore.set(signature, usedAt);
+    return true;
+  }
+
+  async incrementOperationalMetrics(
+    increments: Partial<OperationalMetricCounts>,
+    updatedAt: string,
+  ) {
+    for (const name of operationalMetricNames) {
+      const increment = increments[name] ?? 0;
+      if (increment > 0) {
+        operationalMetricStore.set(
+          name,
+          (operationalMetricStore.get(name) ?? 0) + increment,
+        );
+      }
+    }
+    operationalMetricsUpdatedAt = updatedAt;
+  }
+
+  async getOperationalMetrics(): Promise<OperationalMetricsSnapshot> {
+    const counts = emptyOperationalMetricCounts();
+    for (const name of operationalMetricNames) {
+      counts[name] = operationalMetricStore.get(name) ?? 0;
+    }
+    return { updatedAt: operationalMetricsUpdatedAt, counts };
+  }
+
   async getEvolutionCycle() {
     const retained = [...repositoryExecutionStore.values()].filter(
       (execution) => execution.status === 'released',
@@ -559,8 +888,32 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     };
   }
 
-  async advanceEvolutionCycle() {
-    return this.getEvolutionCycle();
+  async advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    evolutionCycleStore = {
+      studyId: baselineStudyId,
+      ...boundary,
+      genomeEvolutionCount: evolutionCycleStore.genomeEvolutionCount + 1,
+    };
+    return evolutionCycleStore;
+  }
+
+  async resetEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    evolutionCycleStore = {
+      studyId: baselineStudyId,
+      ...boundary,
+      genomeEvolutionCount: 0,
+    };
+    return evolutionCycleStore;
   }
 
   async getTargetConnection() {
@@ -575,176 +928,343 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     targetConnectionStore = null;
   }
 
-  async getStorageHealth(
-    eventQuotaPerStudy: number,
-    eventQuotaPerTarget = 1_000_000,
-  ) {
+  async getRetentionHealth(
+    policy: RetentionPolicy,
+    now: string,
+  ): Promise<RetentionHealth> {
+    const studyCounts = new Map<string, number>();
+    let expiredRecordCount = 0;
+    for (const event of eventStore.values()) {
+      studyCounts.set(event.studyId, (studyCounts.get(event.studyId) ?? 0) + 1);
+      if (isExpired(event.receivedAt, policy.rawTelemetryDays, now)) {
+        expiredRecordCount += 1;
+      }
+    }
+    for (const workspace of workspaceStore.values()) {
+      if (isExpired(workspace.updatedAt, policy.workspaceDays, now)) {
+        expiredRecordCount += 1;
+      }
+    }
+    for (const evidence of evidenceByIdStore.values()) {
+      if (isExpired(evidence.generatedAt, policy.derivedEvidenceDays, now)) {
+        expiredRecordCount += 1;
+      }
+    }
+    for (const { analysis } of evidenceAnalysisStore.values()) {
+      if (isExpired(analysis.createdAt, policy.derivedEvidenceDays, now)) {
+        expiredRecordCount += 1;
+      }
+    }
+    for (const manifest of manifestStore.values()) {
+      if (isExpired(manifest.createdAt, policy.fossilRecordDays, now)) {
+        expiredRecordCount += 1;
+      }
+    }
+    for (const execution of repositoryExecutionStore.values()) {
+      if (
+        isExpired(execution.createdAt, policy.fossilRecordDays, now) ||
+        (executionHasLargeArtifacts(execution) &&
+          isExpired(execution.createdAt, policy.executionArtifactDays, now))
+      ) {
+        expiredRecordCount += 1;
+      }
+    }
+    for (const credential of callbackCredentialStore.values()) {
+      if (credential.expiresAt <= now) expiredRecordCount += 1;
+    }
+    const largestStudyEventCount = Math.max(0, ...studyCounts.values());
+    const quotaAttention =
+      eventStore.size >= policy.maxEventsPerTarget * 0.9 ||
+      largestStudyEventCount >= policy.maxEventsPerStudy * 0.9;
     return {
-      telemetryEvents: eventStore.size,
-      participantWorkspaces: workspaceStore.size,
-      evidencePacks: evidenceByIdStore.size,
-      repositoryExecutions: repositoryExecutionStore.size,
-      labExperiments: 0,
-      eventQuotaPerStudy,
-      eventQuotaPerTarget,
-      rawTelemetryRetentionDays,
-      automatedTelemetryRetentionDays,
-      lastRetentionRunAt,
-      policyVersion: retentionPolicyVersion,
+      status:
+        expiredRecordCount > 0 || quotaAttention ? 'attention' : 'healthy',
+      policy,
+      eventCount: eventStore.size,
+      studyCount: studyCounts.size,
+      largestStudyEventCount,
+      expiredRecordCount,
+      lastSweepAt: latestRetentionSweep?.completedAt ?? null,
     };
   }
 
-  async compactRetention(now = new Date().toISOString()) {
-    const current = Date.parse(now);
-    const rawCutoff = new Date(
-      current - rawTelemetryRetentionDays * 86_400_000,
-    ).toISOString();
-    const automatedCutoff = new Date(
-      current - automatedTelemetryRetentionDays * 86_400_000,
-    ).toISOString();
-    const outputCutoff = new Date(current - 90 * 86_400_000).toISOString();
-    const auditCutoff = new Date(current - 365 * 86_400_000).toISOString();
-    let deletedRecords = 0;
-    let compactedExecutions = 0;
-    for (const [eventId, event] of eventStore) {
-      const cutoff = event.source === 'real_user' ? rawCutoff : automatedCutoff;
-      if (event.receivedAt < cutoff) {
-        eventStore.delete(eventId);
-        deletedRecords += 1;
+  private deleteCallbackArtifacts(
+    executionId: string,
+    deleted: RetentionDeletedCounts,
+  ) {
+    if (callbackCredentialStore.delete(executionId)) {
+      deleted.callbackArtifacts += 1;
+    }
+    for (const key of callbackSignatureStore) {
+      if (key.startsWith(`${executionId}:`)) {
+        callbackSignatureStore.delete(key);
+        deleted.callbackArtifacts += 1;
       }
     }
-    for (const [key, workspace] of workspaceStore) {
-      if (workspace.updatedAt < rawCutoff) {
-        workspaceStore.delete(key);
-        deletedRecords += 1;
+  }
+
+  async saveOperationalEvents(events: OperationalEvent[]) {
+    for (const event of events) {
+      operationalEventStore.set(event.eventId, event);
+    }
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1_000;
+    for (const [eventId, stored] of operationalEventStore) {
+      if (Date.parse(stored.occurredAt) < cutoff) {
+        operationalEventStore.delete(eventId);
       }
+    }
+  }
+
+  private deleteDerivedStudyArtifacts(
+    studyId: string,
+    deleted: RetentionDeletedCounts,
+  ) {
+    const analysisIds = new Set(
+      [...analysisStudyStore.entries()]
+        .filter(([, lineage]) => lineage.studyId === studyId)
+        .map(([analysisId]) => analysisId),
+    );
+    for (const [cacheKey, entry] of evidenceAnalysisStore) {
+      if (entry.studyId !== studyId) continue;
+      analysisIds.add(entry.analysis.analysisId);
+      evidenceAnalysisStore.delete(cacheKey);
+      deleted.analyses += 1;
+    }
+    for (const [analysisId] of manifestStore) {
+      if (
+        !analysisIds.has(analysisId) &&
+        manifestStudyStore.get(analysisId) !== studyId
+      ) {
+        continue;
+      }
+      manifestStore.delete(analysisId);
+      manifestStudyStore.delete(analysisId);
+      deleted.manifests += 1;
     }
     for (const [executionId, execution] of repositoryExecutionStore) {
       if (
-        ['released', 'failed'].includes(execution.status) &&
-        execution.updatedAt < outputCutoff &&
-        (execution.patch ||
-          execution.codex.finalMessage ||
-          execution.checks.some((check) => check.output.length > 0))
+        !analysisIds.has(execution.analysisId) &&
+        executionStudyStore.get(executionId) !== studyId
       ) {
-        repositoryExecutionStore.set(
-          executionId,
-          RepositoryMutationExecutionSchema.parse({
-            ...execution,
-            patch: null,
-            checks: execution.checks.map((check) => ({
-              ...check,
-              output: '[compacted by retention policy]',
-            })),
-            codex: { ...execution.codex, finalMessage: null },
-            rollback: execution.rollback
-              ? {
-                  ...execution.rollback,
-                  patch: null,
-                  checks: execution.rollback.checks.map((check) => ({
-                    ...check,
-                    output: '[compacted by retention policy]',
-                  })),
-                }
-              : null,
-          }),
-        );
-        compactedExecutions += 1;
+        continue;
       }
+      repositoryExecutionStore.delete(executionId);
+      executionStudyStore.delete(executionId);
+      deleted.executions += 1;
+      this.deleteCallbackArtifacts(executionId, deleted);
     }
-    for (const [auditEventId, auditEvent] of auditEventStore) {
-      if (auditEvent.occurredAt < auditCutoff) {
-        auditEventStore.delete(auditEventId);
-        deletedRecords += 1;
-      }
+    for (const analysisId of analysisIds) {
+      analysisStudyStore.delete(analysisId);
     }
-    lastRetentionRunAt = now;
-    return { deletedRecords, compactedExecutions, completedAt: now };
+    evidenceStore.delete(studyId);
+    for (const [evidenceId, evidence] of evidenceByIdStore) {
+      if (evidence.study.studyId !== studyId) continue;
+      evidenceByIdStore.delete(evidenceId);
+      deleted.evidencePacks += 1;
+    }
   }
 
   async deleteParticipant(studyId: string, participantId: string) {
-    let deleted = 0;
+    const deleted = emptyDeletedCounts();
     for (const [eventId, event] of eventStore) {
       if (event.studyId === studyId && event.participantId === participantId) {
         eventStore.delete(eventId);
-        deleted += 1;
+        deleted.telemetryEvents += 1;
       }
     }
-    if (workspaceStore.delete(workspaceKey(studyId, participantId)))
-      deleted += 1;
+    if (workspaceStore.delete(workspaceKey(studyId, participantId))) {
+      deleted.workspaces += 1;
+    }
+    this.deleteDerivedStudyArtifacts(studyId, deleted);
     return deleted;
-  }
-
-  async deleteExecution(executionId: string) {
-    const execution = repositoryExecutionStore.get(executionId);
-    if (!execution) return 0;
-    repositoryExecutionStore.delete(executionId);
-    manifestStore.delete(execution.manifestId);
-    callbackCredentialStore.delete(executionId);
-    return 1;
   }
 
   async deleteStudy(studyId: string) {
-    let deleted = 0;
+    const deleted = emptyDeletedCounts();
     for (const [eventId, event] of eventStore) {
       if (event.studyId === studyId) {
         eventStore.delete(eventId);
-        deleted += 1;
+        deleted.telemetryEvents += 1;
       }
     }
     for (const key of workspaceStore.keys()) {
-      if (key.startsWith(`${studyId}:`) && workspaceStore.delete(key))
-        deleted += 1;
-    }
-    const analysisIds = new Set<string>();
-    for (const [cacheKey, entry] of evidenceAnalysisStore) {
-      if (entry.studyId === studyId) {
-        analysisIds.add(entry.analysis.analysisId);
-        evidenceAnalysisStore.delete(cacheKey);
-        deleted += 1;
+      if (key.startsWith(`${studyId}:`)) {
+        workspaceStore.delete(key);
+        deleted.workspaces += 1;
       }
     }
-    for (const execution of [...repositoryExecutionStore.values()]) {
-      if (analysisIds.has(execution.analysisId)) {
-        deleted += await this.deleteExecution(execution.executionId);
-      }
-    }
-    const evidence = evidenceStore.get(studyId);
-    if (evidence) {
-      evidenceStore.delete(studyId);
-      evidenceByIdStore.delete(evidence.evidenceId);
-      deleted += 1;
-    }
+    this.deleteDerivedStudyArtifacts(studyId, deleted);
     return deleted;
   }
 
-  async recordAuditEvent(event: OperationalAuditEvent) {
-    auditEventStore.set(event.auditEventId, structuredClone(event));
+  async deleteExecutionArtifacts(executionId: string) {
+    const deleted = emptyDeletedCounts();
+    if (repositoryExecutionStore.delete(executionId)) {
+      deleted.executions += 1;
+    }
+    executionStudyStore.delete(executionId);
+    this.deleteCallbackArtifacts(executionId, deleted);
+    return deleted;
   }
 
-  async listAuditEvents(limit: number) {
-    return [...auditEventStore.values()]
-      .sort(
-        (left, right) =>
-          right.occurredAt.localeCompare(left.occurredAt) ||
-          right.auditEventId.localeCompare(left.auditEventId),
+  async runRetentionSweep(policy: RetentionPolicy, now: string) {
+    const deleted = emptyDeletedCounts();
+    let compactedExecutions = 0;
+    for (const [eventId, event] of eventStore) {
+      if (isExpired(event.receivedAt, policy.rawTelemetryDays, now)) {
+        eventStore.delete(eventId);
+        deleted.telemetryEvents += 1;
+      }
+    }
+    for (const [key, workspace] of workspaceStore) {
+      if (isExpired(workspace.updatedAt, policy.workspaceDays, now)) {
+        workspaceStore.delete(key);
+        deleted.workspaces += 1;
+      }
+    }
+    for (const [evidenceId, evidence] of evidenceByIdStore) {
+      if (isExpired(evidence.generatedAt, policy.derivedEvidenceDays, now)) {
+        evidenceByIdStore.delete(evidenceId);
+        if (
+          evidenceStore.get(evidence.study.studyId)?.evidenceId === evidenceId
+        ) {
+          evidenceStore.delete(evidence.study.studyId);
+        }
+        deleted.evidencePacks += 1;
+      }
+    }
+    for (const [cacheKey, entry] of evidenceAnalysisStore) {
+      if (
+        isExpired(entry.analysis.createdAt, policy.derivedEvidenceDays, now)
+      ) {
+        evidenceAnalysisStore.delete(cacheKey);
+        deleted.analyses += 1;
+      }
+    }
+    for (const [analysisId, manifest] of manifestStore) {
+      if (isExpired(manifest.createdAt, policy.fossilRecordDays, now)) {
+        manifestStore.delete(analysisId);
+        manifestStudyStore.delete(analysisId);
+        deleted.manifests += 1;
+      }
+    }
+    for (const [executionId, execution] of repositoryExecutionStore) {
+      if (isExpired(execution.createdAt, policy.fossilRecordDays, now)) {
+        repositoryExecutionStore.delete(executionId);
+        executionStudyStore.delete(executionId);
+        deleted.executions += 1;
+        this.deleteCallbackArtifacts(executionId, deleted);
+      } else if (
+        executionHasLargeArtifacts(execution) &&
+        isExpired(execution.createdAt, policy.executionArtifactDays, now)
+      ) {
+        repositoryExecutionStore.set(executionId, compactExecution(execution));
+        compactedExecutions += 1;
+      }
+    }
+    for (const [executionId, credential] of callbackCredentialStore) {
+      if (credential.expiresAt <= now) {
+        this.deleteCallbackArtifacts(executionId, deleted);
+      }
+    }
+    for (const [analysisId, lineage] of analysisStudyStore) {
+      if (isExpired(lineage.createdAt, policy.fossilRecordDays, now)) {
+        analysisStudyStore.delete(analysisId);
+      }
+    }
+    latestRetentionSweep = {
+      status: 'completed',
+      policyVersion: policy.version,
+      completedAt: now,
+      compactedExecutions,
+      deleted,
+    };
+    return latestRetentionSweep;
+  }
+
+  async listOperationalAuditEvents(limit: number) {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1_000;
+    return [...operationalEventStore.values()]
+      .filter(
+        (event) =>
+          event.kind === 'audit' && Date.parse(event.occurredAt) >= cutoff,
+      )
+      .sort((left, right) =>
+        right.occurredAt === left.occurredAt
+          ? right.eventId.localeCompare(left.eventId)
+          : right.occurredAt.localeCompare(left.occurredAt),
+      )
+      .slice(0, limit);
+  }
+
+  async summarizeOperationalMetrics(limit: number) {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1_000;
+    const aggregates = new Map<
+      string,
+      OperationalMetricSummary & { totalDurationMs: number }
+    >();
+    for (const event of operationalEventStore.values()) {
+      if (
+        event.kind !== 'metric' ||
+        !event.provider ||
+        !event.operation ||
+        Date.parse(event.occurredAt) < cutoff
+      ) {
+        continue;
+      }
+      const key = `${event.provider}:${event.operation}`;
+      const aggregate = aggregates.get(key) ?? {
+        provider: event.provider,
+        operation: event.operation,
+        count: 0,
+        failureCount: 0,
+        averageDurationMs: 0,
+        maximumDurationMs: 0,
+        totalDurationMs: 0,
+      };
+      aggregate.count += 1;
+      aggregate.failureCount += event.outcome === 'failure' ? 1 : 0;
+      aggregate.totalDurationMs += event.durationMs;
+      aggregate.maximumDurationMs = Math.max(
+        aggregate.maximumDurationMs,
+        event.durationMs,
+      );
+      aggregates.set(key, aggregate);
+    }
+    return [...aggregates.values()]
+      .sort((left, right) =>
+        left.provider === right.provider
+          ? left.operation.localeCompare(right.operation)
+          : left.provider.localeCompare(right.provider),
       )
       .slice(0, limit)
-      .map((event) => structuredClone(event));
+      .map(({ totalDurationMs, ...aggregate }) => ({
+        ...aggregate,
+        averageDurationMs: Math.round(totalDurationMs / aggregate.count),
+      }));
   }
 
-  async reset() {
+  async reset(options?: { preserveResetExecutions?: boolean }) {
     eventStore.clear();
     workspaceStore.clear();
     evidenceStore.clear();
     evidenceByIdStore.clear();
     evidenceAnalysisStore.clear();
+    analysisStudyStore.clear();
     manifestStore.clear();
+    manifestStudyStore.clear();
     repositoryExecutionStore.clear();
+    executionStudyStore.clear();
+    fitnessOutcomeStore.clear();
     callbackCredentialStore.clear();
     callbackSignatureStore.clear();
-    auditEventStore.clear();
-    lastRetentionRunAt = null;
+    targetRequestSignatureStore.clear();
+    operationalMetricStore.clear();
+    operationalEventStore.clear();
+    operationalMetricsUpdatedAt = null;
+    if (!options?.preserveResetExecutions) resetExecutionStore.clear();
+    evolutionCycleStore = defaultEvolutionCycle();
+    latestRetentionSweep = null;
   }
 }
 
@@ -754,63 +1274,56 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async insertEvents(
     events: StudyTelemetryEvent[],
     receivedAt: string,
-    maximumStudyEvents = 100_000,
-    maximumTargetEvents = 1_000_000,
+    policy = retentionPolicy(),
   ) {
     if (!events.length) {
-      return { accepted: 0, duplicates: 0, quotaRejected: 0 };
+      return {
+        accepted: 0,
+        duplicates: 0,
+        sequenceConflicts: 0,
+        quotaRejected: 0,
+      };
     }
-    const existing = await Promise.all(
-      events.map((event) =>
-        this.database
-          .prepare('SELECT event_id FROM telemetry_events WHERE event_id = ?')
-          .bind(event.eventId)
-          .first<{ event_id: string }>(),
-      ),
-    );
-    const duplicateIds = new Set(
-      existing
-        .filter((row): row is { event_id: string } => Boolean(row))
-        .map((row) => row.event_id),
-    );
-    const studyIds = [...new Set(events.map((event) => event.studyId))];
-    const targetCountRow = await this.database
-      .prepare('SELECT COUNT(*) AS count FROM telemetry_events')
-      .first<{ count: number }>();
-    let targetCount = targetCountRow?.count ?? 0;
-    const studyCounts = new Map(
-      await Promise.all(
-        studyIds.map(async (studyId) => {
-          const row = await this.database
-            .prepare(
-              'SELECT COUNT(*) AS count FROM telemetry_events WHERE study_id = ?',
-            )
-            .bind(studyId)
-            .first<{ count: number }>();
-          return [studyId, row?.count ?? 0] as const;
-        }),
-      ),
-    );
-    const candidates = events.filter((event) => {
-      if (duplicateIds.has(event.eventId)) return false;
-      const count = studyCounts.get(event.studyId) ?? 0;
-      if (count >= maximumStudyEvents || targetCount >= maximumTargetEvents) {
+    const placeholders = events.map(() => '?').join(', ');
+    const existing = await this.database
+      .prepare(
+        `SELECT event_id FROM telemetry_events WHERE event_id IN (${placeholders})`,
+      )
+      .bind(...events.map((event) => event.eventId))
+      .all<{ event_id: string }>();
+    const existingIds = new Set(existing.results.map((row) => row.event_id));
+    const seenIds = new Set<string>();
+    let duplicates = 0;
+    const novelEvents = events.filter((event) => {
+      if (existingIds.has(event.eventId) || seenIds.has(event.eventId)) {
+        duplicates += 1;
         return false;
       }
-      studyCounts.set(event.studyId, count + 1);
-      targetCount += 1;
+      seenIds.add(event.eventId);
       return true;
     });
-    const statements = candidates.map((event) =>
+    if (!novelEvents.length) {
+      return {
+        accepted: 0,
+        duplicates,
+        sequenceConflicts: 0,
+        quotaRejected: 0,
+      };
+    }
+    const eventExpiry = expiresAt(receivedAt, policy.rawTelemetryDays);
+    const statements = novelEvents.map((event) =>
       this.database
         .prepare(
           `INSERT OR IGNORE INTO telemetry_events (
             event_id, study_id, participant_id, session_id, task_attempt_id,
             app_version, source, occurred_at, received_at, sequence,
-            event_type, route, target_id, event_json
-          ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-          WHERE (SELECT COUNT(*) FROM telemetry_events WHERE study_id = ?) < ?
-            AND (SELECT COUNT(*) FROM telemetry_events) < ?`,
+            event_type, route, target_id, event_json, expires_at
+          )
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          WHERE (SELECT COUNT(*) FROM telemetry_events) < ?
+            AND (
+              SELECT COUNT(*) FROM telemetry_events WHERE study_id = ?
+            ) < ?`,
         )
         .bind(
           event.eventId,
@@ -827,9 +1340,10 @@ export class D1TelemetryRepository implements TelemetryRepository {
           event.route,
           'targetId' in event ? event.targetId : null,
           JSON.stringify(event),
+          eventExpiry,
+          policy.maxEventsPerTarget,
           event.studyId,
-          maximumStudyEvents,
-          maximumTargetEvents,
+          policy.maxEventsPerStudy,
         ),
     );
     const results = statements.length
@@ -839,10 +1353,40 @@ export class D1TelemetryRepository implements TelemetryRepository {
       (count, result) => count + (result.meta.changes > 0 ? 1 : 0),
       0,
     );
+    const ignoredEvents = novelEvents.filter(
+      (_, index) => results[index]?.meta.changes === 0,
+    );
+    if (!ignoredEvents.length) {
+      return { accepted, duplicates, sequenceConflicts: 0, quotaRejected: 0 };
+    }
+    const sequenceChecks = await this.database.batch(
+      ignoredEvents.map((event) =>
+        this.database
+          .prepare(
+            `SELECT event_id
+             FROM telemetry_events
+             WHERE study_id = ?
+               AND participant_id = ?
+               AND session_id = ?
+               AND sequence = ?
+             LIMIT 1`,
+          )
+          .bind(
+            event.studyId,
+            event.participantId,
+            event.sessionId,
+            event.sequence,
+          ),
+      ),
+    );
+    const sequenceConflicts = sequenceChecks.filter(
+      (result) => result.results.length > 0,
+    ).length;
     return {
       accepted,
-      duplicates: duplicateIds.size,
-      quotaRejected: events.length - duplicateIds.size - accepted,
+      duplicates,
+      sequenceConflicts,
+      quotaRejected: ignoredEvents.length - sequenceConflicts,
     };
   }
 
@@ -885,6 +1429,62 @@ export class D1TelemetryRepository implements TelemetryRepository {
         receivedAt: row.received_at,
       }))
       .reverse();
+  }
+
+  async listEventPage(
+    studyId: string,
+    limit: number,
+    receivedAfter?: string | null,
+    cursor?: EventPageCursor | null,
+  ) {
+    const statement = cursor
+      ? this.database.prepare(
+          `SELECT event_id, event_json, received_at
+           FROM telemetry_events
+           WHERE study_id = ?
+             AND (? IS NULL OR received_at > ?)
+             AND (received_at > ? OR (received_at = ? AND event_id > ?))
+           ORDER BY received_at ASC, event_id ASC
+           LIMIT ?`,
+        )
+      : this.database.prepare(
+          `SELECT event_id, event_json, received_at
+           FROM telemetry_events
+           WHERE study_id = ? AND (? IS NULL OR received_at > ?)
+           ORDER BY received_at DESC, event_id DESC
+           LIMIT ?`,
+        );
+    const result = cursor
+      ? await statement
+          .bind(
+            studyId,
+            receivedAfter ?? null,
+            receivedAfter ?? null,
+            cursor.receivedAt,
+            cursor.receivedAt,
+            cursor.eventId,
+            limit + 1,
+          )
+          .all<{
+            event_id: string;
+            event_json: string;
+            received_at: string;
+          }>()
+      : await statement
+          .bind(studyId, receivedAfter ?? null, receivedAfter ?? null, limit)
+          .all<{
+            event_id: string;
+            event_json: string;
+            received_at: string;
+          }>();
+    const mapped = result.results.map((row) => ({
+      ...(JSON.parse(row.event_json) as StudyTelemetryEvent),
+      receivedAt: row.received_at,
+    }));
+    return {
+      events: cursor ? mapped.slice(0, limit) : mapped.reverse(),
+      hasMore: Boolean(cursor && mapped.length > limit),
+    };
   }
 
   async listSession(
@@ -980,17 +1580,19 @@ export class D1TelemetryRepository implements TelemetryRepository {
     await this.database
       .prepare(
         `INSERT INTO participant_workspaces (
-          study_id, participant_id, workspace_json, updated_at
-        ) VALUES (?, ?, ?, ?)
+          study_id, participant_id, workspace_json, updated_at, expires_at
+        ) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(study_id, participant_id) DO UPDATE SET
           workspace_json = excluded.workspace_json,
-          updated_at = excluded.updated_at`,
+          updated_at = excluded.updated_at,
+          expires_at = excluded.expires_at`,
       )
       .bind(
         studyId,
         participantId,
         JSON.stringify(workspace),
         workspace.updatedAt,
+        expiresAt(workspace.updatedAt, retentionPolicy().workspaceDays),
       )
       .run();
   }
@@ -1000,11 +1602,12 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .prepare(
         `INSERT INTO analysis_runs (
           evidence_id, study_id, app_version, generated_at,
-          source_event_count, evidence_hash, evidence_pack_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          source_event_count, evidence_hash, evidence_pack_json, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(evidence_hash) DO UPDATE SET
           generated_at = excluded.generated_at,
-          evidence_pack_json = excluded.evidence_pack_json`,
+          evidence_pack_json = excluded.evidence_pack_json,
+          expires_at = excluded.expires_at`,
       )
       .bind(
         pack.evidenceId,
@@ -1014,6 +1617,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
         pack.study.sourceEventCount,
         pack.evidenceHash,
         JSON.stringify(pack),
+        expiresAt(pack.generatedAt, retentionPolicy().derivedEvidenceDays),
       )
       .run();
   }
@@ -1061,10 +1665,11 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .prepare(
         `INSERT INTO evidence_analyses (
           analysis_id, study_id, evidence_id, evidence_hash, cache_key,
-          prompt_version, model, mode, created_at, analysis_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          prompt_version, model, mode, created_at, analysis_json, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(cache_key) DO UPDATE SET
-          analysis_json = excluded.analysis_json`,
+          analysis_json = excluded.analysis_json,
+          expires_at = excluded.expires_at`,
       )
       .bind(
         analysis.analysisId,
@@ -1077,6 +1682,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
         analysis.mode,
         analysis.createdAt,
         JSON.stringify(analysis),
+        expiresAt(analysis.createdAt, retentionPolicy().derivedEvidenceDays),
       )
       .run();
   }
@@ -1141,9 +1747,22 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .prepare(
         `INSERT INTO codex_manifest_versions (
           manifest_id, analysis_id, mutation_id, evidence_hash,
-          manifest_hash, repository_commit, created_at, manifest_json
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(manifest_id) DO NOTHING`,
+          manifest_hash, repository_commit, created_at, manifest_json,
+          expires_at, study_id
+         ) VALUES (
+           ?, ?, ?, ?, ?, ?, ?, ?, ?,
+           (SELECT study_id FROM evidence_analyses WHERE analysis_id = ?)
+         )
+         ON CONFLICT(analysis_id) DO UPDATE SET
+           manifest_id = excluded.manifest_id,
+           mutation_id = excluded.mutation_id,
+           evidence_hash = excluded.evidence_hash,
+           manifest_hash = excluded.manifest_hash,
+           repository_commit = excluded.repository_commit,
+           created_at = excluded.created_at,
+           manifest_json = excluded.manifest_json,
+           expires_at = excluded.expires_at,
+           study_id = COALESCE(excluded.study_id, codex_manifests.study_id)`,
       )
       .bind(
         manifest.manifestId,
@@ -1154,6 +1773,8 @@ export class D1TelemetryRepository implements TelemetryRepository {
         manifest.repositoryCommit,
         manifest.createdAt,
         JSON.stringify(manifest),
+        expiresAt(manifest.createdAt, retentionPolicy().fossilRecordDays),
+        manifest.analysisId,
       )
       .run();
   }
@@ -1226,32 +1847,92 @@ export class D1TelemetryRepository implements TelemetryRepository {
       : null;
   }
 
-  async saveRepositoryExecution(execution: RepositoryMutationExecution) {
-    const parsed = RepositoryMutationExecutionSchema.parse(execution);
-    await this.database
-      .prepare(
-        `INSERT INTO repository_executions (
-          execution_id, manifest_id, analysis_id, status, updated_at, version,
-          execution_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(execution_id) DO UPDATE SET
-          manifest_id = excluded.manifest_id,
-          analysis_id = excluded.analysis_id,
-          status = excluded.status,
-          updated_at = excluded.updated_at,
-          version = excluded.version,
-          execution_json = excluded.execution_json`,
-      )
-      .bind(
-        parsed.executionId,
-        parsed.manifestId,
-        parsed.analysisId,
-        parsed.status,
-        parsed.updatedAt,
-        parsed.version,
-        JSON.stringify(parsed),
-      )
-      .run();
+  async saveRepositoryExecution(
+    execution: RepositoryMutationExecution,
+    expected: RepositoryMutationExecution | null,
+  ) {
+    if (
+      (expected === null && execution.revision !== 0) ||
+      (expected !== null &&
+        (execution.executionId !== expected.executionId ||
+          execution.revision !== expected.revision + 1))
+    ) {
+      return false;
+    }
+    const statement =
+      expected === null
+        ? this.database
+            .prepare(
+              `INSERT OR IGNORE INTO repository_executions (
+                execution_id, manifest_id, analysis_id, status, updated_at,
+                execution_json, revision, created_at, artifact_expires_at,
+                record_expires_at, study_id
+              ) VALUES (
+                ?, ?, ?, ?, ?, ?, 0, ?, ?, ?,
+                (SELECT study_id FROM evidence_analyses WHERE analysis_id = ?)
+              )`,
+            )
+            .bind(
+              execution.executionId,
+              execution.manifestId,
+              execution.analysisId,
+              execution.status,
+              execution.updatedAt,
+              JSON.stringify(execution),
+              execution.createdAt,
+              expiresAt(
+                execution.createdAt,
+                retentionPolicy().executionArtifactDays,
+              ),
+              expiresAt(
+                execution.createdAt,
+                retentionPolicy().fossilRecordDays,
+              ),
+              execution.analysisId,
+            )
+        : this.database
+            .prepare(
+              `UPDATE repository_executions
+               SET status = ?,
+                   updated_at = ?,
+                   execution_json = ?,
+                   revision = ?,
+                   artifact_expires_at = ?,
+                   record_expires_at = ?,
+                   study_id = COALESCE(
+                     (SELECT study_id FROM evidence_analyses WHERE analysis_id = ?),
+                     study_id
+                   )
+               WHERE execution_id = ?
+                 AND revision = ?
+                 AND status = ?
+                 AND (
+                   (? IS NULL AND json_extract(execution_json, '$.rollback.status') IS NULL)
+                   OR json_extract(execution_json, '$.rollback.status') = ?
+                 )`,
+            )
+            .bind(
+              execution.status,
+              execution.updatedAt,
+              JSON.stringify(execution),
+              execution.revision,
+              expiresAt(
+                execution.createdAt,
+                retentionPolicy().executionArtifactDays,
+              ),
+              expiresAt(
+                execution.createdAt,
+                retentionPolicy().fossilRecordDays,
+              ),
+              execution.analysisId,
+              execution.executionId,
+              expected.revision,
+              expected.status,
+              expected.rollback?.status ?? null,
+              expected.rollback?.status ?? null,
+            );
+    const result = await statement.run();
+    return (result.meta.changes ?? 0) === 1;
   }
 
   async compareAndSwapRepositoryExecution(
@@ -1285,17 +1966,15 @@ export class D1TelemetryRepository implements TelemetryRepository {
   private async findRepositoryExecution(where: string, value: string) {
     const row = await this.database
       .prepare(
-        `SELECT execution_id, execution_json FROM repository_executions WHERE ${where} = ? LIMIT 1`,
+        `SELECT execution_json, revision FROM repository_executions WHERE ${where} = ? LIMIT 1`,
       )
       .bind(value)
-      .first<{ execution_id: string; execution_json: string }>();
+      .first<{ execution_json: string; revision: number }>();
     return row
-      ? parseStoredValue(
-          RepositoryMutationExecutionSchema,
-          row.execution_json,
-          'repository execution',
-          row.execution_id,
-        )
+      ? RepositoryMutationExecutionSchema.parse({
+          ...(JSON.parse(row.execution_json) as RepositoryMutationExecution),
+          revision: row.revision,
+        })
       : null;
   }
 
@@ -1314,16 +1993,202 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async listRepositoryExecutions() {
     const result = await this.database
       .prepare(
-        `SELECT execution_id, execution_json FROM repository_executions ORDER BY updated_at DESC`,
+        `SELECT execution_json, revision FROM repository_executions ORDER BY updated_at DESC`,
       )
-      .all<{ execution_id: string; execution_json: string }>();
+      .all<{ execution_json: string; revision: number }>();
     return result.results.map((row) =>
-      parseStoredValue(
-        RepositoryMutationExecutionSchema,
-        row.execution_json,
-        'repository execution',
-        row.execution_id,
-      ),
+      RepositoryMutationExecutionSchema.parse({
+        ...(JSON.parse(row.execution_json) as RepositoryMutationExecution),
+        revision: row.revision,
+      }),
+    );
+  }
+
+  async listRepositoryExecutionPage(options: CursorPageOptions) {
+    const cursor = decodeExecutionCursor(options.cursor);
+    const cursorClause = cursor
+      ? `WHERE updated_at < ? OR (updated_at = ? AND execution_id < ?)`
+      : '';
+    const statement = this.database.prepare(
+      `SELECT execution_json
+       FROM repository_executions
+       ${cursorClause}
+       ORDER BY updated_at DESC, execution_id DESC
+       LIMIT ?`,
+    );
+    const bound = cursor
+      ? statement.bind(
+          cursor.updatedAt,
+          cursor.updatedAt,
+          cursor.executionId,
+          options.limit + 1,
+        )
+      : statement.bind(options.limit + 1);
+    const result = await bound.all<{ execution_json: string }>();
+    const executions = result.results.map(
+      (row) => JSON.parse(row.execution_json) as RepositoryMutationExecution,
+    );
+    const page = executions.slice(0, options.limit);
+    return {
+      executions: page,
+      nextCursor:
+        executions.length > options.limit && page.length
+          ? encodeExecutionCursor(page.at(-1)!)
+          : null,
+    };
+  }
+
+  async getObservationArchive(executionId: string) {
+    const row = await this.database
+      .prepare(
+        `SELECT r.execution_json, a.analysis_json, e.evidence_pack_json
+         FROM repository_executions r
+         JOIN evidence_analyses a ON a.analysis_id = r.analysis_id
+         JOIN analysis_runs e ON e.evidence_id = a.evidence_id
+         WHERE r.execution_id = ? AND r.status IN ('released', 'failed')
+         LIMIT 1`,
+      )
+      .bind(executionId)
+      .first<{
+        execution_json: string;
+        analysis_json: string;
+        evidence_pack_json: string;
+      }>();
+    return row
+      ? {
+          execution: JSON.parse(
+            row.execution_json,
+          ) as RepositoryMutationExecution,
+          analysis: JSON.parse(row.analysis_json) as EvidenceAnalysis,
+          evidence: JSON.parse(row.evidence_pack_json) as EvidencePack,
+        }
+      : null;
+  }
+
+  async listObservationArchivePage(options: CursorPageOptions) {
+    const cursor = decodeExecutionCursor(options.cursor);
+    const cursorClause = cursor
+      ? `AND (r.updated_at < ? OR (r.updated_at = ? AND r.execution_id < ?))`
+      : '';
+    const statement = this.database.prepare(
+      `SELECT r.execution_json, a.analysis_json, e.evidence_pack_json
+       FROM repository_executions r
+       JOIN evidence_analyses a ON a.analysis_id = r.analysis_id
+       JOIN analysis_runs e ON e.evidence_id = a.evidence_id
+       WHERE r.status IN ('released', 'failed') ${cursorClause}
+       ORDER BY r.updated_at DESC, r.execution_id DESC
+       LIMIT ?`,
+    );
+    const bound = cursor
+      ? statement.bind(
+          cursor.updatedAt,
+          cursor.updatedAt,
+          cursor.executionId,
+          options.limit + 1,
+        )
+      : statement.bind(options.limit + 1);
+    const result = await bound.all<{
+      execution_json: string;
+      analysis_json: string;
+      evidence_pack_json: string;
+    }>();
+    const records = result.results.map((row) => ({
+      execution: JSON.parse(row.execution_json) as RepositoryMutationExecution,
+      analysis: JSON.parse(row.analysis_json) as EvidenceAnalysis,
+      evidence: JSON.parse(row.evidence_pack_json) as EvidencePack,
+    }));
+    const archives = records.slice(0, options.limit);
+    return {
+      archives,
+      nextCursor:
+        records.length > options.limit && archives.length
+          ? encodeExecutionCursor(archives.at(-1)!.execution)
+          : null,
+    };
+  }
+
+  async saveResetExecution(execution: DemoResetExecution) {
+    await this.database
+      .prepare(
+        `INSERT INTO reset_executions (
+          reset_id, status, updated_at, execution_json
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(reset_id) DO UPDATE SET
+          status = excluded.status,
+          updated_at = excluded.updated_at,
+          execution_json = excluded.execution_json`,
+      )
+      .bind(
+        execution.resetId,
+        execution.status,
+        execution.updatedAt,
+        JSON.stringify(execution),
+      )
+      .run();
+  }
+
+  async getResetExecution(resetId: string) {
+    const row = await this.database
+      .prepare(
+        'SELECT execution_json FROM reset_executions WHERE reset_id = ? LIMIT 1',
+      )
+      .bind(resetId)
+      .first<{ execution_json: string }>();
+    return row ? (JSON.parse(row.execution_json) as DemoResetExecution) : null;
+  }
+
+  async getLatestResetExecution() {
+    const row = await this.database
+      .prepare(
+        'SELECT execution_json FROM reset_executions ORDER BY updated_at DESC, rowid DESC LIMIT 1',
+      )
+      .first<{ execution_json: string }>();
+    return row ? (JSON.parse(row.execution_json) as DemoResetExecution) : null;
+  }
+
+  async saveFitnessOutcome(outcome: FitnessOutcome) {
+    await this.database
+      .prepare(
+        `INSERT INTO outcome_validations (
+          validation_id, generated_at, baseline_evidence_hash,
+          evolved_evidence_hash, validation_json
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(validation_id) DO UPDATE SET
+          generated_at = excluded.generated_at,
+          baseline_evidence_hash = excluded.baseline_evidence_hash,
+          evolved_evidence_hash = excluded.evolved_evidence_hash,
+          validation_json = excluded.validation_json`,
+      )
+      .bind(
+        outcome.outcomeId,
+        outcome.generatedAt,
+        outcome.baseline.evidenceHash,
+        outcome.evolved.evidenceHash,
+        JSON.stringify(outcome),
+      )
+      .run();
+  }
+
+  async getFitnessOutcome(executionId: string) {
+    const row = await this.database
+      .prepare(
+        'SELECT validation_json FROM outcome_validations WHERE validation_id = ? LIMIT 1',
+      )
+      .bind(`fitness-${executionId}`)
+      .first<{ validation_json: string }>();
+    return row
+      ? FitnessOutcomeSchema.parse(JSON.parse(row.validation_json))
+      : null;
+  }
+
+  async listFitnessOutcomes() {
+    const result = await this.database
+      .prepare(
+        'SELECT validation_json FROM outcome_validations ORDER BY generated_at DESC',
+      )
+      .all<{ validation_json: string }>();
+    return result.results.map((row) =>
+      FitnessOutcomeSchema.parse(JSON.parse(row.validation_json)),
     );
   }
 
@@ -1566,7 +2431,85 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return (result.meta.changes ?? 0) === 1;
   }
 
+  async consumeTargetRequestSignature(signature: string, usedAt: string) {
+    const expiresBefore = new Date(
+      Date.parse(usedAt) - 10 * 60 * 1_000,
+    ).toISOString();
+    const results = await this.database.batch([
+      this.database
+        .prepare(`DELETE FROM target_request_signatures WHERE used_at < ?`)
+        .bind(expiresBefore),
+      this.database
+        .prepare(
+          `INSERT OR IGNORE INTO target_request_signatures (signature, used_at)
+           VALUES (?, ?)`,
+        )
+        .bind(signature, usedAt),
+    ]);
+    return (results[1]?.meta.changes ?? 0) === 1;
+  }
+
+  async incrementOperationalMetrics(
+    increments: Partial<OperationalMetricCounts>,
+    updatedAt: string,
+  ) {
+    const statements = operationalMetricNames.flatMap((name) => {
+      const increment = increments[name] ?? 0;
+      return increment > 0
+        ? [
+            this.database
+              .prepare(
+                `INSERT INTO operational_metrics (
+                   metric_name, metric_value, updated_at
+                 ) VALUES (?, ?, ?)
+                 ON CONFLICT(metric_name) DO UPDATE SET
+                   metric_value = metric_value + excluded.metric_value,
+                   updated_at = excluded.updated_at`,
+              )
+              .bind(name, increment, updatedAt),
+          ]
+        : [];
+    });
+    if (statements.length) await this.database.batch(statements);
+  }
+
+  async getOperationalMetrics(): Promise<OperationalMetricsSnapshot> {
+    const result = await this.database
+      .prepare(
+        `SELECT metric_name, metric_value, updated_at
+         FROM operational_metrics`,
+      )
+      .all<{
+        metric_name: OperationalMetricName;
+        metric_value: number;
+        updated_at: string;
+      }>();
+    const counts = emptyOperationalMetricCounts();
+    let updatedAt: string | null = null;
+    for (const row of result.results) {
+      if (operationalMetricNames.includes(row.metric_name)) {
+        counts[row.metric_name] = row.metric_value;
+      }
+      if (!updatedAt || row.updated_at > updatedAt) updatedAt = row.updated_at;
+    }
+    return { updatedAt, counts };
+  }
+
   async getEvolutionCycle() {
+    const row = await this.database
+      .prepare('SELECT state_json FROM demo_state WHERE state_key = ?')
+      .bind('evolution-cycle')
+      .first<{ state_json: string }>();
+    if (row) {
+      try {
+        const parsed = EvolutionCycleSchema.safeParse(
+          JSON.parse(row.state_json),
+        );
+        if (parsed.success) return parsed.data;
+      } catch {
+        // Fall through to the retained-release compatibility path.
+      }
+    }
     const retained = (await this.listRepositoryExecutions()).filter(
       (execution) => execution.status === 'released',
     );
@@ -1581,11 +2524,61 @@ export class D1TelemetryRepository implements TelemetryRepository {
         null as string | null,
       ),
       genomeEvolutionCount: retained.length,
+      measuredCommit: retained[0]?.headSha ?? null,
+      appVersion:
+        retained[0]?.deploymentVerification?.expectedAppVersion ?? null,
+      deploymentVerifiedAt:
+        retained[0]?.deploymentVerification?.verifiedAt ?? null,
     };
   }
 
-  async advanceEvolutionCycle() {
-    return this.getEvolutionCycle();
+  async advanceEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    const current = await this.getEvolutionCycle();
+    const next: EvolutionCycle = {
+      studyId: baselineStudyId,
+      ...boundary,
+      genomeEvolutionCount: current.genomeEvolutionCount + 1,
+    };
+    await this.database
+      .prepare(
+        `INSERT INTO demo_state (state_key, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(state_key) DO UPDATE SET
+           state_json = excluded.state_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind('evolution-cycle', JSON.stringify(next), next.startedAt)
+      .run();
+    return next;
+  }
+
+  async resetEvolutionCycle(
+    boundary: Pick<
+      EvolutionCycle,
+      'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
+    >,
+  ) {
+    const next: EvolutionCycle = {
+      studyId: baselineStudyId,
+      ...boundary,
+      genomeEvolutionCount: 0,
+    };
+    await this.database
+      .prepare(
+        `INSERT INTO demo_state (state_key, state_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(state_key) DO UPDATE SET
+           state_json = excluded.state_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind('evolution-cycle', JSON.stringify(next), next.startedAt)
+      .run();
+    return next;
   }
 
   async getTargetConnection() {
@@ -1596,15 +2589,12 @@ export class D1TelemetryRepository implements TelemetryRepository {
          ORDER BY connected_at DESC
          LIMIT 1`,
       )
-      .first<{ connection_id: string; connection_json: string }>();
-    return row
-      ? parseStoredValue(
-          TargetApplicationConnectionSchema,
-          row.connection_json,
-          'target connection',
-          row.connection_id,
-        )
-      : null;
+      .first<{ connection_json: string }>();
+    if (!row) return null;
+    const parsed = TargetApplicationConnectionSchema.safeParse(
+      JSON.parse(row.connection_json),
+    );
+    return parsed.success ? parsed.data : null;
   }
 
   async saveTargetConnection(connection: TargetApplicationConnection) {
@@ -1628,172 +2618,135 @@ export class D1TelemetryRepository implements TelemetryRepository {
     await this.database.prepare('DELETE FROM target_connections').run();
   }
 
-  async getStorageHealth(
-    eventQuotaPerStudy: number,
-    eventQuotaPerTarget = 1_000_000,
-  ) {
-    const [events, workspaces, evidence, executions, lab, retention] =
-      await Promise.all([
-        this.database
-          .prepare('SELECT COUNT(*) AS count FROM telemetry_events')
-          .first<{ count: number }>(),
-        this.database
-          .prepare('SELECT COUNT(*) AS count FROM participant_workspaces')
-          .first<{ count: number }>(),
-        this.database
-          .prepare('SELECT COUNT(*) AS count FROM analysis_runs')
-          .first<{ count: number }>(),
-        this.database
-          .prepare('SELECT COUNT(*) AS count FROM repository_executions')
-          .first<{ count: number }>(),
-        this.database
-          .prepare('SELECT COUNT(*) AS count FROM lab_experiments')
-          .first<{ count: number }>(),
-        this.database
-          .prepare(
-            'SELECT completed_at FROM retention_runs ORDER BY completed_at DESC LIMIT 1',
-          )
-          .first<{ completed_at: string }>(),
-      ]);
+  async getRetentionHealth(
+    policy: RetentionPolicy,
+    now: string,
+  ): Promise<RetentionHealth> {
+    const [usage, expired, latestSweep] = await Promise.all([
+      this.database
+        .prepare(
+          `SELECT
+             COALESCE(SUM(study_event_count), 0) AS event_count,
+             COUNT(*) AS study_count,
+             COALESCE(MAX(study_event_count), 0) AS largest_study_event_count
+           FROM (
+             SELECT study_id, COUNT(*) AS study_event_count
+             FROM telemetry_events
+             GROUP BY study_id
+           )`,
+        )
+        .first<{
+          event_count: number;
+          study_count: number;
+          largest_study_event_count: number;
+        }>(),
+      this.database
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM telemetry_events WHERE expires_at <= ?) +
+             (SELECT COUNT(*) FROM participant_workspaces WHERE expires_at <= ?) +
+             (SELECT COUNT(*) FROM analysis_runs WHERE expires_at <= ?) +
+             (SELECT COUNT(*) FROM evidence_analyses WHERE expires_at <= ?) +
+             (SELECT COUNT(*) FROM codex_manifests WHERE expires_at <= ?) +
+             (SELECT COUNT(*) FROM outcome_validations WHERE expires_at <= ?) +
+             (SELECT COUNT(*) FROM repository_executions
+                WHERE record_expires_at <= ?
+                   OR (artifact_expires_at IS NOT NULL AND artifact_expires_at <= ?)) +
+             (SELECT COUNT(*) FROM execution_callback_credentials WHERE expires_at <= ?)
+             AS expired_record_count`,
+        )
+        .bind(now, now, now, now, now, now, now, now, now)
+        .first<{ expired_record_count: number }>(),
+      this.database
+        .prepare(
+          `SELECT completed_at
+           FROM retention_runs
+           ORDER BY completed_at DESC
+           LIMIT 1`,
+        )
+        .first<{ completed_at: string }>(),
+    ]);
+    const eventCount = usage?.event_count ?? 0;
+    const largestStudyEventCount = usage?.largest_study_event_count ?? 0;
+    const expiredRecordCount = expired?.expired_record_count ?? 0;
     return {
-      telemetryEvents: events?.count ?? 0,
-      participantWorkspaces: workspaces?.count ?? 0,
-      evidencePacks: evidence?.count ?? 0,
-      repositoryExecutions: executions?.count ?? 0,
-      labExperiments: lab?.count ?? 0,
-      eventQuotaPerStudy,
-      eventQuotaPerTarget,
-      rawTelemetryRetentionDays,
-      automatedTelemetryRetentionDays,
-      lastRetentionRunAt: retention?.completed_at ?? null,
-      policyVersion: retentionPolicyVersion,
+      status:
+        expiredRecordCount > 0 ||
+        eventCount >= policy.maxEventsPerTarget * 0.9 ||
+        largestStudyEventCount >= policy.maxEventsPerStudy * 0.9
+          ? 'attention'
+          : 'healthy',
+      policy,
+      eventCount,
+      studyCount: usage?.study_count ?? 0,
+      largestStudyEventCount,
+      expiredRecordCount,
+      lastSweepAt: latestSweep?.completed_at ?? null,
     };
   }
 
-  async compactRetention(now = new Date().toISOString()) {
-    const current = Date.parse(now);
-    const rawCutoff = new Date(
-      current - rawTelemetryRetentionDays * 86_400_000,
-    ).toISOString();
-    const automatedCutoff = new Date(
-      current - automatedTelemetryRetentionDays * 86_400_000,
-    ).toISOString();
-    const outputCutoff = new Date(current - 90 * 86_400_000).toISOString();
-    const auditCutoff = new Date(current - 365 * 86_400_000).toISOString();
-    const oldExecutions = await this.database
-      .prepare(
-        `SELECT execution_id, execution_json FROM repository_executions
-         WHERE status IN ('released', 'failed') AND updated_at < ? LIMIT 100`,
-      )
-      .bind(outputCutoff)
-      .all<{ execution_id: string; execution_json: string }>();
-    const compacted = oldExecutions.results.flatMap((row) => {
-      const execution = parseStoredValue(
-        RepositoryMutationExecutionSchema,
-        row.execution_json,
-        'repository execution',
-        row.execution_id,
-      );
-      if (
-        !execution.patch &&
-        !execution.codex.finalMessage &&
-        execution.checks.every(
-          (check) => check.output === '[compacted by retention policy]',
-        )
-      ) {
-        return [];
-      }
-      const next = RepositoryMutationExecutionSchema.parse({
-        ...execution,
-        patch: null,
-        checks: execution.checks.map((check) => ({
-          ...check,
-          output: '[compacted by retention policy]',
-        })),
-        codex: { ...execution.codex, finalMessage: null },
-        rollback: execution.rollback
-          ? {
-              ...execution.rollback,
-              patch: null,
-              checks: execution.rollback.checks.map((check) => ({
-                ...check,
-                output: '[compacted by retention policy]',
-              })),
-            }
-          : null,
-      });
-      return [
-        this.database
-          .prepare(
-            'UPDATE repository_executions SET execution_json = ? WHERE execution_id = ?',
-          )
-          .bind(JSON.stringify(next), execution.executionId),
-      ];
-    });
-    const deletionStatements = [
-      this.database
-        .prepare(
-          `DELETE FROM telemetry_events
-           WHERE (source = 'real_user' AND received_at < ?)
-              OR (source != 'real_user' AND received_at < ?)`,
-        )
-        .bind(rawCutoff, automatedCutoff),
-      this.database
-        .prepare('DELETE FROM participant_workspaces WHERE updated_at < ?')
-        .bind(rawCutoff),
-      this.database
-        .prepare(
-          `DELETE FROM lab_agent_actions WHERE experiment_id IN (
-             SELECT experiment_id FROM lab_experiments
-             WHERE status IN ('completed', 'cancelled', 'archived', 'failed')
-               AND updated_at < ?
-           )`,
-        )
-        .bind(automatedCutoff),
-      this.database
-        .prepare('DELETE FROM operational_audit_events WHERE occurred_at < ?')
-        .bind(auditCutoff),
-      this.database
-        .prepare(
-          `DELETE FROM lab_agent_runs WHERE experiment_id IN (
-             SELECT experiment_id FROM lab_experiments
-             WHERE status IN ('completed', 'cancelled', 'archived', 'failed')
-               AND updated_at < ?
-           )`,
-        )
-        .bind(automatedCutoff),
-    ];
+  private async deleteDerivedStudyArtifacts(studyId: string) {
     const results = await this.database.batch([
-      ...deletionStatements,
-      ...compacted,
+      this.database
+        .prepare(
+          `DELETE FROM execution_callback_signatures
+           WHERE execution_id IN (
+             SELECT execution_id FROM repository_executions
+             WHERE study_id = ?
+           )`,
+        )
+        .bind(studyId),
+      this.database
+        .prepare(
+          `DELETE FROM execution_callback_credentials
+           WHERE execution_id IN (
+             SELECT execution_id FROM repository_executions
+             WHERE study_id = ?
+           )`,
+        )
+        .bind(studyId),
+      this.database
+        .prepare(
+          `DELETE FROM repository_executions
+           WHERE study_id = ?`,
+        )
+        .bind(studyId),
+      this.database
+        .prepare(
+          `DELETE FROM codex_manifests
+           WHERE study_id = ?`,
+        )
+        .bind(studyId),
+      this.database
+        .prepare(
+          `DELETE FROM outcome_validations
+           WHERE study_id = ? OR baseline_evidence_hash IN (
+             SELECT evidence_hash FROM analysis_runs WHERE study_id = ?
+           ) OR evolved_evidence_hash IN (
+             SELECT evidence_hash FROM analysis_runs WHERE study_id = ?
+           )`,
+        )
+        .bind(studyId, studyId, studyId),
+      this.database
+        .prepare('DELETE FROM evidence_analyses WHERE study_id = ?')
+        .bind(studyId),
+      this.database
+        .prepare('DELETE FROM analysis_runs WHERE study_id = ?')
+        .bind(studyId),
     ]);
-    const deletedRecords = results
-      .slice(0, deletionStatements.length)
-      .reduce((count, result) => count + (result.meta.changes ?? 0), 0);
-    await this.database
-      .prepare(
-        `INSERT INTO retention_runs (
-           retention_run_id, started_at, completed_at, deleted_records,
-           compacted_executions, policy_version
-         ) VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        `retention-${crypto.randomUUID()}`,
-        now,
-        now,
-        deletedRecords,
-        compacted.length,
-        retentionPolicyVersion,
-      )
-      .run();
-    return {
-      deletedRecords,
-      compactedExecutions: compacted.length,
-      completedAt: now,
-    };
+    return addDeletedCounts(emptyDeletedCounts(), {
+      callbackArtifacts:
+        (results[0]?.meta.changes ?? 0) + (results[1]?.meta.changes ?? 0),
+      executions: results[2]?.meta.changes ?? 0,
+      manifests: results[3]?.meta.changes ?? 0,
+      validations: results[4]?.meta.changes ?? 0,
+      analyses: results[5]?.meta.changes ?? 0,
+      evidencePacks: results[6]?.meta.changes ?? 0,
+    });
   }
 
   async deleteParticipant(studyId: string, participantId: string) {
+    const derived = await this.deleteDerivedStudyArtifacts(studyId);
     const results = await this.database.batch([
       this.database
         .prepare(
@@ -1806,13 +2759,29 @@ export class D1TelemetryRepository implements TelemetryRepository {
         )
         .bind(studyId, participantId),
     ]);
-    return results.reduce(
-      (count, result) => count + (result.meta.changes ?? 0),
-      0,
-    );
+    return addDeletedCounts(derived, {
+      telemetryEvents: results[0]?.meta.changes ?? 0,
+      workspaces: results[1]?.meta.changes ?? 0,
+    });
   }
 
-  async deleteExecution(executionId: string) {
+  async deleteStudy(studyId: string) {
+    const derived = await this.deleteDerivedStudyArtifacts(studyId);
+    const results = await this.database.batch([
+      this.database
+        .prepare('DELETE FROM telemetry_events WHERE study_id = ?')
+        .bind(studyId),
+      this.database
+        .prepare('DELETE FROM participant_workspaces WHERE study_id = ?')
+        .bind(studyId),
+    ]);
+    return addDeletedCounts(derived, {
+      telemetryEvents: results[0]?.meta.changes ?? 0,
+      workspaces: results[1]?.meta.changes ?? 0,
+    });
+  }
+
+  async deleteExecutionArtifacts(executionId: string) {
     const results = await this.database.batch([
       this.database
         .prepare(
@@ -1825,157 +2794,220 @@ export class D1TelemetryRepository implements TelemetryRepository {
         )
         .bind(executionId),
       this.database
-        .prepare(
-          `DELETE FROM codex_manifest_versions WHERE manifest_id IN (
-             SELECT manifest_id FROM repository_executions WHERE execution_id = ?
-           )`,
-        )
-        .bind(executionId),
-      this.database
-        .prepare(
-          `DELETE FROM codex_manifests WHERE manifest_id IN (
-             SELECT manifest_id FROM repository_executions WHERE execution_id = ?
-           )`,
-        )
-        .bind(executionId),
-      this.database
         .prepare('DELETE FROM repository_executions WHERE execution_id = ?')
         .bind(executionId),
     ]);
-    return results.reduce(
-      (count, result) => count + (result.meta.changes ?? 0),
-      0,
-    );
+    return addDeletedCounts(emptyDeletedCounts(), {
+      callbackArtifacts:
+        (results[0]?.meta.changes ?? 0) + (results[1]?.meta.changes ?? 0),
+      executions: results[2]?.meta.changes ?? 0,
+    });
   }
 
-  async deleteStudy(studyId: string) {
+  async runRetentionSweep(policy: RetentionPolicy, now: string) {
+    const compactable = await this.database
+      .prepare(
+        `SELECT execution_id, execution_json
+         FROM repository_executions
+         WHERE artifact_expires_at IS NOT NULL
+           AND artifact_expires_at <= ?
+           AND record_expires_at > ?`,
+      )
+      .bind(now, now)
+      .all<{ execution_id: string; execution_json: string }>();
+    let compactedExecutions = 0;
+    const compactionStatements = compactable.results.map((row) => {
+      const execution = JSON.parse(
+        row.execution_json,
+      ) as RepositoryMutationExecution;
+      if (executionHasLargeArtifacts(execution)) compactedExecutions += 1;
+      return this.database
+        .prepare(
+          `UPDATE repository_executions
+           SET execution_json = ?, artifact_expires_at = NULL
+           WHERE execution_id = ?`,
+        )
+        .bind(JSON.stringify(compactExecution(execution)), row.execution_id);
+    });
+    if (compactionStatements.length) {
+      await this.database.batch(compactionStatements);
+    }
+
     const results = await this.database.batch([
       this.database
-        .prepare('DELETE FROM telemetry_events WHERE study_id = ?')
-        .bind(studyId),
-      this.database
-        .prepare('DELETE FROM participant_workspaces WHERE study_id = ?')
-        .bind(studyId),
-      this.database
         .prepare(
-          `DELETE FROM execution_callback_signatures WHERE execution_id IN (
-             SELECT re.execution_id FROM repository_executions re
-             JOIN evidence_analyses ea ON ea.analysis_id = re.analysis_id
-             WHERE ea.study_id = ?
+          `DELETE FROM execution_callback_signatures
+           WHERE execution_id IN (
+             SELECT execution_id FROM repository_executions
+             WHERE record_expires_at <= ?
+           ) OR execution_id IN (
+             SELECT execution_id FROM execution_callback_credentials
+             WHERE expires_at <= ?
            )`,
         )
-        .bind(studyId),
+        .bind(now, now),
       this.database
         .prepare(
-          `DELETE FROM execution_callback_credentials WHERE execution_id IN (
-             SELECT re.execution_id FROM repository_executions re
-             JOIN evidence_analyses ea ON ea.analysis_id = re.analysis_id
-             WHERE ea.study_id = ?
+          `DELETE FROM execution_callback_credentials
+           WHERE expires_at <= ? OR execution_id IN (
+             SELECT execution_id FROM repository_executions
+             WHERE record_expires_at <= ?
            )`,
         )
-        .bind(studyId),
+        .bind(now, now),
       this.database
         .prepare(
-          `DELETE FROM codex_manifest_versions WHERE analysis_id IN (
-             SELECT analysis_id FROM evidence_analyses WHERE study_id = ?
-           )`,
+          'DELETE FROM repository_executions WHERE record_expires_at <= ?',
         )
-        .bind(studyId),
+        .bind(now),
       this.database
-        .prepare(
-          `DELETE FROM codex_manifests WHERE analysis_id IN (
-             SELECT analysis_id FROM evidence_analyses WHERE study_id = ?
-           )`,
-        )
-        .bind(studyId),
+        .prepare('DELETE FROM codex_manifests WHERE expires_at <= ?')
+        .bind(now),
       this.database
-        .prepare(
-          `DELETE FROM repository_executions WHERE analysis_id IN (
-             SELECT analysis_id FROM evidence_analyses WHERE study_id = ?
-           )`,
-        )
-        .bind(studyId),
+        .prepare('DELETE FROM evidence_analyses WHERE expires_at <= ?')
+        .bind(now),
       this.database
-        .prepare('DELETE FROM evidence_analyses WHERE study_id = ?')
-        .bind(studyId),
+        .prepare('DELETE FROM analysis_runs WHERE expires_at <= ?')
+        .bind(now),
       this.database
-        .prepare('DELETE FROM analysis_runs WHERE study_id = ?')
-        .bind(studyId),
+        .prepare('DELETE FROM outcome_validations WHERE expires_at <= ?')
+        .bind(now),
+      this.database
+        .prepare('DELETE FROM participant_workspaces WHERE expires_at <= ?')
+        .bind(now),
+      this.database
+        .prepare('DELETE FROM telemetry_events WHERE expires_at <= ?')
+        .bind(now),
+      this.database
+        .prepare('DELETE FROM retention_runs WHERE expires_at <= ?')
+        .bind(now),
     ]);
-    return results.reduce(
-      (count, result) => count + (result.meta.changes ?? 0),
-      0,
+    const deleted = addDeletedCounts(emptyDeletedCounts(), {
+      callbackArtifacts:
+        (results[0]?.meta.changes ?? 0) + (results[1]?.meta.changes ?? 0),
+      executions: results[2]?.meta.changes ?? 0,
+      manifests: results[3]?.meta.changes ?? 0,
+      analyses: results[4]?.meta.changes ?? 0,
+      evidencePacks: results[5]?.meta.changes ?? 0,
+      validations: results[6]?.meta.changes ?? 0,
+      workspaces: results[7]?.meta.changes ?? 0,
+      telemetryEvents: results[8]?.meta.changes ?? 0,
+    });
+    const result: RetentionSweepResult = {
+      status: 'completed',
+      policyVersion: policy.version,
+      completedAt: now,
+      compactedExecutions,
+      deleted,
+    };
+    await this.database
+      .prepare(
+        `INSERT INTO retention_runs (
+          run_id, policy_version, completed_at, expires_at, deleted_json
+        ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        policy.version,
+        now,
+        expiresAt(now, policy.operationalAuditDays),
+        JSON.stringify(result),
+      )
+      .run();
+    return result;
+  }
+
+  async saveOperationalEvents(events: OperationalEvent[]) {
+    await this.database.batch([
+      ...events.map((event) =>
+        this.database
+          .prepare(
+            `INSERT INTO operational_events (
+               event_id, kind, request_id, occurred_at, actor, action, target,
+               outcome, before_state, after_state, provider, operation,
+               duration_ms, error_code, event_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            event.eventId,
+            event.kind,
+            event.requestId,
+            event.occurredAt,
+            event.actor,
+            event.action,
+            event.target,
+            event.outcome,
+            event.beforeState,
+            event.afterState,
+            event.provider,
+            event.operation,
+            event.durationMs,
+            event.errorCode,
+            JSON.stringify(event),
+          ),
+      ),
+      this.database.prepare(
+        `DELETE FROM operational_events
+         WHERE datetime(occurred_at) < datetime('now', '-30 days')`,
+      ),
+    ]);
+  }
+
+  async listOperationalAuditEvents(limit: number) {
+    const result = await this.database
+      .prepare(
+        `SELECT event_json
+         FROM operational_events
+         WHERE kind = 'audit'
+           AND datetime(occurred_at) >= datetime('now', '-30 days')
+         ORDER BY occurred_at DESC, event_id DESC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{ event_json: string }>();
+    return result.results.map(
+      (row) => JSON.parse(row.event_json) as OperationalEvent,
     );
   }
 
-  async recordAuditEvent(event: OperationalAuditEvent) {
-    await this.database
-      .prepare(
-        `INSERT INTO operational_audit_events (
-           audit_event_id, request_id, occurred_at, actor, target, action,
-           outcome, before_state, after_state, duration_ms, metadata_json
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        event.auditEventId,
-        event.requestId,
-        event.occurredAt,
-        event.actor,
-        event.target,
-        event.action,
-        event.outcome,
-        event.beforeState,
-        event.afterState,
-        event.durationMs,
-        JSON.stringify(event.metadata),
-      )
-      .run();
-  }
-
-  async listAuditEvents(limit: number) {
+  async summarizeOperationalMetrics(limit: number) {
     const result = await this.database
       .prepare(
-        `SELECT audit_event_id, request_id, occurred_at, actor, target, action,
-                outcome, before_state, after_state, duration_ms, metadata_json
-         FROM operational_audit_events
-         ORDER BY occurred_at DESC, audit_event_id DESC LIMIT ?`,
+        `SELECT provider, operation,
+                COUNT(*) AS count,
+                SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+                ROUND(AVG(duration_ms)) AS average_duration_ms,
+                MAX(duration_ms) AS maximum_duration_ms
+         FROM operational_events
+         WHERE kind = 'metric'
+           AND datetime(occurred_at) >= datetime('now', '-30 days')
+           AND provider IS NOT NULL
+           AND operation IS NOT NULL
+         GROUP BY provider, operation
+         ORDER BY provider ASC, operation ASC
+         LIMIT ?`,
       )
-      .bind(Math.min(100, Math.max(1, limit)))
+      .bind(limit)
       .all<{
-        audit_event_id: string;
-        request_id: string;
-        occurred_at: string;
-        actor: string;
-        target: string;
-        action: string;
-        outcome: OperationalAuditEvent['outcome'];
-        before_state: string | null;
-        after_state: string | null;
-        duration_ms: number;
-        metadata_json: string;
+        provider: OperationalMetricSummary['provider'];
+        operation: string;
+        count: number;
+        failure_count: number;
+        average_duration_ms: number;
+        maximum_duration_ms: number;
       }>();
     return result.results.map((row) => ({
-      auditEventId: row.audit_event_id,
-      requestId: row.request_id,
-      occurredAt: row.occurred_at,
-      actor: row.actor,
-      target: row.target,
-      action: row.action,
-      outcome: row.outcome,
-      beforeState: row.before_state,
-      afterState: row.after_state,
-      durationMs: row.duration_ms,
-      metadata: parseStoredValue(
-        OperationalAuditEventSchema.shape.metadata,
-        row.metadata_json,
-        'audit metadata',
-        row.audit_event_id,
-      ),
+      provider: row.provider,
+      operation: row.operation,
+      count: row.count,
+      failureCount: row.failure_count,
+      averageDurationMs: row.average_duration_ms,
+      maximumDurationMs: row.maximum_duration_ms,
     }));
   }
 
-  async reset() {
-    await this.database.batch([
+  async reset(options?: { preserveResetExecutions?: boolean }) {
+    const statements = [
       this.database.prepare('DELETE FROM telemetry_events'),
       this.database.prepare('DELETE FROM participant_workspaces'),
       this.database.prepare('DELETE FROM analysis_runs'),
@@ -1984,20 +3016,61 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM repository_executions'),
       this.database.prepare('DELETE FROM execution_callback_signatures'),
       this.database.prepare('DELETE FROM execution_callback_credentials'),
+      this.database.prepare('DELETE FROM target_request_signatures'),
+      this.database.prepare('DELETE FROM operational_metrics'),
       this.database.prepare('DELETE FROM outcome_validations'),
       this.database.prepare('DELETE FROM demo_state'),
       this.database.prepare('DELETE FROM retention_runs'),
-      this.database.prepare('DELETE FROM operational_audit_events'),
-    ]);
+      this.database.prepare('DELETE FROM operational_events'),
+    ];
+    if (!options?.preserveResetExecutions) {
+      statements.push(this.database.prepare('DELETE FROM reset_executions'));
+    }
+    await this.database.batch(statements);
   }
 }
 
 const inMemoryRepository = new InMemoryTelemetryRepository();
 
-export const getTelemetryRepository = (database?: D1Database) =>
-  database ? new D1TelemetryRepository(database) : inMemoryRepository;
+export const getTelemetryRepository = (
+  database?: D1Database,
+  observe?: (metric: PersistenceOperationMetric) => void,
+) => {
+  const repository: TelemetryRepository = database
+    ? new D1TelemetryRepository(database)
+    : inMemoryRepository;
+  if (!observe) return repository;
+  return new Proxy(repository, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== 'function') return value;
+      return async (...args: unknown[]) => {
+        const startedAt = performance.now();
+        try {
+          const result = await value.apply(target, args);
+          observe({
+            operation: String(property),
+            durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            outcome: 'success',
+            errorCode: null,
+          });
+          return result;
+        } catch (error) {
+          observe({
+            operation: String(property),
+            durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            outcome: 'failure',
+            errorCode: error instanceof Error ? error.name : 'UnknownError',
+          });
+          throw error;
+        }
+      };
+    },
+  });
+};
 
 export const resetInMemoryTelemetry = async () => {
   await inMemoryRepository.reset();
   await inMemoryRepository.deleteTargetConnection();
+  operationalEventStore.clear();
 };

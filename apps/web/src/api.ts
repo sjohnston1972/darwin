@@ -21,7 +21,7 @@ export const apiFetch = async (
   } else {
     response = init ? await fetch(input, init) : await fetch(input);
   }
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     window.dispatchEvent(new CustomEvent('darwin:operator-unauthorized'));
   }
   return response;

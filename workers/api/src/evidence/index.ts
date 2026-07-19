@@ -1,5 +1,5 @@
 export {
-  EvidenceBoundaryError,
   buildEvidencePack,
+  EvidenceVersionMismatchError,
   reconstructAttempts,
 } from './evidence';

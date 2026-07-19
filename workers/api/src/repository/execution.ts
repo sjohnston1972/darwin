@@ -21,7 +21,8 @@ const transitions: Record<
   validating: ['pull_request_open', 'failed'],
   pull_request_open: ['preview_ready', 'failed'],
   preview_ready: ['releasing', 'failed'],
-  releasing: ['released', 'failed'],
+  releasing: ['deployment_verifying', 'failed'],
+  deployment_verifying: ['released', 'failed'],
   released: [],
   failed: [],
 };
@@ -51,6 +52,7 @@ export const createRepositoryExecution = (
   return RepositoryMutationExecutionSchema.parse({
     provenance: manifest.provenance,
     executionId: `execution-${suffix}`,
+    revision: 0,
     manifestId: manifest.manifestId,
     manifestHash: manifest.manifestHash,
     analysisId: manifest.analysisId,
@@ -95,6 +97,24 @@ export const createRepositoryExecution = (
   });
 };
 
+export const retryRepositoryExecution = (
+  execution: RepositoryMutationExecution,
+  manifest: CodexImplementationManifest,
+  createdAt = new Date().toISOString(),
+) => {
+  if (execution.status !== 'failed') {
+    throw new Error('Only a failed repository execution can be retried.');
+  }
+  const retry = createRepositoryExecution(manifest, createdAt);
+  if (retry.executionId !== execution.executionId) {
+    throw new Error('A retry must target the original repository execution.');
+  }
+  return RepositoryMutationExecutionSchema.parse({
+    ...retry,
+    revision: execution.revision + 1,
+  });
+};
+
 export const updateRepositoryExecution = (
   execution: RepositoryMutationExecution,
   rawCallback: RepositoryExecutionCallback,
@@ -117,6 +137,7 @@ export const updateRepositoryExecution = (
   return RepositoryMutationExecutionSchema.parse({
     ...execution,
     ...callback,
+    revision: execution.revision + 1,
     updatedAt,
     completedAt:
       callback.completedAt ??
@@ -170,6 +191,18 @@ export const createRepositoryRollback = (
   });
 };
 
+export const attachRepositoryRollback = (
+  execution: RepositoryMutationExecution,
+  rollback: ReturnType<typeof createRepositoryRollback>,
+  updatedAt = new Date().toISOString(),
+) =>
+  RepositoryMutationExecutionSchema.parse({
+    ...execution,
+    revision: execution.revision + 1,
+    updatedAt,
+    rollback,
+  });
+
 export const updateRepositoryRollback = (
   execution: RepositoryMutationExecution,
   rawCallback: RepositoryRollbackCallback,
@@ -195,6 +228,8 @@ export const updateRepositoryRollback = (
   }
   return RepositoryMutationExecutionSchema.parse({
     ...execution,
+    revision: execution.revision + 1,
+    updatedAt,
     rollback: {
       ...rollback,
       ...callback,

@@ -1,14 +1,16 @@
 # AI and Mutation Workflow
 
+> Canonical product boundary: [`docs/PRODUCT_SPEC.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/PRODUCT_SPEC.md). Canonical trust and repository flow: [`docs/ARCHITECTURE.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/ARCHITECTURE.md).
+
 ## Roles
 
 Darwin separates three responsibilities:
 
-| Component | Responsibility |
-| --- | --- |
+| Component                | Responsibility                                                         |
+| ------------------------ | ---------------------------------------------------------------------- |
 | deterministic TypeScript | parse events, reconstruct journeys, derive evidence, enforce contracts |
-| GPT-5.6 | explain causal pressure and propose a structured mutation portfolio |
-| Codex | implement only the human-approved, repository-bounded manifest |
+| GPT-5.6                  | explain causal pressure and propose a structured mutation portfolio    |
+| Codex                    | implement only the human-approved, repository-bounded manifest         |
 
 GPT does not invent telemetry. Codex does not choose which product mutation to run.
 
@@ -88,9 +90,7 @@ Darwin displays the returned patch, changed files, checks, Codex report, workflo
 
 ## Release
 
-The candidate stays isolated until the operator clicks **Release reviewed mutation**. Darwin squash-merges the exact reviewed pull request and records the resulting SHA.
-
-Deployment-aware cycle boundaries and atomic/idempotent release transitions are tracked in issues [#6](https://github.com/sjohnston1972/darwin/issues/6) and [#5](https://github.com/sjohnston1972/darwin/issues/5).
+The candidate stays isolated until the operator clicks **Release reviewed mutation**. Darwin squash-merges the exact reviewed pull request, enters deployment verification, and polls ProjectFlow production until its semantic metadata reports both the merged SHA and matching app version. Only that verified timestamp opens the next measurement cycle. Mixed application versions are rejected from a single evidence pack, and Observations displays the precise measured boundary.
 
 ## Rollback
 
@@ -100,4 +100,8 @@ Rollback never rewrites history with `git reset`; it produces another reviewable
 
 ## Fitness
 
-Repository checks establish technical validity. They do not establish product fitness. Fitness requires a new, compatible measured cohort against the deployed mutation. A complete persisted server-side fitness outcome is tracked in issue [#21](https://github.com/sjohnston1972/darwin/issues/21).
+Repository checks establish technical validity. They do not establish product fitness. Fitness requires a distinct, compatible measured cohort against the verified deployed mutation.
+
+The Worker calculates formula `1.0.0` on a 0-100 scale from task completion (30%), navigation efficiency (25%), error rate (15%), feature discovery (15%), and median duration (15%). Baseline and evolved evidence must use the same study and task set, refer to compatible commits and different application versions, cover all three fixed tasks, and contain at least three terminal attempts, sessions, and anonymous participants per cohort. A failed gate produces an auditable `insufficient` outcome without numeric scores.
+
+The persisted outcome contains both evidence hashes, cohort metadata, formula version, component scores, aggregate scores, delta, and limitations. Genome attaches it to the repository execution that produced the deployment. Releasing a rollback marks that outcome `rolled_back`, clears its numeric comparison, and retains the invalidation in the fossil record.

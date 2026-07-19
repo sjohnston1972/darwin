@@ -7,6 +7,7 @@ import {
 import {
   createRepositoryRollback,
   createRepositoryExecution,
+  retryRepositoryExecution,
   updateRepositoryRollback,
   updateRepositoryExecution,
 } from './execution';
@@ -54,6 +55,7 @@ describe('repository execution state', () => {
       '2026-07-17T10:02:00.000Z',
     );
     expect(execution.status).toBe('prepared');
+    expect(execution.revision).toBe(0);
     expect(execution.baseSha).toBe(manifest.repository.baseSha);
     expect(execution.branch).toBe('darwin/evolution-aaaaaaaaaaaa');
     expect(execution.checks.map((check) => check.name)).toEqual([
@@ -65,6 +67,7 @@ describe('repository execution state', () => {
   it('enforces forward-only workflow transitions', () => {
     const prepared = createRepositoryExecution(manifest);
     const queued = updateRepositoryExecution(prepared, { status: 'queued' });
+    expect(queued.revision).toBe(1);
     const running = updateRepositoryExecution(queued, {
       status: 'codex_running',
       workflowRunId: 123,
@@ -81,6 +84,30 @@ describe('repository execution state', () => {
         headSha: 'f'.repeat(40),
       }),
     ).toThrow('immutable once recorded');
+  });
+
+  it('retries a failed workflow as a monotonic revision', () => {
+    const prepared = createRepositoryExecution(manifest);
+    const failed = updateRepositoryExecution(prepared, {
+      status: 'failed',
+      error: 'Transient workflow failure.',
+    });
+    const retry = retryRepositoryExecution(
+      failed,
+      manifest,
+      '2026-07-17T10:03:00.000Z',
+    );
+
+    expect(retry).toMatchObject({
+      executionId: failed.executionId,
+      status: 'prepared',
+      revision: failed.revision + 1,
+      error: null,
+      createdAt: '2026-07-17T10:03:00.000Z',
+    });
+    expect(() => retryRepositoryExecution(prepared, manifest)).toThrow(
+      'Only a failed repository execution can be retried.',
+    );
   });
 
   it('prepares a rollback only from a retained commit and enforces its review path', () => {
@@ -105,9 +132,30 @@ describe('repository execution state', () => {
     const releasing = updateRepositoryExecution(preview, {
       status: 'releasing',
     });
-    const released = updateRepositoryExecution(releasing, {
-      status: 'released',
+    const verifying = updateRepositoryExecution(releasing, {
+      status: 'deployment_verifying',
       headSha: 'f'.repeat(40),
+      deploymentVerification: {
+        status: 'verifying',
+        expectedCommit: 'f'.repeat(40),
+        expectedAppVersion: 'f'.repeat(12),
+        observedCommit: null,
+        observedAppVersion: null,
+        attempts: 0,
+        verifiedAt: null,
+        lastError: null,
+      },
+    });
+    const released = updateRepositoryExecution(verifying, {
+      status: 'released',
+      deploymentVerification: {
+        ...verifying.deploymentVerification!,
+        status: 'verified',
+        observedCommit: 'f'.repeat(40),
+        observedAppVersion: 'f'.repeat(12),
+        attempts: 2,
+        verifiedAt: '2026-07-18T12:00:00.000Z',
+      },
     });
 
     const rollback = createRepositoryRollback(

@@ -37,8 +37,9 @@ Darwin demonstrates one complete, inspectable evolution cycle:
 5. Let a human select one or more mutations and create an immutable manifest.
 6. Dispatch a bounded Codex workflow in the target repository.
 7. Review the real patch, checks, pull request, and isolated deployment preview.
-8. Release or reject the mutation, then retain the complete record in Genome.
-9. Prepare and validate a separate rollback when a retained mutation should be reverted.
+8. Release or reject the mutation; after merge, verify the exact production commit before opening the next evidence cycle.
+9. Measure a compatible post-release cohort and retain the versioned 0-100 fitness outcome with the mutation in Genome.
+10. Prepare a separate rollback when a retained mutation should be reverted; a released rollback stops the comparison.
 
 The repository does **not** contain a prebuilt evolved ProjectFlow variant. A candidate exists only after a live manifest has been executed against the verified target commit.
 
@@ -58,7 +59,7 @@ Darwin verifies the repository, `darwin.target.json` contract, deployment, telem
 
 ### Observations
 
-The evidence inspector shows persisted events, sessions, anonymous participants, behavioral signals, deterministic evidence IDs, and archived evidence from completed mutation cycles.
+The evidence inspector shows persisted events, sessions, anonymous participants, behavioral signals, deterministic evidence IDs, and the verified production commit, app version, and deployment time that bound each measurement cycle.
 
 [![Live observations](docs/assets/screenshots/observations.png)](https://darwin-control-room.pages.dev/?view=observations)
 
@@ -75,9 +76,15 @@ Agent traces, deterministic `L-EV-*` friction records, evidence hashes, GPT-5.6
 population analysis, and operator selection live in a separate Lab section.
 They never enter measured human cohorts or measured fitness.
 
+When a recurring Lab failure is worth retaining, the operator can promote it
+to a behavioural eval (`BE-###`). The eval preserves the goal, hidden oracle
+boundary, action threshold, seed, evidence IDs, and a Codex acceptance brief.
+It remains attached to the Lab record as a durable regression contract rather
+than becoming another one-off optimisation recommendation.
+
 ### Genome
 
-Genome preserves the repository mutation, evidence provenance, validation output, release state, pull request, preview, Codex report, and rollback history.
+Genome preserves the repository mutation, evidence provenance, validation output, release state, pull request, preview, Codex report, measured fitness outcome, and rollback history.
 
 [![Genome history](docs/assets/screenshots/genome.png)](https://darwin-control-room.pages.dev/?view=genome)
 
@@ -104,7 +111,7 @@ flowchart LR
 
 Every analysis stores the ProjectFlow base SHA and a SHA-256 fingerprint of the exact source context. Every manifest is bound to that analysis, evidence hash, repository commit, allowed paths, protected paths, and validation commands.
 
-Read the detailed [Architecture wiki page](docs/wiki/Architecture.md) and [controlled evolution workflow](docs/wiki/AI-and-Mutation-Workflow.md).
+Read the canonical [technical architecture](docs/ARCHITECTURE.md), the [Architecture wiki companion](docs/wiki/Architecture.md), and the [controlled evolution workflow](docs/wiki/AI-and-Mutation-Workflow.md).
 
 ## Evidence boundary
 
@@ -139,6 +146,8 @@ and immutable **Darwin Lab** provenance. After validated raw ingestion, those
 records are eligible only for Lab evidence and automated fitness; they remain
 excluded from measured human cohorts, participant counts, evidence, and fitness.
 Only the seeded 10,000-event Scale replay is called a simulation.
+
+Measured fitness is calculated only by the Worker after a released mutation has a distinct, compatible evolved evidence pack. Formula `1.0.0` weights task completion (30%), navigation efficiency (25%), error rate (15%), feature discovery (15%), and median duration (15%). Each cohort must cover all three fixed tasks with at least three terminal attempts, sessions, and anonymous participants. Darwin persists both evidence hashes, cohort identity, component scores, limitations, and the aggregate 0-100 scores; it emits no score when a gate fails and invalidates the comparison after a released rollback.
 
 ## Repository layout
 
@@ -194,16 +203,21 @@ DARWIN_AI_MODE=live
 GITHUB_TOKEN=your_fine_grained_github_token
 DARWIN_CALLBACK_TOKEN=a_long_random_shared_secret
 DARWIN_OPERATOR_TOKEN=a_separate_high_entropy_operator_token
+DARWIN_VIEWER_TOKEN=an_optional_read_only_viewer_token
 PROJECTFLOW_INGESTION_SECRET=a_separate_target_gateway_secret
 PROJECTFLOW_REPOSITORY=sjohnston1972/projectflow
 PROJECTFLOW_BRANCH=main
 PROJECTFLOW_PRODUCTION_URL=https://darwin-projectflow.pages.dev/
 PROJECTFLOW_STUDY_URL=https://darwin-projectflow.pages.dev/?study=true
+PROJECTFLOW_ALLOWED_APP_VERSIONS=baseline,1.0.0
+PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS=90000
+PROJECTFLOW_DEPLOYMENT_POLL_MS=5000
+PROJECTFLOW_RESET_MAX_ATTEMPTS=60
 PROJECTFLOW_LAB_STUDY_ID=projectflow-darwin-lab
 DARWIN_LAB_ALLOWED_ORIGINS=http://localhost:5174,http://127.0.0.1:5174
 ```
 
-The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. The operator token is entered into Darwin's unlock view and retained only in browser session storage.
+The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. Access tokens are entered into Darwin's unlock view and retained only in browser session storage. The optional viewer token receives aggregate telemetry and connection status only; raw traces, evidence, repository artifacts, and mutation controls require the operator's evidence-inspector or stronger capabilities.
 
 ### Run Darwin Lab locally
 
@@ -226,16 +240,22 @@ by default.
 ```powershell
 npm run lint
 npm run format:check
+npm run docs:check
 npm run typecheck
 npm run test
+npm run test:e2e
 npm run build
 ```
 
-The deterministic reasoning context is regenerated during `npm run build` and verified during `npm run typecheck`.
+The deterministic reasoning context is regenerated during `npm run build` and verified during `npm run typecheck`. The generated Worker route reference comes from the checked route contract; use `npm run docs:generate` after route changes and `npm run docs:check` to verify it.
+
+The Playwright suite starts Darwin's real local Worker with an isolated D1 database plus the standalone ProjectFlow application. Only the OpenAI and GitHub network boundaries use deterministic fixtures, and that fixture mode is rejected on non-localhost requests. Set `PROJECTFLOW_E2E_DIR` when ProjectFlow is not available at `../projectflow`. Pull-request CI runs the `@smoke` browser path; the deployment workflow runs the complete suite.
+
+Install the local browser runtime once with `npx playwright install chromium` before the first browser-suite run.
 
 ## Deployment
 
-Configure Worker secrets, apply migrations, and deploy the API and Pages application:
+Configure the Worker and Pages secrets below. Production releases are deployed by manually dispatching **Deploy Darwin** from a semantic tag such as `v0.1.0`; the workflow rejects branch dispatches, injects that release plus the tagged 40-character commit into both builds, and runs the smoke test against the same metadata.
 
 ```powershell
 npx wrangler secret put OPENAI_API_KEY --config workers/api/wrangler.toml
@@ -244,25 +264,23 @@ npx wrangler secret put DARWIN_CALLBACK_TOKEN --config workers/api/wrangler.toml
 npx wrangler secret put DARWIN_OPERATOR_TOKEN --config workers/api/wrangler.toml
 npx wrangler secret put PROJECTFLOW_INGESTION_SECRET --config workers/api/wrangler.toml
 npx wrangler pages secret put PROJECTFLOW_INGESTION_SECRET --project-name darwin-projectflow
-npm run deploy:migrate
-npm run deploy:api
-npm run deploy:web
-npm run smoke:production
 ```
 
-ProjectFlow deploys independently from its own `main` branch. Candidate branches receive isolated Cloudflare preview deployments. Darwin never switches production to a candidate before an explicit release action.
+For an equivalent operator-run deployment, export `DARWIN_RELEASE` and the exact `DARWIN_COMMIT_SHA`, then run `npm run deploy` followed by `npm run smoke:production`. The smoke test fails closed unless the deployed Worker reports both expected values.
+
+ProjectFlow deploys independently from its own `main` branch. Candidate branches receive isolated Cloudflare preview deployments. Darwin never switches production to a candidate before an explicit release action, and it does not admit post-release telemetry into a new evidence cycle until production reports the merged commit and matching app version.
 
 See [Operations and Deployment](docs/wiki/Operations-and-Deployment.md) for D1 migrations, secrets, rollback, smoke checks, and failure recovery.
 
 ## Three-minute demo
 
-1. Open **Target application** and re-verify the live ProjectFlow commit.
+1. Run **Reset evolution demo** and wait for Darwin to verify the restored ProjectFlow deployment, then re-verify the target.
 2. Open the measured study in a new window and interact with ProjectFlow.
 3. Return to **Observations**, inspect the event trace, and generate evidence.
 4. Open **Mutations**, invoke GPT-5.6, and expand the ranked pressure portfolio.
 5. Select one or more supported mutations and start controlled evolution.
 6. Follow the linked GitHub Actions run; review the real patch, checks, PR, and preview.
-7. Release the reviewed mutation and open its expanded Genome record.
+7. Release the reviewed mutation, verify the production deployment, and open its expanded Genome record.
 8. Demonstrate the separate reviewable rollback path when appropriate.
 
 The full script, failure branches, and reset checklist are in the [Demo Runbook](docs/wiki/Demo-Runbook.md).
@@ -275,13 +293,17 @@ Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [op
 
 ## Documentation
 
-- [Data retention and targeted deletion](docs/RETENTION.md)
-- [Request tracing, audit events, and log redaction](docs/OBSERVABILITY.md)
-
+- [Current product specification](docs/PRODUCT_SPEC.md)
+- [Canonical technical architecture](docs/ARCHITECTURE.md)
+- [Real telemetry and evidence plan](docs/REAL_TELEMETRY_PLAN.md)
+- [Three-minute demo source](docs/DEMO_SCRIPT.md)
+- [Generated Worker API routes](docs/generated/API_ROUTES.md)
+- [Documentation ownership and freshness](docs/DOCUMENTATION.md)
 - [GitHub wiki](https://github.com/sjohnston1972/darwin/wiki)
 - [Wiki source in this repository](docs/wiki/Home.md)
 - [Architecture](docs/wiki/Architecture.md)
 - [Telemetry and Evidence](docs/wiki/Telemetry-and-Evidence.md)
+- [Data retention and deletion](docs/RETENTION.md)
 - [AI and Mutation Workflow](docs/wiki/AI-and-Mutation-Workflow.md)
 - [API Reference](docs/wiki/API-Reference.md)
 - [Operations and Deployment](docs/wiki/Operations-and-Deployment.md)

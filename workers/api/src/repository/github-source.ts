@@ -1,63 +1,46 @@
 import {
+  EvidenceApplicationMapSchema,
   RepositoryContextSchema,
+  type EvidenceApplicationMap,
   type RepositoryContext,
 } from '@darwin/shared';
 import { z } from 'zod';
 import { timeOperation } from '../observability';
 
-const MAXIMUM_CONFIG_BYTES = 64 * 1024;
-const MAXIMUM_CONTEXT_PATHS = 20;
-const MAXIMUM_FILE_BYTES = 128 * 1024;
-const MAXIMUM_CONTEXT_BYTES = 512 * 1024;
-const MAXIMUM_CONCURRENT_FETCHES = 4;
-const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
-const containsControlCharacter = (value: string, allowLayout = false) =>
-  [...value].some((character) => {
-    const code = character.charCodeAt(0);
-    return (
-      code === 127 ||
-      (code < 32 && (!allowLayout || ![9, 10, 13].includes(code)))
-    );
-  });
-const printableText = z
-  .string()
-  .min(1)
-  .max(256)
-  .refine((value) => !containsControlCharacter(value), {
-    message: 'Control characters are not allowed.',
-  });
-const repositoryPath = z
-  .string()
-  .min(1)
-  .max(256)
-  .regex(/^[a-zA-Z0-9._*-]+(?:\/[a-zA-Z0-9._*-]+)*$/);
-const contextPath = repositoryPath.refine(
-  (value) => !value.includes('*'),
-  'Context paths must identify exact files.',
-);
-const targetConfigSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    targetId: z.literal('projectflow'),
-    name: printableText,
-    purpose: printableText,
-    defaultBranch: z
-      .string()
-      .min(1)
-      .max(128)
-      .regex(/^[a-zA-Z0-9._/-]+$/),
-    mutablePaths: z.array(repositoryPath).min(1).max(40),
-    protectedPaths: z.array(repositoryPath).min(1).max(40),
-    contextPaths: z.array(contextPath).min(1).max(MAXIMUM_CONTEXT_PATHS),
-    validationCommands: z.array(printableText).min(1).max(12),
-    limits: z
-      .object({
-        maximumChangedFiles: z.number().int().positive().max(50),
-        maximumChangedLines: z.number().int().positive().max(5_000),
-      })
-      .strict(),
-  })
-  .strict();
+const targetConfigSchema = z.object({
+  schemaVersion: z.literal(1),
+  targetId: z.literal('projectflow'),
+  name: z.string().min(1),
+  purpose: z.string().min(1),
+  defaultBranch: z.string().min(1),
+  application: z.object({
+    primaryUser: z.string().min(1),
+    domainEntities: z.array(z.string().min(1)).min(1),
+    primaryGoals: z.array(z.string().min(1)).min(1),
+    navigation: z.array(z.string().min(1)).min(1),
+    capabilities: z.array(z.string().min(1)).min(1),
+    interfaceInventory: z
+      .array(
+        z.object({
+          area: z.string().min(1),
+          purpose: z.string().min(1),
+          primaryActions: z.array(z.string().min(1)).min(1),
+        }),
+      )
+      .min(1),
+    routes: z.array(z.string().min(1).startsWith('/')).min(1),
+    mutableAreas: z.array(z.string().min(1)),
+    protectedAreas: z.array(z.string().min(1)),
+  }),
+  mutablePaths: z.array(z.string().min(1)).min(1),
+  protectedPaths: z.array(z.string().min(1)).min(1),
+  contextPaths: z.array(z.string().min(1)).min(1),
+  validationCommands: z.array(z.string().min(1)).min(1),
+  limits: z.object({
+    maximumChangedFiles: z.number().int().positive(),
+    maximumChangedLines: z.number().int().positive(),
+  }),
+});
 
 const commitResponseSchema = z.object({
   sha: z.string().regex(/^[a-f0-9]{40}$/),
@@ -157,6 +140,7 @@ const readBoundedResponse = async (
 
 export interface RepositorySnapshot {
   context: RepositoryContext;
+  applicationMap: EvidenceApplicationMap;
   developerContext: string;
   target: {
     targetId: string;
@@ -169,6 +153,7 @@ export interface RepositorySnapshot {
 export interface RepositorySnapshotOptions {
   fullName?: string;
   branch?: string;
+  commitSha?: string;
   githubToken?: string;
   productionUrl?: string;
   studyUrl?: string;
@@ -188,30 +173,21 @@ export async function captureRepositorySnapshot(
   const requestTimeoutMs =
     options.requestTimeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS;
   const headers = repositoryHeaders(options.githubToken);
-  const commitResponse = await fetchWithTimeout(
-    fetcher,
-    `https://api.github.com/repos/${fullName}/commits/${encodeURIComponent(branch)}`,
-    { headers },
-    requestTimeoutMs,
-  );
-  if (!commitResponse.ok) {
-    throw new Error(
-      `GitHub commit lookup failed with ${commitResponse.status}.`,
+  let baseSha: string;
+  if (options.commitSha) {
+    baseSha = commitResponseSchema.parse({ sha: options.commitSha }).sha;
+  } else {
+    const commitResponse = await fetcher(
+      `https://api.github.com/repos/${fullName}/commits/${encodeURIComponent(branch)}`,
+      { headers },
     );
+    if (!commitResponse.ok) {
+      throw new Error(
+        `GitHub commit lookup failed with ${commitResponse.status}.`,
+      );
+    }
+    baseSha = commitResponseSchema.parse(await commitResponse.json()).sha;
   }
-  let commitJson: unknown;
-  try {
-    commitJson = JSON.parse(
-      await readBoundedResponse(
-        commitResponse,
-        16 * 1024,
-        'GitHub commit response',
-      ),
-    );
-  } catch (error) {
-    throw new Error('GitHub commit response was invalid.', { cause: error });
-  }
-  const { sha: baseSha } = commitResponseSchema.parse(commitJson);
   const raw = async (path: string) => {
     const safePath = assertPath(path);
     const response = await fetchWithTimeout(
@@ -315,6 +291,25 @@ export async function captureRepositorySnapshot(
     studyUrl:
       options.studyUrl || 'https://darwin-projectflow.pages.dev/?study=true',
   });
+  const applicationMap = EvidenceApplicationMapSchema.parse({
+    source: { repositorySha: baseSha, sourceHash },
+    product: {
+      name: targetConfig.name,
+      purpose: targetConfig.purpose,
+      primaryUser: targetConfig.application.primaryUser,
+      domainEntities: targetConfig.application.domainEntities,
+      primaryGoals: targetConfig.application.primaryGoals,
+    },
+    activeGenome: {
+      version: baseSha.slice(0, 12),
+      navigation: targetConfig.application.navigation,
+      capabilities: targetConfig.application.capabilities,
+    },
+    interfaceInventory: targetConfig.application.interfaceInventory,
+    routes: targetConfig.application.routes,
+    mutableAreas: targetConfig.application.mutableAreas,
+    protectedAreas: targetConfig.application.protectedAreas,
+  });
   const developerContext = [
     '# Live ProjectFlow repository snapshot',
     '',
@@ -336,6 +331,7 @@ export async function captureRepositorySnapshot(
   ].join('\n');
   return {
     context,
+    applicationMap,
     developerContext,
     target: {
       targetId: targetConfig.targetId,

@@ -1,34 +1,56 @@
 import {
   CodexImplementationManifestSchema,
   CodexManifestRequestSchema,
-  DemoResetRequestSchema,
+  DemoResetCallbackSchema,
+  DemoResetExecutionSchema,
   DemoResetResponseSchema,
+  DiagnosticsResponseSchema,
   EvidenceAnalysisSchema,
   EvidencePackSchema,
+  FitnessOutcomeSchema,
+  GenomeExecutionDetailResponseSchema,
   GenomeHistoryResponseSchema,
   ObservationArchiveDetailResponseSchema,
   ObservationArchivesResponseSchema,
-  OperationalAuditEventSchema,
+  OperationalTelemetryMetricsSchema,
   ParticipantWorkspaceResponseSchema,
   ProjectFlowWorkspaceSchema,
   RepositoryExecutionCallbackSchema,
   RepositoryExecutionSummarySchema,
   RepositoryMutationExecutionSchema,
   RepositoryRollbackCallbackSchema,
+  RetentionDeletionResponseSchema,
+  RetentionSweepResultSchema,
   SimulationRequestSchema,
+  StudyIdentifierSchema,
   StudyEventsResponseSchema,
   StudySessionIssueRequestSchema,
   StudySessionResponseSchema,
+  StudyTelemetrySummarySchema,
   StudyTelemetryEventSchema,
   TargetApplicationConnectionSchema,
   TargetConnectionRequestSchema,
   TelemetryReceiptSchema,
+  type HealthResponse,
+  type DemoResetExecution,
+  type EvidenceAnalysis,
+  type EvidencePack,
+  type OperationalEvent,
+  type OperationalProvider,
+  type RepositoryMutationExecution,
   type SimulationResult,
+  type TargetApplicationConnection,
 } from '@darwin/shared';
+import rootPackage from '../../../package.json';
 
 import { simulate } from './simulation';
-import { getTelemetryRepository } from './persistence/telemetry-repository';
-import { EvidenceBoundaryError, buildEvidencePack } from './evidence';
+import {
+  getTelemetryRepository,
+  type EventPageCursor,
+} from './persistence/telemetry-repository';
+import { retentionPolicy } from './persistence/retention';
+import { EvidenceVersionMismatchError, buildEvidencePack } from './evidence';
+import { calculateFitnessOutcome, invalidateFitnessOutcome } from './fitness';
 import {
   EvidenceReasoningError,
   analyseEvidence,
@@ -37,12 +59,15 @@ import {
 } from './reasoning';
 import { captureRepositorySnapshot } from './repository/github-source';
 import {
+  attachRepositoryRollback,
   createRepositoryRollback,
   createRepositoryExecution,
+  retryRepositoryExecution,
   updateRepositoryRollback,
   updateRepositoryExecution,
 } from './repository/execution';
 import {
+  GitHubMergeStateUnknownError,
   dispatchRollbackWorkflow,
   dispatchEvolutionWorkflow,
   dispatchResetWorkflow,
@@ -60,6 +85,22 @@ import {
   issueExecutionCallbackCredential,
   verifyExecutionCallback,
 } from './security/callback';
+import { findApiRoute } from './api-route-contract';
+import {
+  DeploymentVerificationPendingError,
+  verifyProjectFlowDeployment,
+} from './repository/deployment-verification';
+import {
+  completeResetExecution,
+  createResetExecution,
+  updateResetExecution,
+} from './repository/reset-execution';
+import {
+  advanceE2EExecution,
+  advanceE2ERollback,
+  createE2EBoundaryFetch,
+  e2eFixturesEnabled,
+} from './testing/e2e-fixtures';
 import { handleLabRequest } from './lab/handler';
 import { handleOperationalRoutes } from './routes/operations';
 import { getLabRepository } from './lab/lab-repository';
@@ -79,6 +120,10 @@ export interface Env {
   DARWIN_AI_MODE: string;
   DARWIN_DEMO_SEED: string;
   DARWIN_EVENT_COUNT: string;
+  DARWIN_RELEASE?: string;
+  DARWIN_COMMIT_SHA?: string;
+  DARWIN_MAX_EVENTS_PER_STUDY?: string;
+  DARWIN_MAX_EVENTS_PER_TARGET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_API?: string;
   OPENAI_MODEL: string;
@@ -88,8 +133,12 @@ export interface Env {
   PROJECTFLOW_BRANCH: string;
   PROJECTFLOW_PRODUCTION_URL: string;
   PROJECTFLOW_STUDY_URL: string;
+  PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS?: string;
+  PROJECTFLOW_DEPLOYMENT_POLL_MS?: string;
+  PROJECTFLOW_RESET_MAX_ATTEMPTS?: string;
   PROJECTFLOW_STUDY_ID?: string;
   PROJECTFLOW_AUTOMATED_STUDY_ID?: string;
+  PROJECTFLOW_ALLOWED_APP_VERSIONS?: string;
   PROJECTFLOW_LAB_STUDY_ID?: string;
   DARWIN_LAB_ALLOWED_ORIGINS?: string;
   GITHUB_TOKEN?: string;
@@ -97,40 +146,178 @@ export interface Env {
   DARWIN_OPERATOR_TOKEN?: string;
   DARWIN_VIEWER_TOKEN?: string;
   PROJECTFLOW_INGESTION_SECRET?: string;
-  DARWIN_STUDY_EVENT_QUOTA?: string;
-  DARWIN_TARGET_EVENT_QUOTA?: string;
-  DARWIN_RELEASE_VERSION?: string;
-  DARWIN_BUILD_SHA?: string;
+  DARWIN_E2E_FIXTURES?: string;
 }
 
 const defaultCorsHeaders = {
-  'Access-Control-Allow-Headers':
-    'Content-Type, Authorization, X-Darwin-Study-Session, X-Darwin-Request-ID',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+  'Access-Control-Expose-Headers': 'X-Request-ID',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Expose-Headers': 'X-Darwin-Request-ID',
-  'Cache-Control': 'no-store',
-  'Content-Security-Policy':
-    "default-src 'none'; frame-ancestors 'none'; sandbox",
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY',
 };
 
 const openAIKey = (env?: Partial<Env>) =>
   env?.OPENAI_API_KEY || env?.OPENAI_API;
 
-const studyEventQuota = (env?: Partial<Env>) => {
-  const parsed = Number(env?.DARWIN_STUDY_EVENT_QUOTA ?? 100_000);
-  return Number.isSafeInteger(parsed)
-    ? Math.min(1_000_000, Math.max(1_000, parsed))
-    : 100_000;
+const defaultArchivePageSize = 10;
+const maximumArchivePageSize = 25;
+
+const archivePageOptions = (url: URL) => {
+  const rawLimit = url.searchParams.get('limit');
+  const limit = rawLimit === null ? defaultArchivePageSize : Number(rawLimit);
+  const cursor = url.searchParams.get('cursor');
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > maximumArchivePageSize ||
+    (cursor !== null &&
+      (cursor.length > 500 || !/^[A-Za-z0-9_-]+$/.test(cursor)))
+  ) {
+    throw new Error('invalid_archive_page');
+  }
+  return { limit, cursor };
 };
 
-const targetEventQuota = (env?: Partial<Env>) => {
-  const parsed = Number(env?.DARWIN_TARGET_EVENT_QUOTA ?? 1_000_000);
-  return Number.isSafeInteger(parsed)
-    ? Math.min(5_000_000, Math.max(10_000, parsed))
-    : 1_000_000;
+const checkSummary = (checks: RepositoryMutationExecution['checks']) => ({
+  total: checks.length,
+  passed: checks.filter((check) => check.status === 'passed').length,
+  failed: checks.filter((check) => check.status === 'failed').length,
+});
+
+const summarizeExecution = (execution: RepositoryMutationExecution) => ({
+  executionId: execution.executionId,
+  manifestId: execution.manifestId,
+  analysisId: execution.analysisId,
+  repository: {
+    fullName: execution.repository.fullName,
+    url: execution.repository.url,
+    branch: execution.repository.branch,
+    baseSha: execution.repository.baseSha,
+    sourceHash: execution.repository.sourceHash,
+  },
+  status: execution.status,
+  branch: execution.branch,
+  baseSha: execution.baseSha,
+  headSha: execution.headSha,
+  changedFileCount: execution.changedFiles.length,
+  checkSummary: checkSummary(execution.checks),
+  hasPatch: execution.patch !== null,
+  hasCodexOutput: execution.codex.finalMessage !== null,
+  hasError: execution.error !== null,
+  rollback: execution.rollback
+    ? {
+        rollbackId: execution.rollback.rollbackId,
+        status: execution.rollback.status,
+        revertedSha: execution.rollback.revertedSha,
+        headSha: execution.rollback.headSha,
+        changedFileCount: execution.rollback.changedFiles.length,
+        checkSummary: checkSummary(execution.rollback.checks),
+        hasPatch: execution.rollback.patch !== null,
+        hasError: execution.rollback.error !== null,
+        createdAt: execution.rollback.createdAt,
+        updatedAt: execution.rollback.updatedAt,
+        completedAt: execution.rollback.completedAt,
+      }
+    : null,
+  createdAt: execution.createdAt,
+  updatedAt: execution.updatedAt,
+  completedAt: execution.completedAt,
+});
+
+const median = (values: number[]) => {
+  if (!values.length) return null;
+  const ordered = [...values].sort((left, right) => left - right);
+  const midpoint = Math.floor(ordered.length / 2);
+  return ordered.length % 2
+    ? ordered[midpoint]!
+    : (ordered[midpoint - 1]! + ordered[midpoint]!) / 2;
+};
+
+const summarizeObservationArchive = ({
+  execution,
+  analysis,
+  evidence,
+}: {
+  execution: RepositoryMutationExecution;
+  analysis: EvidenceAnalysis;
+  evidence: EvidencePack;
+}) => {
+  const terminalAttempts = evidence.taskAttempts.filter(
+    (attempt) => attempt.outcome !== 'open',
+  );
+  return {
+    archiveId: execution.executionId,
+    evidence: {
+      evidenceId: evidence.evidenceId,
+      evidenceHash: evidence.evidenceHash,
+      generatedAt: evidence.generatedAt,
+      evidenceClass: evidence.evidenceClass,
+      study: evidence.study,
+      quality: {
+        strength: evidence.quality.strength,
+        score: evidence.quality.score,
+      },
+      signalCount: evidence.frictionSignals.length,
+      fitness: {
+        terminalAttemptCount: terminalAttempts.length,
+        completedAttemptCount: terminalAttempts.filter(
+          (attempt) => attempt.outcome === 'success',
+        ).length,
+        medianInteractions: median(
+          terminalAttempts.map((attempt) => attempt.interactionCount),
+        ),
+      },
+    },
+    analysis: {
+      analysisId: analysis.analysisId,
+      model: analysis.model,
+      createdAt: analysis.createdAt,
+      selectedMutation: {
+        id: analysis.selectedMutation.id,
+        title: analysis.selectedMutation.title,
+      },
+    },
+    execution: {
+      executionId: execution.executionId,
+      manifestId: execution.manifestId,
+      status: execution.status,
+      createdAt: execution.createdAt,
+      completedAt: execution.completedAt,
+    },
+  };
+};
+
+const encodeEventCursor = (cursor: EventPageCursor) =>
+  btoa(`${cursor.receivedAt}\n${cursor.eventId}`)
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '');
+
+const decodeEventCursor = (value: string): EventPageCursor => {
+  if (value.length > 500 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error('invalid_event_cursor');
+  }
+  try {
+    const normalized = value.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      '=',
+    );
+    const [receivedAt, eventId, ...extra] = atob(padded).split('\n');
+    if (
+      !receivedAt ||
+      !eventId ||
+      extra.length > 0 ||
+      Number.isNaN(Date.parse(receivedAt)) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        eventId,
+      )
+    ) {
+      throw new Error('invalid_event_cursor');
+    }
+    return { receivedAt, eventId };
+  } catch {
+    throw new Error('invalid_event_cursor');
+  }
 };
 
 const jsonResponse = (
@@ -161,65 +348,39 @@ const jsonResponse = (
 const requiredOperatorCapability = (
   method: string,
   pathname: string,
-): OperatorCapability => {
-  if (pathname.startsWith('/api/lab/')) {
-    if (method === 'GET') return 'inspect_evidence';
-    if (pathname.endsWith('/agent-decision') || pathname.endsWith('/analyse')) {
-      return 'reason';
-    }
-    if (pathname.endsWith('/mutations/select')) return 'execute';
-    return 'simulate';
-  }
-  if (pathname === '/api/demo/reset') return 'reset';
-  if (pathname.startsWith('/api/retention/')) return 'delete_data';
-  if (pathname.startsWith('/api/target-connection')) {
-    return method === 'GET' ? 'observe' : 'connect';
-  }
-  if (pathname === '/api/simulations') return 'simulate';
-  if (/\/release$/.test(pathname)) return 'release';
-  if (method === 'POST' && pathname.includes('/analyse-evidence')) {
-    return 'reason';
-  }
-  if (method === 'POST' && pathname.endsWith('/evidence')) return 'reason';
-  if (
-    method === 'POST' &&
-    (pathname.includes('/codex-manifest') ||
-      pathname.includes('/repository-executions'))
-  ) {
-    return 'execute';
-  }
-  if (
-    pathname === '/api/genome' ||
-    pathname.startsWith('/api/diagnostics') ||
-    pathname === '/api/observations/archives' ||
-    pathname.includes('/events') ||
-    pathname.includes('/sessions/') ||
-    pathname.includes('/evidence') ||
-    pathname.includes('/repository-executions') ||
-    pathname.startsWith('/api/simulations/')
-  ) {
-    return 'inspect_evidence';
-  }
-  return 'observe';
-};
+): OperatorCapability =>
+  findApiRoute(method, pathname)?.capability ?? 'observe';
 
-const isCallbackRoute = (request: Request) => {
-  const url = new URL(request.url);
-  if (
-    /^\/api\/repository-executions\/[^/]+\/manifest$/.test(url.pathname) &&
-    url.searchParams.get('audience') === 'operator'
-  ) {
-    return false;
-  }
-  return /^\/api\/repository-executions\/[^/]+\/(?:manifest|callback|rollback\/callback)$/.test(
-    url.pathname,
+const auditOperatorAuthorization = ({
+  request,
+  pathname,
+  capability,
+  identity,
+  actor,
+  outcome,
+  reason,
+}: {
+  request: Request;
+  pathname: string;
+  capability: OperatorCapability;
+  identity?: OperatorIdentity;
+  actor?: OperatorIdentity['actor'] | 'anonymous';
+  outcome: 'authorized' | 'denied';
+  reason?: string;
+}) => {
+  console.info(
+    '[darwin:audit]',
+    JSON.stringify({
+      event: 'operator_request_authorization',
+      actor: actor ?? identity?.actor ?? 'anonymous',
+      action: `${request.method} ${pathname}`,
+      target: pathname,
+      capability,
+      outcome,
+      ...(reason ? { reason } : {}),
+    }),
   );
 };
-
-const isTargetRoute = (pathname: string) =>
-  pathname === '/api/study-sessions' ||
-  pathname === '/api/telemetry/events' ||
-  /^\/api\/studies\/[^/]+\/participants\/[^/]+\/workspace$/.test(pathname);
 
 const corsForRequest = (request: Request, env?: Partial<Env>) => {
   const configuredOrigins = (env?.ALLOWED_ORIGINS ?? '')
@@ -321,10 +482,216 @@ const targetProvenanceAllowed = (
   );
 };
 
-const isAllowedTargetVersion = (appVersion: string) =>
-  appVersion === 'baseline' ||
-  /^\d+\.\d+\.\d+$/.test(appVersion) ||
-  /^[a-f0-9]{7,40}(?:-candidate)?$/.test(appVersion);
+const isAllowedTargetVersion = (
+  appVersion: string,
+  env: Partial<Env> | undefined,
+  connection: TargetApplicationConnection | null,
+  executions: RepositoryMutationExecution[],
+) => {
+  const configuredVersions = new Set(
+    (env?.PROJECTFLOW_ALLOWED_APP_VERSIONS || 'baseline,1.0.0')
+      .split(',')
+      .map((version) => version.trim())
+      .filter(Boolean),
+  );
+  if (configuredVersions.has(appVersion)) return true;
+
+  const match = appVersion.match(
+    /^([a-f0-9]{7,40})(?:-(candidate|rollback))?$/,
+  );
+  if (!match) return false;
+  const [, prefix, variant] = match;
+  const matches = (sha: string | null | undefined) =>
+    Boolean(sha?.startsWith(prefix!));
+
+  if (variant === 'candidate') {
+    return executions.some((execution) => matches(execution.headSha));
+  }
+  if (variant === 'rollback') {
+    return executions.some((execution) => matches(execution.rollback?.headSha));
+  }
+  return (
+    matches(connection?.repository.baseSha) ||
+    executions.some(
+      (execution) =>
+        matches(execution.baseSha) ||
+        (execution.status === 'released' && matches(execution.headSha)),
+    )
+  );
+};
+
+const targetOriginInScope = (
+  sourceOrigin: string,
+  allowedOrigins: string[],
+) => {
+  const source = new URL(sourceOrigin);
+  return allowedOrigins.some((allowedOrigin) => {
+    const allowed = new URL(allowedOrigin);
+    return (
+      source.origin === allowed.origin ||
+      (source.protocol === 'https:' &&
+        source.hostname.endsWith(`.${allowed.hostname}`))
+    );
+  });
+};
+
+const versionMatchesCommit = (appVersion: string, commitSha: string) =>
+  /^[a-f0-9]{7,40}$/.test(appVersion) && commitSha.startsWith(appVersion);
+
+type OperationalActor = OperationalEvent['actor'];
+
+interface ProviderTrace {
+  provider: OperationalProvider;
+  operation: string;
+  durationMs: number;
+  outcome: 'success' | 'failure';
+  errorCode: string | null;
+}
+
+interface RequestTrace {
+  requestId: string;
+  startedAt: number;
+  actor: OperationalActor;
+  action: string;
+  target: string;
+  beforeState: string | null;
+  afterState: string | null;
+  metrics: ProviderTrace[];
+}
+
+const requestIdPattern = /^[A-Za-z0-9._:-]{1,80}$/;
+
+const createRequestTrace = (request: Request): RequestTrace => {
+  const supplied = request.headers.get('X-Request-ID');
+  const pathname = new URL(request.url).pathname;
+  const routeAccess = findApiRoute(request.method, pathname)?.access;
+  return {
+    requestId:
+      supplied && requestIdPattern.test(supplied)
+        ? supplied
+        : crypto.randomUUID(),
+    startedAt: performance.now(),
+    actor:
+      routeAccess === 'callback'
+        ? 'repository-callback'
+        : routeAccess === 'target'
+          ? 'projectflow'
+          : 'anonymous',
+    action: `${request.method} ${pathname}`.slice(0, 120),
+    target: pathname.slice(0, 240),
+    beforeState: null,
+    afterState: null,
+    metrics: [],
+  };
+};
+
+const providerErrorCode = (error: unknown) =>
+  error instanceof Error ? error.name : 'UnknownError';
+
+const logAuthorizationDecision = (
+  trace: RequestTrace,
+  boundary: 'operator' | 'target' | 'repository_callback',
+  allowed: boolean,
+  errorCode: string | null = null,
+) => {
+  const payload = JSON.stringify({
+    event: `${boundary}_request_${allowed ? 'authorized' : 'rejected'}`,
+    requestId: trace.requestId,
+    actor: trace.actor,
+    action: trace.action,
+    target: trace.target,
+    outcome: allowed ? 'success' : 'failure',
+    errorCode,
+  });
+  if (allowed) console.info('[darwin:audit]', payload);
+  else console.warn('[darwin:audit]', payload);
+};
+
+const observeProvider = async <Result>(
+  trace: RequestTrace,
+  provider: OperationalProvider,
+  operation: string,
+  perform: () => Promise<Result>,
+): Promise<Result> => {
+  const startedAt = performance.now();
+  try {
+    const result = await perform();
+    trace.metrics.push({
+      provider,
+      operation,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      outcome: 'success',
+      errorCode: null,
+    });
+    return result;
+  } catch (error) {
+    trace.metrics.push({
+      provider,
+      operation,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      outcome: 'failure',
+      errorCode: providerErrorCode(error),
+    });
+    throw error;
+  }
+};
+
+const auditedAction = (method: string, pathname: string) => {
+  if (method !== 'POST') return null;
+  if (pathname === '/api/target-connection') return 'target.connect';
+  if (pathname === '/api/target-connection/disconnect') {
+    return 'target.disconnect';
+  }
+  if (pathname === '/api/demo/reset') return 'demo.reset';
+  if (/^\/api\/studies\/[^/]+\/evidence$/.test(pathname)) {
+    return 'evidence.generate';
+  }
+  if (/^\/api\/studies\/[^/]+\/analyse-evidence$/.test(pathname)) {
+    return 'gpt.analyse';
+  }
+  if (/^\/api\/evidence-analyses\/[^/]+\/codex-manifest$/.test(pathname)) {
+    return 'manifest.create';
+  }
+  if (/^\/api\/lab\/experiments\/[^/]+\/promote-eval$/.test(pathname)) {
+    return 'behavioural_eval.create';
+  }
+  if (/^\/api\/lab\/experiments\/[^/]+\/rerun-eval$/.test(pathname)) {
+    return 'behavioural_eval.run';
+  }
+  if (
+    /^\/api\/evidence-analyses\/[^/]+\/codex-manifest\/execution$/.test(
+      pathname,
+    )
+  ) {
+    return 'workflow.dispatch';
+  }
+  if (/^\/api\/repository-executions\/[^/]+\/rollback$/.test(pathname)) {
+    return 'rollback.dispatch';
+  }
+  if (/\/rollback\/callback$/.test(pathname)) return 'rollback.callback';
+  if (/\/callback$/.test(pathname)) return 'repository.callback';
+  if (/\/rollback\/release$/.test(pathname)) return 'rollback.release';
+  if (/\/release$/.test(pathname)) return 'mutation.release';
+  return null;
+};
+
+const responseState = async (response: Response) => {
+  if (response.status === 204) return 'no_content';
+  try {
+    const payload = (await response.clone().json()) as Record<string, unknown>;
+    if (typeof payload.status === 'string') return payload.status.slice(0, 120);
+    if (payload.rollback && typeof payload.rollback === 'object') {
+      const status = (payload.rollback as { status?: unknown }).status;
+      if (typeof status === 'string') return `rollback:${status}`.slice(0, 120);
+    }
+    if (typeof payload.error === 'string') {
+      return `error:${payload.error}`.slice(0, 120);
+    }
+  } catch {
+    // Responses without JSON are represented only by their HTTP status.
+  }
+  return response.ok ? 'completed' : `http_${response.status}`;
+};
 
 const parsePageRequest = (url: URL) => {
   const requestedLimit = Number(url.searchParams.get('limit') ?? 20);
@@ -360,30 +727,32 @@ const encodePageCursor = (
 
 export const resetSimulationStore = () => {
   simulationStore.clear();
+  simulationInFlight = false;
 };
 
 export const handleRequest = async (
   request: Request,
   env?: Partial<Env>,
+  suppliedTrace?: RequestTrace,
 ): Promise<Response> => {
+  const trace = suppliedTrace ?? createRequestTrace(request);
   const url = new URL(request.url);
   const { pathname } = url;
-  const requestId = requestIdFor(request);
-  const { corsHeaders, originAllowed } = corsForRequest(request, env);
-  const json = (body: unknown, init: ResponseInit = {}) => {
-    const headers = new Headers(init.headers);
-    headers.set('X-Darwin-Request-ID', requestId);
-    return jsonResponse(body, { ...init, headers }, corsHeaders);
+  const requestCors = corsForRequest(request, env);
+  const corsHeaders = {
+    ...requestCors.corsHeaders,
+    'X-Request-ID': trace.requestId,
   };
-
-  try {
-    decodeURI(pathname);
-  } catch {
-    return json(
-      { error: 'invalid_url', message: 'Request URL encoding is invalid.' },
-      { status: 400 },
-    );
-  }
+  const { originAllowed } = requestCors;
+  const json = (body: unknown, init: ResponseInit = {}) =>
+    jsonResponse(body, init, corsHeaders);
+  const useE2EFixtures = e2eFixturesEnabled(
+    env?.DARWIN_E2E_FIXTURES,
+    url.hostname,
+  );
+  const providerFetch = (
+    pack?: Parameters<typeof createE2EBoundaryFetch>[0],
+  ) => (useE2EFixtures ? createE2EBoundaryFetch(pack) : undefined);
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -401,6 +770,25 @@ export const handleRequest = async (
 
   if (request.method === 'GET' && pathname === '/api/auth/session') {
     const authorization = await authorizeOperator(request, env, 'observe');
+    auditOperatorAuthorization({
+      request,
+      pathname,
+      capability: 'observe',
+      ...(authorization.ok
+        ? { identity: authorization.identity, outcome: 'authorized' as const }
+        : {
+            actor: authorization.error === 'forbidden' ? 'viewer' : 'anonymous',
+            outcome: 'denied' as const,
+            reason: authorization.error,
+          }),
+    });
+    trace.actor = authorization.ok ? authorization.identity.actor : 'anonymous';
+    logAuthorizationDecision(
+      trace,
+      'operator',
+      authorization.ok,
+      authorization.ok ? null : authorization.error,
+    );
     return authorization.ok
       ? json({
           authenticated: true,
@@ -417,60 +805,249 @@ export const handleRequest = async (
   }
 
   let operatorIdentity: OperatorIdentity | null = null;
+  const routeAccess = findApiRoute(request.method, pathname)?.access;
   if (
-    pathname !== '/api/health' &&
-    !isTargetRoute(pathname) &&
-    !isCallbackRoute(request)
+    routeAccess !== 'public' &&
+    routeAccess !== 'target' &&
+    routeAccess !== 'callback'
   ) {
-    const authorization = await authorizeOperator(
-      request,
-      env,
-      requiredOperatorCapability(request.method, pathname),
-    );
+    const capability = requiredOperatorCapability(request.method, pathname);
+    const authorization = await authorizeOperator(request, env, capability);
     if (!authorization.ok) {
+      auditOperatorAuthorization({
+        request,
+        pathname,
+        capability,
+        actor: authorization.error === 'forbidden' ? 'viewer' : 'anonymous',
+        outcome: 'denied',
+        reason: authorization.error,
+      });
+      logAuthorizationDecision(trace, 'operator', false, authorization.error);
       return json(
         { error: authorization.error, message: authorization.message },
         { status: authorization.status },
       );
     }
     operatorIdentity = authorization.identity;
-    console.info(
-      '[darwin:audit]',
-      JSON.stringify({
-        event: 'operator_request_authorized',
-        actor: operatorIdentity.actor,
-        action: `${request.method} ${pathname}`,
-        target: pathname,
-      }),
-    );
+    auditOperatorAuthorization({
+      request,
+      pathname,
+      capability,
+      identity: operatorIdentity,
+      outcome: 'authorized',
+    });
+    trace.actor = operatorIdentity.actor;
+    logAuthorizationDecision(trace, 'operator', true);
   }
 
-  const telemetryRepository = getTelemetryRepository(env?.DB);
+  const telemetryRepository = getTelemetryRepository(env?.DB, (metric) => {
+    trace.metrics.push({ provider: 'd1', ...metric });
+  });
+  const currentExecutionAfterConflict = async (executionId: string) => {
+    const current =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    return current
+      ? json(
+          {
+            error: 'concurrent_update',
+            message:
+              'Repository execution changed while this request was running.',
+            execution: RepositoryMutationExecutionSchema.parse(current),
+          },
+          { status: 409 },
+        )
+      : json(
+          {
+            error: 'not_found',
+            message: 'Repository execution no longer exists.',
+          },
+          { status: 404 },
+        );
+  };
+  const currentReleaseAfterConflict = async (
+    executionId: string,
+    rollback = false,
+  ) => {
+    const current =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!current) {
+      return json(
+        {
+          error: 'not_found',
+          message: 'Repository execution no longer exists.',
+        },
+        { status: 404 },
+      );
+    }
+    const released = rollback
+      ? current.rollback?.status === 'released'
+      : current.status === 'released';
+    return json(RepositoryMutationExecutionSchema.parse(current), {
+      status: released ? 200 : 202,
+    });
+  };
+  const activeRetentionPolicy = retentionPolicy(env);
   const currentCycleStart = async (studyId: string) => {
     const cycle = await telemetryRepository.getEvolutionCycle();
     return cycle.studyId === studyId ? cycle.startedAt : null;
   };
+  const refreshVerifiedTargetSnapshot = async ({
+    commitSha,
+    verifiedAt,
+  }: {
+    commitSha: string;
+    verifiedAt: string;
+  }) => {
+    const current = await telemetryRepository.getTargetConnection();
+    if (!current) return;
+    const snapshot = await observeProvider(
+      trace,
+      'github',
+      'capture_deployed_snapshot',
+      () =>
+        captureRepositorySnapshot({
+          fullName: current.repository.fullName,
+          branch: current.repository.branch,
+          commitSha,
+          githubToken: env?.GITHUB_TOKEN,
+          productionUrl: current.repository.productionUrl,
+          studyUrl: current.repository.studyUrl,
+          fetch: providerFetch(),
+        }),
+    );
+    await telemetryRepository.saveTargetConnection(
+      TargetApplicationConnectionSchema.parse({
+        ...current,
+        connectionId: `target-${commitSha.slice(0, 12)}`,
+        verifiedAt,
+        target: snapshot.target,
+        repository: snapshot.context,
+        applicationMap: snapshot.applicationMap,
+        checks: current.checks.map((check) =>
+          check.id === 'repository'
+            ? {
+                ...check,
+                detail: `${snapshot.context.fullName} at ${commitSha.slice(0, 12)}`,
+              }
+            : check.id === 'contract'
+              ? {
+                  ...check,
+                  detail: `${snapshot.context.mutablePaths.length} mutable paths, ${snapshot.context.validationCommands.length} validation commands`,
+                }
+              : check,
+        ),
+      }),
+    );
+  };
+  const reconcileResetDeployment = async (rawExecution: DemoResetExecution) => {
+    let execution = DemoResetExecutionSchema.parse(rawExecution);
+    if (execution.status !== 'deploying' || !execution.baselineCommit) {
+      return execution;
+    }
+    const deployment = execution.deploymentVerification ?? {
+      status: 'verifying' as const,
+      expectedCommit: execution.baselineCommit,
+      expectedAppVersion: execution.baselineCommit.slice(0, 12),
+      observedCommit: null,
+      observedAppVersion: null,
+      attempts: 0,
+      verifiedAt: null,
+      lastError: null,
+    };
+    try {
+      const verified = await verifyProjectFlowDeployment({
+        studyUrl: execution.repository.studyUrl,
+        expectedCommit: execution.baselineCommit,
+        expectedAppVersion: execution.baselineCommit.slice(0, 12),
+        timeoutMs: 500,
+        pollIntervalMs: 0,
+        fetcher: providerFetch() ?? fetch,
+      });
+      const verifiedDeployment = {
+        ...deployment,
+        status: 'verified' as const,
+        observedCommit: verified.commitSha,
+        observedAppVersion: verified.appVersion,
+        attempts: deployment.attempts + verified.attempts,
+        verifiedAt: verified.verifiedAt,
+        lastError: null,
+      };
+      const completed = completeResetExecution(
+        execution,
+        verifiedDeployment,
+        verified.verifiedAt,
+      );
+      resetSimulationStore();
+      await telemetryRepository.reset({ preserveResetExecutions: true });
+      await getLabRepository(env?.DB).reset();
+      await refreshVerifiedTargetSnapshot({
+        commitSha: verified.commitSha,
+        verifiedAt: verified.verifiedAt,
+      });
+      await telemetryRepository.resetEvolutionCycle({
+        startedAt: verified.verifiedAt,
+        measuredCommit: verified.commitSha,
+        appVersion: verified.appVersion,
+        deploymentVerifiedAt: verified.verifiedAt,
+      });
+      await telemetryRepository.saveResetExecution(completed);
+      return completed;
+    } catch (error) {
+      if (!(error instanceof DeploymentVerificationPendingError)) throw error;
+      const pending = DemoResetExecutionSchema.parse({
+        ...execution,
+        deploymentVerification: {
+          ...deployment,
+          observedCommit: error.observed?.commitSha ?? null,
+          observedAppVersion: error.observed?.appVersion ?? null,
+          attempts: deployment.attempts + error.attempts,
+          lastError: error.errorCode,
+        },
+        updatedAt: new Date().toISOString(),
+      });
+      const configuredMaximum = Number(
+        env?.PROJECTFLOW_RESET_MAX_ATTEMPTS ?? 60,
+      );
+      const maximumAttempts = Number.isFinite(configuredMaximum)
+        ? Math.max(2, Math.min(600, Math.trunc(configuredMaximum)))
+        : 60;
+      execution =
+        pending.deploymentVerification!.attempts >= maximumAttempts
+          ? updateResetExecution(pending, {
+              status: 'failed',
+              error:
+                'ProjectFlow production did not report the restored baseline before the verification limit.',
+            })
+          : pending;
+      await telemetryRepository.saveResetExecution(execution);
+      return execution;
+    }
+  };
 
-  const operationalResponse = await handleOperationalRoutes({
-    request,
-    url,
-    repository: telemetryRepository,
-    json,
-    requestId,
-    operatorActor: operatorIdentity?.actor ?? null,
-    eventQuotaPerStudy: studyEventQuota(env),
-    eventQuotaPerTarget: targetEventQuota(env),
-    build: {
-      release: env?.DARWIN_RELEASE_VERSION || '0.25.0',
-      commit: env?.DARWIN_BUILD_SHA || 'development',
-    },
-    analysis: {
-      model: env?.OPENAI_MODEL || 'gpt-5.6',
-      liveModelAvailable:
-        env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
-    },
-  });
-  if (operationalResponse) return operationalResponse;
+  if (request.method === 'GET' && pathname === '/api/health') {
+    const version = env?.DARWIN_RELEASE || rootPackage.version;
+    const commitSha = env?.DARWIN_COMMIT_SHA || 'local';
+    const response: HealthResponse = {
+      status: 'ok',
+      service: 'darwin-api',
+      version,
+      commitSha,
+      buildId: `v${version}@${commitSha.slice(0, 7)}`,
+      retention: await telemetryRepository.getRetentionHealth(
+        activeRetentionPolicy,
+        new Date().toISOString(),
+      ),
+      analysis: {
+        mode: 'live',
+        model: env?.OPENAI_MODEL || 'gpt-5.6',
+        liveModelAvailable:
+          env?.DARWIN_AI_MODE === 'live' && Boolean(openAIKey(env)),
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    return json(response);
+  }
 
   const labResponse = await handleLabRequest(
     request,
@@ -480,111 +1057,237 @@ export const handleRequest = async (
   );
   if (labResponse) return labResponse;
 
-  if (request.method === 'GET' && pathname === '/api/genome') {
-    let pageRequest;
-    try {
-      pageRequest = parsePageRequest(url);
-    } catch {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Genome page cursor or limit is invalid.',
-        },
-        { status: 400 },
-      );
-    }
-    const page = await telemetryRepository.listRepositoryExecutionsPage(
-      pageRequest.limit,
-      pageRequest.cursor,
-    );
+  if (request.method === 'GET' && pathname === '/api/diagnostics') {
+    const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(100, Math.max(1, Math.round(requestedLimit)))
+      : 50;
+    const [events, metrics] = await Promise.all([
+      telemetryRepository.listOperationalAuditEvents(limit),
+      telemetryRepository.summarizeOperationalMetrics(100),
+    ]);
     return json(
-      GenomeHistoryResponseSchema.parse({
-        evolutionCycle: await telemetryRepository.getEvolutionCycle(),
-        executions: page.items.map((execution) =>
-          RepositoryExecutionSummarySchema.parse(execution),
-        ),
-        nextCursor: page.hasMore ? encodePageCursor(page.cursor) : null,
+      DiagnosticsResponseSchema.parse({
+        requestId: trace.requestId,
+        generatedAt: new Date().toISOString(),
+        retentionDays: 30,
+        events,
+        metrics,
       }),
     );
   }
 
-  const observationArchiveMatch = pathname.match(
-    /^\/api\/observations\/archives\/([^/]+)$/,
-  );
-  if (request.method === 'GET' && observationArchiveMatch) {
-    const archive = await telemetryRepository.getObservationArchive(
-      decodeURIComponent(observationArchiveMatch[1]!),
+  if (request.method === 'GET' && pathname === '/api/operations/metrics') {
+    const metrics = await telemetryRepository.getOperationalMetrics();
+    return json(
+      OperationalTelemetryMetricsSchema.parse({
+        updatedAt: metrics.updatedAt,
+        ...metrics.counts,
+      }),
     );
-    return archive
-      ? json(ObservationArchiveDetailResponseSchema.parse(archive))
+  }
+
+  if (request.method === 'POST' && pathname === '/api/retention/sweep') {
+    return json(
+      RetentionSweepResultSchema.parse(
+        await telemetryRepository.runRetentionSweep(
+          activeRetentionPolicy,
+          new Date().toISOString(),
+        ),
+      ),
+    );
+  }
+
+  const participantDeletionMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/participants\/([^/]+)$/,
+  );
+  if (request.method === 'DELETE' && participantDeletionMatch) {
+    const studyId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(participantDeletionMatch[1]!),
+    );
+    const participantId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(participantDeletionMatch[2]!),
+    );
+    if (!studyId.success || !participantId.success) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Study and participant identifiers are invalid.',
+        },
+        { status: 400 },
+      );
+    }
+    return json(
+      RetentionDeletionResponseSchema.parse({
+        status: 'deleted',
+        scope: 'participant',
+        studyId: studyId.data,
+        participantId: participantId.data,
+        deleted: await telemetryRepository.deleteParticipant(
+          studyId.data,
+          participantId.data,
+        ),
+      }),
+    );
+  }
+
+  const studyDeletionMatch = pathname.match(/^\/api\/studies\/([^/]+)$/);
+  if (request.method === 'DELETE' && studyDeletionMatch) {
+    const studyId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(studyDeletionMatch[1]!),
+    );
+    if (!studyId.success) {
+      return json(
+        { error: 'invalid_request', message: 'Study identifier is invalid.' },
+        { status: 400 },
+      );
+    }
+    return json(
+      RetentionDeletionResponseSchema.parse({
+        status: 'deleted',
+        scope: 'study',
+        studyId: studyId.data,
+        deleted: await telemetryRepository.deleteStudy(studyId.data),
+      }),
+    );
+  }
+
+  const executionDeletionMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/artifacts$/,
+  );
+  if (request.method === 'DELETE' && executionDeletionMatch) {
+    const executionId = StudyIdentifierSchema.safeParse(
+      decodeURIComponent(executionDeletionMatch[1]!),
+    );
+    if (!executionId.success) {
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Execution identifier is invalid.',
+        },
+        { status: 400 },
+      );
+    }
+    return json(
+      RetentionDeletionResponseSchema.parse({
+        status: 'deleted',
+        scope: 'execution',
+        executionId: executionId.data,
+        deleted: await telemetryRepository.deleteExecutionArtifacts(
+          executionId.data,
+        ),
+      }),
+    );
+  }
+
+  if (request.method === 'GET' && pathname === '/api/genome') {
+    try {
+      const options = archivePageOptions(url);
+      const page =
+        await telemetryRepository.listRepositoryExecutionPage(options);
+      return json(
+        GenomeHistoryResponseSchema.parse({
+          evolutionCycle: await telemetryRepository.getEvolutionCycle(),
+          executions: page.executions.map(summarizeExecution),
+          fitnessOutcomes: await telemetryRepository.listFitnessOutcomes(),
+          page: { limit: options.limit, nextCursor: page.nextCursor },
+        }),
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === 'invalid_archive_page') {
+        return json(
+          {
+            error: 'invalid_pagination',
+            message: 'Limit or cursor is invalid.',
+          },
+          { status: 400 },
+        );
+      }
+      if (error instanceof Error && error.message === 'invalid_cursor') {
+        return json(
+          { error: 'invalid_pagination', message: 'Cursor is invalid.' },
+          { status: 400 },
+        );
+      }
+      throw error;
+    }
+  }
+
+  if (request.method === 'GET' && pathname === '/api/observations/archives') {
+    try {
+      const options = archivePageOptions(url);
+      const page =
+        await telemetryRepository.listObservationArchivePage(options);
+      return json(
+        ObservationArchivesResponseSchema.parse({
+          archives: page.archives.map(summarizeObservationArchive),
+          page: { limit: options.limit, nextCursor: page.nextCursor },
+        }),
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        ['invalid_archive_page', 'invalid_cursor'].includes(error.message)
+      ) {
+        return json(
+          {
+            error: 'invalid_pagination',
+            message: 'Limit or cursor is invalid.',
+          },
+          { status: 400 },
+        );
+      }
+      throw error;
+    }
+  }
+
+  const genomeDetailMatch = pathname.match(/^\/api\/genome\/([^/]+)$/);
+  if (request.method === 'GET' && genomeDetailMatch) {
+    const execution = await telemetryRepository.getRepositoryExecution(
+      decodeURIComponent(genomeDetailMatch[1]!),
+    );
+    return execution
+      ? json(
+          GenomeExecutionDetailResponseSchema.parse({
+            execution,
+            summary: summarizeExecution(execution),
+          }),
+        )
       : json(
-          { error: 'not_found', message: 'Observation archive was not found.' },
+          { error: 'execution_not_found', message: 'Execution was not found.' },
           { status: 404 },
         );
   }
 
-  if (request.method === 'GET' && pathname === '/api/observations/archives') {
-    let pageRequest;
-    try {
-      pageRequest = parsePageRequest(url);
-    } catch {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Archive page cursor or limit is invalid.',
-        },
-        { status: 400 },
-      );
-    }
-    const page = await telemetryRepository.listObservationArchivesPage(
-      pageRequest.limit,
-      pageRequest.cursor,
+  const observationArchiveDetailMatch = pathname.match(
+    /^\/api\/observations\/archives\/([^/]+)$/,
+  );
+  if (request.method === 'GET' && observationArchiveDetailMatch) {
+    const record = await telemetryRepository.getObservationArchive(
+      decodeURIComponent(observationArchiveDetailMatch[1]!),
     );
-    const archives = page.items.map(
-      ({ archiveId, evidence, analysis, execution }) => {
-        const terminalAttempts = evidence.taskAttempts.filter((attempt) =>
-          ['success', 'failed', 'abandoned'].includes(attempt.outcome),
+    return record
+      ? json(
+          ObservationArchiveDetailResponseSchema.parse({
+            archive: {
+              archiveId: record.execution.executionId,
+              evidence: record.evidence,
+              analysis: record.analysis,
+              execution: {
+                executionId: record.execution.executionId,
+                manifestId: record.execution.manifestId,
+                status: record.execution.status,
+                createdAt: record.execution.createdAt,
+                completedAt: record.execution.completedAt,
+              },
+            },
+            summary: summarizeObservationArchive(record),
+          }),
+        )
+      : json(
+          { error: 'archive_not_found', message: 'Archive was not found.' },
+          { status: 404 },
         );
-        const interactionCounts = terminalAttempts
-          .map((attempt) => attempt.interactionCount)
-          .sort((left, right) => left - right);
-        const midpoint = Math.floor(interactionCounts.length / 2);
-        return {
-          archiveId,
-          evidenceId: evidence.evidenceId,
-          evidenceHash: evidence.evidenceHash,
-          provenance: evidence.provenance,
-          sourceEventCount: evidence.study.sourceEventCount,
-          sessions: evidence.study.sessions,
-          participants: evidence.study.participants,
-          attempts: evidence.study.attempts,
-          completionRate: terminalAttempts.length
-            ? terminalAttempts.filter(
-                (attempt) => attempt.outcome === 'success',
-              ).length / terminalAttempts.length
-            : null,
-          medianInteractionCount: interactionCounts.length
-            ? interactionCounts.length % 2
-              ? interactionCounts[midpoint]!
-              : (interactionCounts[midpoint - 1]! +
-                  interactionCounts[midpoint]!) /
-                2
-            : null,
-          qualityStrength: evidence.quality.strength,
-          qualityScore: evidence.quality.score,
-          frictionSignalCount: evidence.frictionSignals.length,
-          mutationTitle: analysis.selectedMutation.title,
-          model: analysis.model,
-          execution,
-        };
-      },
-    );
-    return json(
-      ObservationArchivesResponseSchema.parse({
-        archives,
-        nextCursor: page.hasMore ? encodePageCursor(page.cursor) : null,
-      }),
-    );
   }
 
   if (request.method === 'GET' && pathname === '/api/target-connection') {
@@ -595,6 +1298,7 @@ export const handleRequest = async (
   }
 
   if (request.method === 'POST' && pathname === '/api/target-connection') {
+    trace.beforeState = 'disconnected';
     let input: unknown;
     try {
       input = JSON.parse(await readBoundedBody(request, 64_000));
@@ -640,28 +1344,43 @@ export const handleRequest = async (
     }
 
     try {
-      const snapshot = await captureRepositorySnapshot({
-        ...requested,
-        githubToken: env?.GITHUB_TOKEN,
-      });
-      const runtimeResponse = await timeOperation(
-        'target',
-        'verify_deployment',
+      const snapshot = await observeProvider(
+        trace,
+        'github',
+        'capture_repository_snapshot',
         () =>
-          fetch(requested.studyUrl, {
-            headers: { Accept: 'text/html' },
+          captureRepositorySnapshot({
+            ...requested,
+            githubToken: env?.GITHUB_TOKEN,
+            fetch: providerFetch(),
           }),
-        requestId,
       );
-      if (!runtimeResponse.ok) {
-        throw new Error(
-          `Target deployment returned ${runtimeResponse.status}.`,
-        );
-      }
-      const runtimeHtml = await runtimeResponse.text();
-      if (!runtimeHtml.includes('<title>ProjectFlow</title>')) {
-        throw new Error('Target deployment identity could not be verified.');
-      }
+      const runtimeResponse = await observeProvider(
+        trace,
+        'target',
+        'verify_study_runtime',
+        async () => {
+          const response = await fetch(requested.studyUrl, {
+            headers: { Accept: 'text/html' },
+          });
+          if (!response.ok) {
+            const error = new Error(
+              `Target deployment returned ${response.status}.`,
+            );
+            error.name = `TargetHttp${response.status}`;
+            throw error;
+          }
+          const runtimeHtml = await response.text();
+          if (!runtimeHtml.includes('<title>ProjectFlow</title>')) {
+            const error = new Error(
+              'Target deployment identity could not be verified.',
+            );
+            error.name = 'TargetIdentityError';
+            throw error;
+          }
+          return response;
+        },
+      );
       const timestamp = new Date().toISOString();
       const connection = TargetApplicationConnectionSchema.parse({
         connectionId: `target-${snapshot.context.baseSha.slice(0, 12)}`,
@@ -670,6 +1389,21 @@ export const handleRequest = async (
         verifiedAt: timestamp,
         target: snapshot.target,
         repository: snapshot.context,
+        ingestion: {
+          credentialId: `ingestion-${snapshot.context.baseSha.slice(0, 12)}`,
+          targetId: snapshot.target.targetId,
+          studyIds: [...allowedTargetStudies(env)],
+          allowedOrigins: [
+            ...new Set(
+              [requested.productionUrl, requested.studyUrl].map(
+                (deploymentUrl) => new URL(deploymentUrl).origin,
+              ),
+            ),
+          ],
+          signatureAlgorithm: 'hmac-sha256',
+          issuedAt: timestamp,
+        },
+        applicationMap: snapshot.applicationMap,
         checks: [
           {
             id: 'repository',
@@ -717,111 +1451,56 @@ export const handleRequest = async (
     request.method === 'POST' &&
     pathname === '/api/target-connection/disconnect'
   ) {
+    trace.beforeState = 'connected';
     await telemetryRepository.deleteTargetConnection();
+    trace.afterState = 'disconnected';
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  if (request.method === 'POST' && pathname === '/api/demo/reset') {
-    let resetInput: unknown;
-    try {
-      resetInput = JSON.parse(await readBoundedBody(request, 1_024));
-    } catch (error) {
-      return json(
-        {
-          error:
-            error instanceof PayloadTooLargeError
-              ? 'payload_too_large'
-              : 'confirmation_required',
-          message:
-            'Reset requires the exact confirmation and an acknowledgement that Darwin data has been exported.',
-        },
-        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
-      );
-    }
-    const parsedReset = DemoResetRequestSchema.safeParse(resetInput);
-    if (!parsedReset.success) {
-      return json(
-        {
-          error: 'confirmation_required',
-          message:
-            'Reset requires confirmation “RESET DARWIN DEMO” and exportAcknowledged=true.',
-        },
-        { status: 400 },
-      );
-    }
-    const targetConnection = await telemetryRepository.getTargetConnection();
-    if (env?.GITHUB_TOKEN) {
-      try {
-        await dispatchResetWorkflow({
-          token: env.GITHUB_TOKEN,
-          fullName:
-            targetConnection?.repository.fullName ||
-            configuredTarget(env).fullName,
-          branch:
-            targetConnection?.repository.branch || configuredTarget(env).branch,
-        });
-      } catch (error) {
-        return json(
-          {
-            error: 'repository_reset_failed',
-            message:
-              error instanceof Error
-                ? error.message
-                : 'ProjectFlow reset dispatch failed.',
-          },
-          { status: 502 },
-        );
-      }
-    }
-    resetSimulationStore();
-    await telemetryRepository.reset();
-    await getLabRepository(env?.DB).reset();
-    return json(
-      DemoResetResponseSchema.parse({
-        status: 'reset',
-        repositoryResetDispatched: Boolean(env?.GITHUB_TOKEN),
-        recovery: {
-          projectFlow: 'baseline-workflow-dispatched',
-          darwinData: 'not-recoverable-after-reset',
-        },
-      }),
-    );
+  if (request.method === 'GET' && pathname === '/api/demo/reset') {
+    const latest = await telemetryRepository.getLatestResetExecution();
+    if (!latest)
+      return new Response(null, { status: 204, headers: corsHeaders });
+    const reconciled = await reconcileResetDeployment(latest);
+    return json(DemoResetResponseSchema.parse(reconciled));
   }
 
-  if (request.method === 'POST' && pathname === '/api/study-sessions') {
-    let body: string;
-    try {
-      body = await readBoundedBody(request, 8_192);
-    } catch (error) {
+  const resetCallbackMatch = pathname.match(
+    /^\/api\/demo\/reset\/([^/]+)\/callback$/,
+  );
+  if (request.method === 'POST' && resetCallbackMatch) {
+    const resetId = decodeURIComponent(resetCallbackMatch[1]!);
+    const execution = await telemetryRepository.getResetExecution(resetId);
+    if (!execution) {
       return json(
-        {
-          error:
-            error instanceof PayloadTooLargeError
-              ? 'payload_too_large'
-              : 'invalid_request',
-          message:
-            error instanceof PayloadTooLargeError
-              ? 'Study session request is too large.'
-              : 'Study session request encoding is invalid.',
-        },
-        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
+        { error: 'not_found', message: 'Reset execution not found.' },
+        { status: 404 },
       );
     }
-    const targetAuthorization = await authorizeTargetRequest(
+    const body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > 32_000) {
+      return json(
+        { error: 'payload_too_large', message: 'Callback body is too large.' },
+        { status: 413 },
+      );
+    }
+    const verification = await verifyExecutionCallback({
       request,
       body,
-      env,
-    );
-    if (!targetAuthorization.ok) {
+      callbackSecret: env?.DARWIN_CALLBACK_TOKEN,
+      credential:
+        await telemetryRepository.getExecutionCallbackCredential(resetId),
+      executionId: resetId,
+      repository: execution.repository.fullName,
+      manifestHash: execution.policyHash,
+    });
+    if (!verification.ok) {
       return json(
-        {
-          error: targetAuthorization.error,
-          message: targetAuthorization.message,
-        },
-        { status: targetAuthorization.status },
+        { error: verification.error, message: verification.message },
+        { status: verification.status },
       );
     }
-    const parsed = StudySessionIssueRequestSchema.safeParse(
+    const parsed = DemoResetCallbackSchema.safeParse(
       (() => {
         try {
           return JSON.parse(body);
@@ -830,11 +1509,158 @@ export const handleRequest = async (
         }
       })(),
     );
-    if (!parsed.success || !isAllowedTargetVersion(parsed.data.appVersion)) {
+    if (!parsed.success) {
+      return json(
+        { error: 'invalid_callback', message: 'Callback payload is invalid.' },
+        { status: 400 },
+      );
+    }
+    try {
+      const signatureAccepted =
+        await telemetryRepository.consumeExecutionCallbackSignature(
+          resetId,
+          verification.signature,
+          new Date().toISOString(),
+        );
+      if (!signatureAccepted) {
+        return json(
+          { error: 'callback_replayed', message: 'Callback replay rejected.' },
+          { status: 409 },
+        );
+      }
+      let updated = updateResetExecution(execution, parsed.data);
+      await telemetryRepository.saveResetExecution(updated);
+      if (updated.status === 'deploying') {
+        updated = await reconcileResetDeployment(updated);
+      }
+      return json(DemoResetResponseSchema.parse(updated), {
+        status: updated.status === 'deploying' ? 202 : 200,
+      });
+    } catch (error) {
       return json(
         {
-          error: 'invalid_request',
-          message: 'Study session request is invalid.',
+          error: 'invalid_transition',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Reset execution transition is invalid.',
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  if (request.method === 'POST' && pathname === '/api/demo/reset') {
+    trace.beforeState = 'active_cycle';
+    const active = await telemetryRepository.getLatestResetExecution();
+    if (active && !['complete', 'failed'].includes(active.status)) {
+      trace.afterState = active.status;
+      return json(DemoResetResponseSchema.parse(active), { status: 202 });
+    }
+    const targetConnection = await telemetryRepository.getTargetConnection();
+    const target = targetConnection?.repository ?? configuredTarget(env);
+    let execution = createResetExecution({
+      fullName: target.fullName,
+      branch: target.branch,
+      studyUrl: target.studyUrl,
+    });
+    await telemetryRepository.saveResetExecution(execution);
+    if (useE2EFixtures || (!env?.GITHUB_TOKEN && !env?.DARWIN_CALLBACK_TOKEN)) {
+      resetSimulationStore();
+      await telemetryRepository.reset({ preserveResetExecutions: true });
+      await getLabRepository(env?.DB).reset();
+      execution = DemoResetExecutionSchema.parse({
+        ...execution,
+        status: 'complete',
+        updatedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      });
+      await telemetryRepository.saveResetExecution(execution);
+      trace.afterState = execution.status;
+      return json(DemoResetResponseSchema.parse(execution));
+    }
+    if (!env?.GITHUB_TOKEN || !env.DARWIN_CALLBACK_TOKEN) {
+      execution = updateResetExecution(execution, {
+        status: 'failed',
+        error:
+          'GitHub dispatch and callback credentials must both be configured.',
+      });
+      await telemetryRepository.saveResetExecution(execution);
+      trace.afterState = execution.status;
+      return json(DemoResetResponseSchema.parse(execution), { status: 503 });
+    }
+    try {
+      const callbackCredential = await issueExecutionCallbackCredential(
+        execution.resetId,
+      );
+      await telemetryRepository.saveExecutionCallbackCredential(
+        callbackCredential.credential,
+      );
+      await dispatchResetWorkflow({
+        token: env.GITHUB_TOKEN,
+        fullName: execution.repository.fullName,
+        branch: execution.repository.branch,
+        resetId: execution.resetId,
+        callbackUrl: `${url.origin}/api/demo/reset/${execution.resetId}/callback`,
+        callbackNonce: callbackCredential.nonce,
+        policyHash: execution.policyHash,
+        fetch: providerFetch(),
+      });
+      execution = DemoResetExecutionSchema.parse({
+        ...execution,
+        repositoryResetDispatched: true,
+        updatedAt: new Date().toISOString(),
+      });
+      await telemetryRepository.saveResetExecution(execution);
+      trace.afterState = execution.status;
+      return json(DemoResetResponseSchema.parse(execution), { status: 201 });
+    } catch (error) {
+      try {
+        execution = updateResetExecution(execution, {
+          status: 'failed',
+          error:
+            error instanceof Error
+              ? error.message
+              : 'ProjectFlow reset dispatch failed.',
+        });
+        await telemetryRepository.saveResetExecution(execution);
+      } catch {
+        // Preserve the original dispatch error when state persistence also fails.
+      }
+      trace.afterState = execution.status;
+      return json(DemoResetResponseSchema.parse(execution), { status: 502 });
+    }
+  }
+
+  if (request.method === 'POST' && pathname === '/api/telemetry/events') {
+    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+    if (contentLength > 256_000) {
+      return json(
+        {
+          error: 'payload_too_large',
+          message: 'Telemetry batch is too large.',
+        },
+        { status: 413 },
+      );
+    }
+
+    let body: string;
+    try {
+      body = await request.text();
+      if (new TextEncoder().encode(body).byteLength > 256_000) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Telemetry batch is too large.',
+          },
+          { status: 413 },
+        );
+      }
+    } catch {
+      return json(
+        {
+          error: 'invalid_request_body',
+          message: 'Telemetry request body could not be read.',
         },
         { status: 400 },
       );
@@ -925,12 +1751,21 @@ export const handleRequest = async (
       );
     }
 
+    await telemetryRepository.incrementOperationalMetrics(
+      { telemetryRequests: 1 },
+      new Date().toISOString(),
+    );
+
     const targetAuthorization = await authorizeTargetRequest(
       request,
       body,
       env,
     );
     if (!targetAuthorization.ok) {
+      await telemetryRepository.incrementOperationalMetrics(
+        { authenticationRejected: 1 },
+        new Date().toISOString(),
+      );
       console.warn(
         '[darwin:security]',
         JSON.stringify({
@@ -938,6 +1773,12 @@ export const handleRequest = async (
           reason: targetAuthorization.error,
           path: pathname,
         }),
+      );
+      logAuthorizationDecision(
+        trace,
+        'target',
+        false,
+        targetAuthorization.error,
       );
       return json(
         {
@@ -947,22 +1788,43 @@ export const handleRequest = async (
         { status: targetAuthorization.status },
       );
     }
-    const sessionToken = request.headers.get('X-Darwin-Study-Session');
-    const sessionVerification =
-      sessionToken || env?.PROJECTFLOW_INGESTION_SECRET
-        ? await verifyStudySessionToken(
-            sessionToken,
-            env?.PROJECTFLOW_INGESTION_SECRET ||
-              'local-development-study-session',
-          )
-        : null;
-    if (sessionVerification && !sessionVerification.ok) {
+    logAuthorizationDecision(trace, 'target', true);
+
+    const targetSignature = request.headers.get('X-Darwin-Signature');
+    if (
+      targetSignature &&
+      !(await telemetryRepository.consumeTargetRequestSignature(
+        targetSignature.toLowerCase(),
+        new Date().toISOString(),
+      ))
+    ) {
+      await telemetryRepository.incrementOperationalMetrics(
+        { replayRejected: 1 },
+        new Date().toISOString(),
+      );
       return json(
         {
-          error: sessionVerification.error,
-          message: sessionVerification.message,
+          error: 'target_request_replayed',
+          message: 'Telemetry request replay rejected.',
         },
-        { status: 401 },
+        { status: 409 },
+      );
+    }
+
+    let input: unknown;
+    try {
+      input = JSON.parse(body);
+    } catch {
+      await telemetryRepository.incrementOperationalMetrics(
+        { rejectedEvents: 1 },
+        new Date().toISOString(),
+      );
+      return json(
+        {
+          error: 'invalid_request',
+          message: 'Request body must be valid JSON.',
+        },
+        { status: 400 },
       );
     }
 
@@ -975,6 +1837,10 @@ export const handleRequest = async (
       (input as { events: unknown[] }).events.length < 1 ||
       (input as { events: unknown[] }).events.length > 50
     ) {
+      await telemetryRepository.incrementOperationalMetrics(
+        { rejectedEvents: 1 },
+        new Date().toISOString(),
+      );
       return json(
         {
           error: 'invalid_request',
@@ -990,62 +1856,41 @@ export const handleRequest = async (
       if (!parsed.success) return [];
       return [parsed.data];
     });
-    if (
-      sessionVerification?.ok &&
-      parsedEvents.some((event) => {
-        const claims = sessionVerification.claims;
-        const provenanceClass = event.provenance?.evidenceClass;
-        return (
-          event.studyId !== claims.studyId ||
-          event.participantId !== claims.participantId ||
-          event.sessionId !== claims.sessionId ||
-          event.appVersion !== claims.appVersion ||
-          event.source !== claims.source ||
-          provenanceClass !== claims.evidenceClass ||
-          (claims.evidenceClass === 'darwin_lab' &&
-            (event.provenance?.labExperimentId !== claims.labExperimentId ||
-              !claims.runId ||
-              !event.provenance?.runIds.includes(claims.runId)))
-        );
-      })
-    ) {
-      return json(
-        {
-          error: 'study_session_subject_mismatch',
-          message: 'Telemetry identifiers do not match the study session.',
-        },
-        { status: 403 },
-      );
-    }
-    const labExperiments = new Map(
-      (await getLabRepository(env?.DB).listExperiments()).map((experiment) => [
-        experiment.experimentId,
-        experiment,
-      ]),
+    const [targetConnection, repositoryExecutions] = await Promise.all([
+      telemetryRepository.getTargetConnection(),
+      telemetryRepository.listRepositoryExecutions(),
+    ]);
+    const scopedStudies = new Set(
+      targetConnection?.ingestion?.studyIds ?? [...allowedTargetStudies(env)],
     );
-    const events = parsedEvents.filter((event) => {
-      if (event.provenance?.evidenceClass === 'darwin_lab') {
-        const experiment = event.provenance.labExperimentId
-          ? labExperiments.get(event.provenance.labExperimentId)
-          : null;
-        return Boolean(
-          experiment &&
-          event.source === 'automated' &&
-          event.studyId === experiment.studyId &&
-          event.appVersion === experiment.targetAppVersion &&
-          event.provenance.taskDefinitionId ===
-            experiment.task.taskDefinitionId &&
-          event.provenance.taskDefinitionHash ===
-            experiment.task.definitionHash,
-        );
-      }
-      return (
+    const scopedOriginAllowed =
+      !targetConnection?.ingestion ||
+      (targetConnection.ingestion.targetId ===
+        targetAuthorization.identity.targetId &&
+        targetOriginInScope(
+          targetAuthorization.identity.sourceOrigin,
+          targetConnection.ingestion.allowedOrigins,
+        ));
+    const events = parsedEvents.filter(
+      (event) =>
+        scopedOriginAllowed &&
         targetProvenanceAllowed(event, env) &&
-        targetStudyAllowed(event.studyId, env) &&
-        isAllowedTargetVersion(event.appVersion)
-      );
-    });
+        (scopedStudies.has(event.studyId) || isLabStudy(event.studyId, env)) &&
+        isAllowedTargetVersion(
+          event.appVersion,
+          env,
+          targetConnection,
+          repositoryExecutions,
+        ),
+    );
     if (events.length !== parsedEvents.length) {
+      await telemetryRepository.incrementOperationalMetrics(
+        {
+          contextRejected: 1,
+          rejectedEvents: candidates.length,
+        },
+        new Date().toISOString(),
+      );
       return json(
         {
           error: 'target_context_forbidden',
@@ -1060,6 +1905,10 @@ export const handleRequest = async (
         key: `${targetAuthorization.identity.targetId}:${targetAuthorization.identity.clientKey}`,
       });
       if (!outcome.success) {
+        await telemetryRepository.incrementOperationalMetrics(
+          { rateLimited: 1 },
+          new Date().toISOString(),
+        );
         return json(
           {
             error: 'rate_limited',
@@ -1072,14 +1921,22 @@ export const handleRequest = async (
     const stored = await telemetryRepository.insertEvents(
       events,
       new Date().toISOString(),
-      studyEventQuota(env),
-      targetEventQuota(env),
+      activeRetentionPolicy,
+    );
+    await telemetryRepository.incrementOperationalMetrics(
+      {
+        acceptedEvents: stored.accepted,
+        rejectedEvents: candidates.length - events.length,
+        duplicateEvents: stored.duplicates,
+      },
+      new Date().toISOString(),
     );
     return json(
       TelemetryReceiptSchema.parse({
         accepted: stored.accepted,
         rejected: candidates.length - events.length + stored.quotaRejected,
         duplicates: stored.duplicates,
+        sequenceConflicts: stored.sequenceConflicts,
       }),
       { status: 202 },
     );
@@ -1088,53 +1945,64 @@ export const handleRequest = async (
   const studyEventsMatch = pathname.match(/^\/api\/studies\/([^/]+)\/events$/);
   if (request.method === 'GET' && studyEventsMatch) {
     const studyId = decodeURIComponent(studyEventsMatch[1]!);
-    const limitQuery = url.searchParams.get('limit');
-    const requestedLimit = Number(limitQuery ?? 50);
-    if (
-      limitQuery !== null &&
-      (!/^\d+$/.test(limitQuery) ||
-        !Number.isSafeInteger(requestedLimit) ||
-        requestedLimit < 1 ||
-        requestedLimit > 200)
-    ) {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Event limit must be from 1 to 200.',
-        },
-        { status: 400 },
-      );
-    }
-    const limit = requestedLimit;
-    const cursorQuery = url.searchParams.get('after');
-    if (cursorQuery && Number.isNaN(Date.parse(cursorQuery))) {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Event cursor must be an ISO timestamp.',
-        },
-        { status: 400 },
-      );
-    }
-    const cycleStart = await currentCycleStart(studyId);
-    const receivedAfter =
-      cursorQuery && (!cycleStart || cursorQuery > cycleStart)
-        ? cursorQuery
-        : cycleStart;
-    const events = await telemetryRepository.listEvents(
-      studyId,
-      limit,
-      receivedAfter,
-    );
+    const receivedAfter = await currentCycleStart(studyId);
     const summary = await telemetryRepository.summarizeEvents(
       studyId,
       cycleStart,
     );
     return json(
+      StudyTelemetrySummarySchema.parse({
+        studyId,
+        count: summary.count,
+        sessionCount: Object.keys(summary.sessionCounts).length,
+        participantCount: summary.participantCount,
+        behaviorSignalCount: summary.behaviorSignalCount,
+      }),
+    );
+  }
+
+  const rawStudyEventsMatch = pathname.match(
+    /^\/api\/studies\/([^/]+)\/events\/raw$/,
+  );
+  if (request.method === 'GET' && rawStudyEventsMatch) {
+    const studyId = decodeURIComponent(rawStudyEventsMatch[1]!);
+    const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
+      : 50;
+    let cursor: EventPageCursor | null = null;
+    const rawCursor = url.searchParams.get('cursor');
+    try {
+      cursor = rawCursor ? decodeEventCursor(rawCursor) : null;
+    } catch {
+      return json(
+        { error: 'invalid_cursor', message: 'Event cursor is invalid.' },
+        { status: 400 },
+      );
+    }
+    const receivedAfter = await currentCycleStart(studyId);
+    const page = await telemetryRepository.listEventPage(
+      studyId,
+      limit,
+      receivedAfter,
+      cursor,
+    );
+    const summary = await telemetryRepository.summarizeEvents(
+      studyId,
+      receivedAfter,
+    );
+    const latest = page.events.at(-1);
+    return json(
       StudyEventsResponseSchema.parse({
         studyId,
-        events,
-        cursor: events.at(-1)?.receivedAt ?? cursorQuery ?? null,
+        events: page.events,
+        cursor: latest
+          ? encodeEventCursor({
+              receivedAt: latest.receivedAt,
+              eventId: latest.eventId,
+            })
+          : rawCursor,
+        hasMore: page.hasMore,
         ...summary,
       }),
     );
@@ -1144,6 +2012,7 @@ export const handleRequest = async (
     /^\/api\/studies\/([^/]+)\/evidence$/,
   );
   if (request.method === 'POST' && studyEvidenceMatch) {
+    trace.beforeState = 'telemetry_ready';
     const studyId = decodeURIComponent(studyEvidenceMatch[1]!);
     const labExperiment = (
       await getLabRepository(env?.DB).listExperiments()
@@ -1158,6 +2027,7 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
+    const cycle = await telemetryRepository.getEvolutionCycle();
     const source = url.searchParams.get('source') ?? 'real_user';
     if (source !== 'real_user' && source !== 'automated') {
       return json(
@@ -1165,12 +2035,13 @@ export const handleRequest = async (
         { status: 400 },
       );
     }
-    const events = await telemetryRepository.listEvents(
-      studyId,
-      10_000,
-      await currentCycleStart(studyId),
-      source,
-    );
+    const events = (
+      await telemetryRepository.listEvents(
+        studyId,
+        10_000,
+        cycle.studyId === studyId ? cycle.startedAt : null,
+      )
+    ).filter((event) => event.source === source);
     if (!events.length) {
       return json(
         {
@@ -1180,23 +2051,74 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
+    const targetConnection = await telemetryRepository.getTargetConnection();
+    if (!targetConnection) {
+      return json(
+        {
+          error: 'target_connection_required',
+          message:
+            'Connect and verify the ProjectFlow repository before generating evidence.',
+        },
+        { status: 409 },
+      );
+    }
+    const appVersions = [...new Set(events.map((event) => event.appVersion))];
+    if (appVersions.length !== 1) {
+      return json(
+        {
+          error: 'mixed_app_versions',
+          message:
+            'Evidence must contain telemetry from exactly one application version.',
+          appVersions: appVersions.sort(),
+        },
+        { status: 409 },
+      );
+    }
+    const [appVersion] = appVersions;
+    if (
+      !appVersion ||
+      !versionMatchesCommit(appVersion, targetConnection.repository.baseSha) ||
+      targetConnection.applicationMap.source.repositorySha !==
+        targetConnection.repository.baseSha ||
+      targetConnection.applicationMap.source.sourceHash !==
+        targetConnection.repository.sourceHash
+    ) {
+      return json(
+        {
+          error: 'telemetry_version_mismatch',
+          message:
+            'Telemetry version does not match the connected repository snapshot.',
+          appVersion: appVersion ?? null,
+          repositorySha: targetConnection.repository.baseSha,
+        },
+        { status: 409 },
+      );
+    }
     try {
-      const pack = await buildEvidencePack(studyId, events);
-      await telemetryRepository.saveEvidence(pack);
-      operationalLog('info', 'evidence_generated', {
-        requestId,
+      const pack = await buildEvidencePack(
         studyId,
-        evidenceId: pack.evidenceId,
-        sourceEventCount: pack.study.sourceEventCount,
-        signalCount: pack.frictionSignals.length,
-      });
+        events,
+        targetConnection.applicationMap,
+        undefined,
+        cycle.studyId === studyId
+          ? {
+              appVersion: cycle.appVersion,
+              measuredCommit: cycle.measuredCommit,
+              deploymentVerifiedAt: cycle.deploymentVerifiedAt,
+            }
+          : undefined,
+      );
+      await telemetryRepository.saveEvidence(pack);
+      trace.afterState = 'evidence_ready';
       return json(EvidencePackSchema.parse(pack), { status: 201 });
     } catch (error) {
-      if (error instanceof EvidenceBoundaryError) {
+      if (error instanceof EvidenceVersionMismatchError) {
         return json(
           {
-            error: 'evidence_boundary_violation',
-            message: error.message,
+            error: 'mixed_application_versions',
+            message:
+              'Evidence must contain exactly one application version matching the verified deployment.',
+            appVersions: error.appVersions,
           },
           { status: 409 },
         );
@@ -1243,13 +2165,29 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    return json(EvidencePackSchema.parse(pack));
+    try {
+      return json(EvidencePackSchema.parse(pack));
+    } catch (error) {
+      console.error('Stored evidence pack failed schema validation.', error);
+      if (url.searchParams.get('optional') === 'true') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+      return json(
+        {
+          error: 'evidence_invalid',
+          message:
+            'The stored evidence pack is no longer compatible with the current schema.',
+        },
+        { status: 422 },
+      );
+    }
   }
 
   const analyseEvidenceMatch = pathname.match(
     /^\/api\/studies\/([^/]+)\/analyse-evidence$/,
   );
   if (request.method === 'POST' && analyseEvidenceMatch) {
+    trace.beforeState = 'evidence_ready';
     const studyId = decodeURIComponent(analyseEvidenceMatch[1]!);
     const labExperiment = (
       await getLabRepository(env?.DB).listExperiments()
@@ -1285,20 +2223,29 @@ export const handleRequest = async (
       ReturnType<typeof captureRepositorySnapshot>
     >;
     try {
-      repositorySnapshot = await captureRepositorySnapshot({
-        fullName:
-          targetConnection?.repository.fullName ||
-          configuredTarget(env).fullName,
-        branch:
-          targetConnection?.repository.branch || configuredTarget(env).branch,
-        githubToken: env?.GITHUB_TOKEN,
-        productionUrl:
-          targetConnection?.repository.productionUrl ||
-          configuredTarget(env).productionUrl,
-        studyUrl:
-          targetConnection?.repository.studyUrl ||
-          configuredTarget(env).studyUrl,
-      });
+      repositorySnapshot = await observeProvider(
+        trace,
+        'github',
+        'capture_reasoning_snapshot',
+        () =>
+          captureRepositorySnapshot({
+            fullName:
+              targetConnection?.repository.fullName ||
+              configuredTarget(env).fullName,
+            branch:
+              targetConnection?.repository.branch ||
+              configuredTarget(env).branch,
+            commitSha: pack.applicationMap.source.repositorySha,
+            githubToken: env?.GITHUB_TOKEN,
+            productionUrl:
+              targetConnection?.repository.productionUrl ||
+              configuredTarget(env).productionUrl,
+            studyUrl:
+              targetConnection?.repository.studyUrl ||
+              configuredTarget(env).studyUrl,
+            fetch: providerFetch(),
+          }),
+      );
     } catch {
       return json(
         {
@@ -1317,42 +2264,70 @@ export const handleRequest = async (
     );
     const cached =
       await telemetryRepository.getEvidenceAnalysisByCacheKey(cacheKey);
+    console.info(
+      '[darwin:reasoning]',
+      JSON.stringify({
+        event: cached ? 'gpt_cache_hit' : 'gpt_cache_miss',
+        requestId: trace.requestId,
+        actor: trace.actor,
+        action: 'gpt.analyse',
+        target: studyId,
+        outcome: 'success',
+      }),
+    );
     if (cached) {
-      operationalLog('info', 'gpt_analysis_cache', {
-        requestId,
-        outcome: 'hit',
-        analysisId: cached.analysisId,
-      });
+      trace.afterState = 'analysis_cached';
       return json(EvidenceAnalysisSchema.parse(cached));
     }
-    operationalLog('info', 'gpt_analysis_cache', {
-      requestId,
-      outcome: 'miss',
-      evidenceId: pack.evidenceId,
-    });
 
     try {
       const configuredTimeout = Number(env?.OPENAI_TIMEOUT_MS ?? 12_000);
-      const analysis = await analyseEvidence(pack, {
-        requestedMode: env?.DARWIN_AI_MODE,
-        apiKey: openAIKey(env),
-        model,
-        timeoutMs: Number.isFinite(configuredTimeout)
-          ? Math.min(90_000, Math.max(1_000, configuredTimeout))
-          : 12_000,
-        repositorySnapshot,
-      });
+      const analysis = await observeProvider(
+        trace,
+        'openai',
+        'analyse_evidence',
+        () =>
+          analyseEvidence(pack, {
+            requestedMode: env?.DARWIN_AI_MODE,
+            apiKey: openAIKey(env),
+            model,
+            timeoutMs: Number.isFinite(configuredTimeout)
+              ? Math.min(90_000, Math.max(1_000, configuredTimeout))
+              : 12_000,
+            repositorySnapshot,
+            fetch: providerFetch(pack),
+          }),
+      );
+      console.info(
+        '[darwin:reasoning]',
+        JSON.stringify({
+          event: 'gpt_call_completed',
+          requestId: trace.requestId,
+          actor: trace.actor,
+          action: 'gpt.analyse',
+          target: studyId,
+          outcome: 'success',
+        }),
+      );
       await telemetryRepository.saveEvidenceAnalysis(studyId, analysis);
-      operationalLog('info', 'gpt_analysis_created', {
-        requestId,
-        analysisId: analysis.analysisId,
-        model: analysis.model,
-      });
+      trace.afterState = 'analysis_ready';
       return json(EvidenceAnalysisSchema.parse(analysis), { status: 201 });
     } catch (error) {
+      console.warn(
+        '[darwin:reasoning]',
+        JSON.stringify({
+          event: 'gpt_call_completed',
+          requestId: trace.requestId,
+          actor: trace.actor,
+          action: 'gpt.analyse',
+          target: studyId,
+          outcome: 'failure',
+          errorCode: providerErrorCode(error),
+        }),
+      );
       if (error instanceof EvidenceReasoningError) {
         return json(
-          { error: 'analysis_failed', message: error.message },
+          { error: error.code, message: error.message },
           { status: 422 },
         );
       }
@@ -1400,6 +2375,7 @@ export const handleRequest = async (
       return json(CodexImplementationManifestSchema.parse(existing));
     }
     if (request.method === 'POST') {
+      trace.beforeState = 'analysis_ready';
       const analysis =
         await telemetryRepository.getEvidenceAnalysis(analysisId);
       if (!analysis) {
@@ -1468,15 +2444,8 @@ export const handleRequest = async (
         mutations,
       );
       await telemetryRepository.saveCodexManifest(manifest);
-      operationalLog('info', 'codex_manifest_created', {
-        requestId,
-        manifestId: manifest.manifestId,
-        analysisId: manifest.analysisId,
-      });
-      const persisted =
-        (await telemetryRepository.getCodexManifestById(manifest.manifestId)) ??
-        manifest;
-      return json(CodexImplementationManifestSchema.parse(persisted), {
+      trace.afterState = 'manifest_created';
+      return json(CodexImplementationManifestSchema.parse(manifest), {
         status: 201,
       });
     }
@@ -1511,6 +2480,7 @@ export const handleRequest = async (
     if (existing && existing.status !== 'failed') {
       return json(RepositoryMutationExecutionSchema.parse(existing));
     }
+    trace.beforeState = existing?.status ?? 'not_started';
     if (!env?.GITHUB_TOKEN || !env.DARWIN_CALLBACK_TOKEN) {
       return json(
         {
@@ -1521,9 +2491,11 @@ export const handleRequest = async (
         { status: 503 },
       );
     }
-    let execution;
+    let execution: RepositoryMutationExecution;
     try {
-      execution = createRepositoryExecution(manifest);
+      execution = existing
+        ? retryRepositoryExecution(existing, manifest)
+        : createRepositoryExecution(manifest);
     } catch (error) {
       return json(
         {
@@ -1536,7 +2508,11 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
-    await telemetryRepository.saveRepositoryExecution(execution);
+    if (
+      !(await telemetryRepository.saveRepositoryExecution(execution, existing))
+    ) {
+      return currentExecutionAfterConflict(execution.executionId);
+    }
     try {
       const callbackCredential = await issueExecutionCallbackCredential(
         execution.executionId,
@@ -1544,35 +2520,30 @@ export const handleRequest = async (
       await telemetryRepository.saveExecutionCallbackCredential(
         callbackCredential.credential,
       );
-      await dispatchEvolutionWorkflow({
-        token: env.GITHUB_TOKEN,
-        execution,
-        callbackNonce: callbackCredential.nonce,
-        manifestHash: manifest.manifestHash,
-        callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/callback`,
+      const dispatchExecution = execution;
+      await observeProvider(
+        trace,
+        'github',
+        'dispatch_evolution_workflow',
+        () =>
+          dispatchEvolutionWorkflow({
+            token: env.GITHUB_TOKEN!,
+            execution: dispatchExecution,
+            callbackNonce: callbackCredential.nonce,
+            manifestHash: manifest.manifestHash,
+            callbackUrl: `${url.origin}/api/repository-executions/${dispatchExecution.executionId}/callback`,
+            fetch: providerFetch(),
+          }),
+      );
+      const queued = updateRepositoryExecution(execution, {
+        status: 'queued',
       });
-      const queued = updateRepositoryExecution(execution, { status: 'queued' });
-      const persisted =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
-          execution,
-          queued,
-        );
-      if (!persisted) {
-        return json(
-          {
-            error: 'execution_changed',
-            message:
-              'Repository execution changed while the workflow was being dispatched.',
-          },
-          { status: 409 },
-        );
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(queued, execution))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
       }
-      operationalLog('info', 'github_workflow_dispatched', {
-        requestId,
-        executionId: persisted.executionId,
-        action: 'evolution',
-      });
-      execution = persisted;
+      execution = queued;
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 201,
       });
@@ -1584,22 +2555,13 @@ export const handleRequest = async (
             ? error.message
             : 'GitHub workflow dispatch failed.',
       });
-      const persisted =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
-          execution,
-          failed,
-        );
-      if (!persisted) {
-        return json(
-          {
-            error: 'execution_changed',
-            message:
-              'Repository execution changed while a dispatch failure was being recorded.',
-          },
-          { status: 409 },
-        );
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(failed, execution))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
       }
-      return json(RepositoryMutationExecutionSchema.parse(persisted), {
+      execution = failed;
+      return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 502,
       });
     }
@@ -1618,6 +2580,7 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.rollback?.status ?? execution.status;
     if (execution.rollback && execution.rollback.status !== 'failed') {
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
@@ -1648,67 +2611,49 @@ export const handleRequest = async (
       if (!manifest) {
         throw new Error('The retained execution manifest could not be loaded.');
       }
-      const prepared = RepositoryMutationExecutionSchema.parse({
-        ...execution,
-        rollback,
-      });
-      const persistedPrepared =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
+      const withRollback = attachRepositoryRollback(execution, rollback);
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          withRollback,
           execution,
-          prepared,
-        );
-      if (!persistedPrepared) {
-        return json(
-          {
-            error: 'execution_changed',
-            message:
-              'Repository execution changed while the rollback was being prepared.',
-          },
-          { status: 409 },
-        );
+        ))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
       }
-      execution = persistedPrepared;
+      execution = withRollback;
       const callbackCredential = await issueExecutionCallbackCredential(
         execution.executionId,
       );
       await telemetryRepository.saveExecutionCallbackCredential(
         callbackCredential.credential,
       );
-      await dispatchRollbackWorkflow({
-        token: env.GITHUB_TOKEN,
-        execution,
-        rollback,
-        callbackNonce: callbackCredential.nonce,
-        manifestHash: manifest.manifestHash,
-        callbackUrl: `${url.origin}/api/repository-executions/${execution.executionId}/rollback/callback`,
+      const dispatchExecution = execution;
+      await observeProvider(trace, 'github', 'dispatch_rollback_workflow', () =>
+        dispatchRollbackWorkflow({
+          token: env.GITHUB_TOKEN!,
+          execution: dispatchExecution,
+          rollback,
+          callbackNonce: callbackCredential.nonce,
+          manifestHash: manifest.manifestHash,
+          callbackUrl: `${url.origin}/api/repository-executions/${dispatchExecution.executionId}/rollback/callback`,
+          fetch: providerFetch(),
+        }),
+      );
+      const queued = updateRepositoryRollback(execution, {
+        status: 'queued',
       });
-      operationalLog('info', 'github_workflow_dispatched', {
-        requestId,
-        executionId: execution.executionId,
-        action: 'rollback',
-      });
-      const queued = updateRepositoryRollback(execution, { status: 'queued' });
-      const persistedQueued =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
-          execution,
-          queued,
-        );
-      if (!persistedQueued) {
-        return json(
-          {
-            error: 'execution_changed',
-            message:
-              'Repository rollback changed while the workflow was being dispatched.',
-          },
-          { status: 409 },
-        );
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(queued, execution))
+      ) {
+        return currentExecutionAfterConflict(execution.executionId);
       }
-      execution = persistedQueued;
+      execution = queued;
+      trace.afterState = 'rollback:queued';
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 201,
       });
     } catch (error) {
-      if (execution.rollback) {
+      if (execution.rollback && execution.rollback.status !== 'failed') {
         const failed = updateRepositoryRollback(execution, {
           status: 'failed',
           error:
@@ -1716,22 +2661,16 @@ export const handleRequest = async (
               ? error.message
               : 'GitHub rollback workflow dispatch failed.',
         });
-        const persisted =
-          await telemetryRepository.compareAndSwapRepositoryExecution(
-            execution,
+        if (
+          !(await telemetryRepository.saveRepositoryExecution(
             failed,
-          );
-        if (!persisted) {
-          return json(
-            {
-              error: 'execution_changed',
-              message:
-                'Repository rollback changed while a dispatch failure was being recorded.',
-            },
-            { status: 409 },
-          );
+            execution,
+          ))
+        ) {
+          return currentExecutionAfterConflict(execution.executionId);
         }
-        execution = persisted;
+        execution = failed;
+        trace.afterState = 'rollback:failed';
       }
       return json(RepositoryMutationExecutionSchema.parse(execution), {
         status: 502,
@@ -1744,8 +2683,20 @@ export const handleRequest = async (
   );
   if (request.method === 'GET' && repositoryExecutionMatch) {
     const executionId = decodeURIComponent(repositoryExecutionMatch[1]!);
-    const execution =
+    let execution =
       await telemetryRepository.getRepositoryExecution(executionId);
+    if (execution && useE2EFixtures) {
+      const current = execution;
+      const advanced = current.rollback
+        ? advanceE2ERollback(current)
+        : advanceE2EExecution(current);
+      if (
+        advanced !== current &&
+        (await telemetryRepository.saveRepositoryExecution(advanced, current))
+      ) {
+        execution = advanced;
+      }
+    }
     return execution
       ? json(RepositoryMutationExecutionSchema.parse(execution))
       : json(
@@ -1754,64 +2705,70 @@ export const handleRequest = async (
         );
   }
 
-  const repositoryRecoveryMatch = pathname.match(
-    /^\/api\/repository-executions\/([^/]+)\/recovery\/force-fail$/,
+  const repositoryFitnessMatch = pathname.match(
+    /^\/api\/repository-executions\/([^/]+)\/fitness$/,
   );
-  if (request.method === 'POST' && repositoryRecoveryMatch) {
-    let input: unknown;
-    try {
-      input = JSON.parse(await readBoundedBody(request, 1_024));
-    } catch (error) {
-      return json(
-        {
-          error:
-            error instanceof PayloadTooLargeError
-              ? 'payload_too_large'
-              : 'confirmation_required',
-          message: 'A bounded recovery confirmation is required.',
-        },
-        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
-      );
-    }
-    if (
-      !input ||
-      typeof input !== 'object' ||
-      Object.keys(input).length !== 1 ||
-      (input as { confirmation?: unknown }).confirmation !==
-        'FAIL STRANDED EXECUTION'
-    ) {
-      return json(
-        {
-          error: 'confirmation_required',
-          message: 'Type FAIL STRANDED EXECUTION to use recovery.',
-        },
-        { status: 400 },
-      );
-    }
-    const executionId = decodeURIComponent(repositoryRecoveryMatch[1]!);
-    const recovery = await forceFailStrandedExecution(
-      telemetryRepository,
-      executionId,
-    );
-    if (recovery.outcome === 'not_found') {
+  if (
+    (request.method === 'GET' || request.method === 'POST') &&
+    repositoryFitnessMatch
+  ) {
+    const executionId = decodeURIComponent(repositoryFitnessMatch[1]!);
+    const execution =
+      await telemetryRepository.getRepositoryExecution(executionId);
+    if (!execution) {
       return json(
         { error: 'not_found', message: 'Repository execution not found.' },
         { status: 404 },
       );
     }
-    if (recovery.outcome === 'too_recent') {
+    const existing = await telemetryRepository.getFitnessOutcome(executionId);
+    if (request.method === 'GET') {
+      return existing
+        ? json(FitnessOutcomeSchema.parse(existing))
+        : new Response(null, { status: 204, headers: corsHeaders });
+    }
+    if (execution.rollback?.status === 'released' && existing) {
+      const invalidated = invalidateFitnessOutcome(existing);
+      await telemetryRepository.saveFitnessOutcome(invalidated);
+      return json(FitnessOutcomeSchema.parse(invalidated));
+    }
+    const analysis = await telemetryRepository.getEvidenceAnalysis(
+      execution.analysisId,
+    );
+    const baselinePack = analysis
+      ? await telemetryRepository.getEvidence(analysis.evidenceId)
+      : null;
+    const evolvedPack = baselinePack
+      ? await telemetryRepository.getLatestEvidence(baselinePack.study.studyId)
+      : null;
+    if (
+      !baselinePack ||
+      !evolvedPack ||
+      evolvedPack.evidenceHash === baselinePack.evidenceHash
+    ) {
       return json(
         {
-          error: 'recovery_window_active',
-          message: 'The workflow is still inside its bounded recovery window.',
-          eligibleAt: recovery.eligibleAt,
+          error: 'fitness_cohort_unavailable',
+          message:
+            'A distinct post-release evidence pack is required for fitness validation.',
         },
         { status: 409 },
       );
     }
-    return json(RepositoryMutationExecutionSchema.parse(recovery.execution), {
-      status: recovery.outcome === 'recovered' ? 200 : 409,
+    if (
+      existing &&
+      existing.evolved.evidenceHash === evolvedPack.evidenceHash &&
+      existing.status !== 'rolled_back'
+    ) {
+      return json(FitnessOutcomeSchema.parse(existing));
+    }
+    const outcome = calculateFitnessOutcome({
+      execution,
+      baselinePack,
+      evolvedPack,
     });
+    await telemetryRepository.saveFitnessOutcome(outcome);
+    return json(FitnessOutcomeSchema.parse(outcome), { status: 201 });
   }
 
   const repositoryManifestMatch = pathname.match(
@@ -1844,11 +2801,18 @@ export const handleRequest = async (
       manifestHash: manifest.manifestHash,
     });
     if (!verification.ok) {
+      logAuthorizationDecision(
+        trace,
+        'repository_callback',
+        false,
+        verification.error,
+      );
       return json(
         { error: verification.error, message: verification.message },
         { status: verification.status },
       );
     }
+    logAuthorizationDecision(trace, 'repository_callback', true);
     return json({ execution, manifest });
   }
 
@@ -1865,10 +2829,9 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    let body: string;
-    try {
-      body = await readBoundedBody(request, 750_000);
-    } catch (error) {
+    trace.beforeState = execution.rollback?.status ?? execution.status;
+    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+    if (contentLength > 750_000) {
       return json(
         {
           error:
@@ -1900,11 +2863,18 @@ export const handleRequest = async (
       manifestHash: manifest.manifestHash,
     });
     if (!verification.ok) {
+      logAuthorizationDecision(
+        trace,
+        'repository_callback',
+        false,
+        verification.error,
+      );
       return json(
         { error: verification.error, message: verification.message },
         { status: verification.status },
       );
     }
+    logAuthorizationDecision(trace, 'repository_callback', true);
     let callback;
     try {
       callback = RepositoryRollbackCallbackSchema.parse(JSON.parse(body));
@@ -1928,22 +2898,13 @@ export const handleRequest = async (
         );
       }
       const updated = updateRepositoryRollback(execution, callback);
-      const persisted =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
-          execution,
-          updated,
-        );
-      if (!persisted) {
-        return json(
-          {
-            error: 'execution_changed',
-            message:
-              'Repository rollback changed while the callback was being recorded.',
-          },
-          { status: 409 },
-        );
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(updated, execution))
+      ) {
+        return currentExecutionAfterConflict(executionId);
       }
-      return json(RepositoryMutationExecutionSchema.parse(persisted));
+      trace.afterState = `rollback:${updated.rollback?.status ?? 'unknown'}`;
+      return json(RepositoryMutationExecutionSchema.parse(updated));
     } catch (error) {
       return json(
         {
@@ -1971,10 +2932,9 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    let body: string;
-    try {
-      body = await readBoundedBody(request, 750_000);
-    } catch (error) {
+    trace.beforeState = execution.status;
+    const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+    if (contentLength > 750_000) {
       return json(
         {
           error:
@@ -2006,11 +2966,18 @@ export const handleRequest = async (
       manifestHash: manifest.manifestHash,
     });
     if (!verification.ok) {
+      logAuthorizationDecision(
+        trace,
+        'repository_callback',
+        false,
+        verification.error,
+      );
       return json(
         { error: verification.error, message: verification.message },
         { status: verification.status },
       );
     }
+    logAuthorizationDecision(trace, 'repository_callback', true);
     let callback;
     try {
       callback = RepositoryExecutionCallbackSchema.parse(JSON.parse(body));
@@ -2034,22 +3001,13 @@ export const handleRequest = async (
         );
       }
       const updated = updateRepositoryExecution(execution, callback);
-      const persisted =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
-          execution,
-          updated,
-        );
-      if (!persisted) {
-        return json(
-          {
-            error: 'execution_changed',
-            message:
-              'Repository execution changed while the callback was being recorded.',
-          },
-          { status: 409 },
-        );
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(updated, execution))
+      ) {
+        return currentExecutionAfterConflict(executionId);
       }
-      return json(RepositoryMutationExecutionSchema.parse(persisted));
+      trace.afterState = updated.status;
+      return json(RepositoryMutationExecutionSchema.parse(updated));
     } catch (error) {
       return json(
         {
@@ -2077,10 +3035,15 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.rollback?.status ?? execution.status;
     if (execution.rollback?.status === 'released') {
+      trace.afterState = 'rollback:released';
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
-    if (execution.rollback?.status !== 'preview_ready') {
+    if (
+      execution.rollback?.status !== 'preview_ready' &&
+      execution.rollback?.status !== 'releasing'
+    ) {
       return json(
         {
           error: 'not_releasable',
@@ -2098,80 +3061,73 @@ export const handleRequest = async (
         { status: 503 },
       );
     }
-    const releasing = updateRepositoryRollback(execution, {
-      status: 'releasing',
-    });
-    const claimed = await telemetryRepository.compareAndSwapRepositoryExecution(
-      execution,
-      releasing,
-    );
-    if (!claimed) {
-      const current =
-        await telemetryRepository.getRepositoryExecution(executionId);
-      if (current?.rollback?.status === 'released') {
-        return json(RepositoryMutationExecutionSchema.parse(current));
+    if (execution.rollback.status === 'preview_ready') {
+      const releasing = updateRepositoryRollback(execution, {
+        status: 'releasing',
+      });
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          releasing,
+          execution,
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId, true);
       }
+      execution = releasing;
+    }
+    try {
+      const releasingExecution = execution;
+      const releasedSha = await observeProvider(
+        trace,
+        'github',
+        'merge_rollback_pull_request',
+        () =>
+          mergeRollbackPullRequest({
+            token: env.GITHUB_TOKEN!,
+            execution: releasingExecution,
+            rollback: releasingExecution.rollback!,
+            fetch: providerFetch(),
+          }),
+      );
+      const released = updateRepositoryRollback(execution, {
+        status: 'released',
+        headSha: releasedSha,
+        previewUrl: execution.repository.studyUrl,
+      });
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          released,
+          execution,
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId, true);
+      }
+      execution = released;
+      trace.afterState = 'rollback:released';
+      const fitnessOutcome = await telemetryRepository.getFitnessOutcome(
+        execution.executionId,
+      );
+      if (fitnessOutcome) {
+        await telemetryRepository.saveFitnessOutcome(
+          invalidateFitnessOutcome(fitnessOutcome),
+        );
+      }
+      return json(RepositoryMutationExecutionSchema.parse(execution));
+    } catch (error) {
       return json(
         {
-          error: 'release_in_progress',
-          message: 'Another request already claimed this rollback release.',
+          error:
+            error instanceof GitHubMergeStateUnknownError
+              ? 'repository_rollback_merge_state_unknown'
+              : 'repository_rollback_release_failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'GitHub rollback pull request release failed.',
+          execution: RepositoryMutationExecutionSchema.parse(execution),
         },
-        { status: 409 },
+        { status: 502 },
       );
-    }
-    execution = claimed;
-    let releasedSha: string;
-    try {
-      releasedSha = await mergeRollbackPullRequest({
-        token: env.GITHUB_TOKEN,
-        execution,
-        rollback: execution.rollback!,
-      });
-    } catch (error) {
-      const current =
-        await telemetryRepository.getRepositoryExecution(executionId);
-      if (current?.rollback?.status === 'released') {
-        return json(RepositoryMutationExecutionSchema.parse(current));
-      }
-      if (
-        !current ||
-        current.version !== execution.version ||
-        current.rollback?.status !== 'releasing'
-      ) {
-        return json(
-          {
-            error: 'release_state_uncertain',
-            message:
-              'The rollback release state changed while GitHub was responding; inspect the current execution before retrying.',
-          },
-          { status: 409 },
-        );
-      }
-      const failed = updateRepositoryRollback(execution, {
-        status: 'failed',
-        error:
-          error instanceof Error
-            ? error.message
-            : 'GitHub rollback pull request release failed.',
-      });
-      const persisted =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
-          execution,
-          failed,
-        );
-      if (!persisted) {
-        return json(
-          {
-            error: 'release_state_uncertain',
-            message:
-              'The rollback release state changed while its failure was being recorded.',
-          },
-          { status: 409 },
-        );
-      }
-      return json(RepositoryMutationExecutionSchema.parse(persisted), {
-        status: 502,
-      });
     }
     const released = updateRepositoryRollback(execution, {
       status: 'released',
@@ -2214,100 +3170,209 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
+    trace.beforeState = execution.status;
     if (execution.status === 'released') {
       return json(RepositoryMutationExecutionSchema.parse(execution));
     }
-    if (execution.status !== 'preview_ready') {
+    if (
+      execution.status !== 'preview_ready' &&
+      execution.status !== 'releasing' &&
+      execution.status !== 'deployment_verifying'
+    ) {
       return json(
         {
           error: 'not_releasable',
-          message: 'A validated pull request preview is required for release.',
+          message:
+            'A validated preview or merged deployment awaiting verification is required for release.',
         },
         { status: 409 },
       );
     }
-    if (!env?.GITHUB_TOKEN) {
-      return json(
-        {
-          error: 'repository_release_unavailable',
-          message: 'GitHub release credentials are not configured.',
-        },
-        { status: 503 },
-      );
-    }
-    const releasing = updateRepositoryExecution(execution, {
-      status: 'releasing',
-    });
-    const claimed = await telemetryRepository.compareAndSwapRepositoryExecution(
-      execution,
-      releasing,
-    );
-    if (!claimed) {
-      const current =
-        await telemetryRepository.getRepositoryExecution(executionId);
-      if (current?.status === 'released') {
-        return json(RepositoryMutationExecutionSchema.parse(current));
+    if (execution.status === 'preview_ready') {
+      if (!env?.GITHUB_TOKEN) {
+        return json(
+          {
+            error: 'repository_release_unavailable',
+            message: 'GitHub release credentials are not configured.',
+          },
+          { status: 503 },
+        );
       }
-      return json(
-        {
-          error: 'release_in_progress',
-          message: 'Another request already claimed this mutation release.',
-        },
-        { status: 409 },
-      );
-    }
-    execution = claimed;
-    let releasedSha: string;
-    try {
-      releasedSha = await mergeEvolutionPullRequest({
-        token: env.GITHUB_TOKEN,
-        execution,
+      const releasing = updateRepositoryExecution(execution, {
+        status: 'releasing',
       });
-    } catch (error) {
-      const current =
-        await telemetryRepository.getRepositoryExecution(executionId);
-      if (current?.status === 'released') {
-        return json(RepositoryMutationExecutionSchema.parse(current));
-      }
       if (
-        !current ||
-        current.version !== execution.version ||
-        current.status !== 'releasing'
-      ) {
-        return json(
-          {
-            error: 'release_state_uncertain',
-            message:
-              'The mutation release state changed while GitHub was responding; inspect the current execution before retrying.',
-          },
-          { status: 409 },
-        );
-      }
-      const failed = updateRepositoryExecution(execution, {
-        status: 'failed',
-        error:
-          error instanceof Error
-            ? error.message
-            : 'GitHub pull request release failed.',
-      });
-      const persisted =
-        await telemetryRepository.compareAndSwapRepositoryExecution(
+        !(await telemetryRepository.saveRepositoryExecution(
+          releasing,
           execution,
-          failed,
-        );
-      if (!persisted) {
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId);
+      }
+      execution = releasing;
+    }
+    if (execution.status === 'releasing') {
+      if (!env?.GITHUB_TOKEN) {
         return json(
           {
-            error: 'release_state_uncertain',
-            message:
-              'The mutation release state changed while its failure was being recorded.',
+            error: 'repository_release_unavailable',
+            message: 'GitHub release credentials are not configured.',
           },
-          { status: 409 },
+          { status: 503 },
         );
       }
-      return json(RepositoryMutationExecutionSchema.parse(persisted), {
-        status: 502,
+      try {
+        const releasingExecution = execution;
+        const releasedSha = await observeProvider(
+          trace,
+          'github',
+          'merge_evolution_pull_request',
+          () =>
+            mergeEvolutionPullRequest({
+              token: env.GITHUB_TOKEN!,
+              execution: releasingExecution,
+              fetch: providerFetch(),
+            }),
+        );
+        const deploymentVerifying = updateRepositoryExecution(execution, {
+          status: 'deployment_verifying',
+          headSha: releasedSha,
+          deploymentVerification: {
+            status: 'verifying',
+            expectedCommit: releasedSha,
+            expectedAppVersion: releasedSha.slice(0, 12),
+            observedCommit: null,
+            observedAppVersion: null,
+            attempts: 0,
+            verifiedAt: null,
+            lastError: null,
+          },
+        });
+        if (
+          !(await telemetryRepository.saveRepositoryExecution(
+            deploymentVerifying,
+            execution,
+          ))
+        ) {
+          return currentReleaseAfterConflict(executionId);
+        }
+        execution = deploymentVerifying;
+      } catch (error) {
+        return json(
+          {
+            error:
+              error instanceof GitHubMergeStateUnknownError
+                ? 'repository_merge_state_unknown'
+                : 'repository_release_failed',
+            message:
+              error instanceof Error
+                ? error.message
+                : 'GitHub pull request release failed.',
+            execution: RepositoryMutationExecutionSchema.parse(execution),
+          },
+          { status: 502 },
+        );
+      }
+    }
+
+    const deployment = execution.deploymentVerification;
+    if (!execution.headSha || !deployment) {
+      return json(
+        {
+          error: 'deployment_verification_unavailable',
+          message: 'The merged deployment identity was not retained.',
+        },
+        { status: 409 },
+      );
+    }
+    try {
+      const configuredTimeout = Number(
+        env?.PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS ?? 90_000,
+      );
+      const configuredPoll = Number(
+        env?.PROJECTFLOW_DEPLOYMENT_POLL_MS ?? 5_000,
+      );
+      const deploymentExecution = execution;
+      const verified = await observeProvider(
+        trace,
+        'target',
+        'verify_deployment',
+        () =>
+          verifyProjectFlowDeployment({
+            studyUrl: deploymentExecution.repository.studyUrl,
+            expectedCommit: deployment.expectedCommit,
+            expectedAppVersion: deployment.expectedAppVersion,
+            timeoutMs: Number.isFinite(configuredTimeout)
+              ? configuredTimeout
+              : 90_000,
+            pollIntervalMs: Number.isFinite(configuredPoll)
+              ? configuredPoll
+              : 5_000,
+            fetcher: providerFetch() ?? fetch,
+          }),
+      );
+      await refreshVerifiedTargetSnapshot({
+        commitSha: verified.commitSha,
+        verifiedAt: verified.verifiedAt,
       });
+      const released = updateRepositoryExecution(execution, {
+        status: 'released',
+        previewUrl: execution.repository.studyUrl,
+        deploymentVerification: {
+          ...deployment,
+          status: 'verified',
+          observedCommit: verified.commitSha,
+          observedAppVersion: verified.appVersion,
+          attempts: deployment.attempts + verified.attempts,
+          verifiedAt: verified.verifiedAt,
+          lastError: null,
+        },
+      });
+      if (
+        !(await telemetryRepository.saveRepositoryExecution(
+          released,
+          execution,
+        ))
+      ) {
+        return currentReleaseAfterConflict(executionId);
+      }
+      execution = released;
+      await telemetryRepository.advanceEvolutionCycle({
+        startedAt: verified.verifiedAt,
+        measuredCommit: verified.commitSha,
+        appVersion: verified.appVersion,
+        deploymentVerifiedAt: verified.verifiedAt,
+      });
+      trace.afterState = 'released';
+      return json(RepositoryMutationExecutionSchema.parse(execution));
+    } catch (error) {
+      if (error instanceof DeploymentVerificationPendingError) {
+        const pending = RepositoryMutationExecutionSchema.parse({
+          ...execution,
+          deploymentVerification: {
+            ...deployment,
+            observedCommit: error.observed?.commitSha ?? null,
+            observedAppVersion: error.observed?.appVersion ?? null,
+            attempts: deployment.attempts + error.attempts,
+            lastError: error.errorCode,
+          },
+          updatedAt: new Date().toISOString(),
+        });
+        if (
+          !(await telemetryRepository.saveRepositoryExecution(
+            pending,
+            execution,
+          ))
+        ) {
+          return currentReleaseAfterConflict(executionId);
+        }
+        execution = pending;
+        trace.afterState = 'deployment_verifying';
+        return json(RepositoryMutationExecutionSchema.parse(execution), {
+          status: 202,
+        });
+      }
+      throw error;
     }
     const released = updateRepositoryExecution(execution, {
       status: 'released',
@@ -2382,6 +3447,12 @@ export const handleRequest = async (
       env,
     );
     if (!targetAuthorization.ok) {
+      logAuthorizationDecision(
+        trace,
+        'target',
+        false,
+        targetAuthorization.error,
+      );
       return json(
         {
           error: targetAuthorization.error,
@@ -2390,42 +3461,8 @@ export const handleRequest = async (
         { status: targetAuthorization.status },
       );
     }
-    const sessionToken = request.headers.get('X-Darwin-Study-Session');
-    const sessionVerification =
-      sessionToken || env?.PROJECTFLOW_INGESTION_SECRET
-        ? await verifyStudySessionToken(
-            sessionToken,
-            env?.PROJECTFLOW_INGESTION_SECRET ||
-              'local-development-study-session',
-          )
-        : null;
-    if (
-      sessionVerification &&
-      (!sessionVerification.ok ||
-        sessionVerification.claims.studyId !== studyId ||
-        sessionVerification.claims.participantId !== participantId ||
-        sessionVerification.claims.deploymentOrigin !==
-          targetAuthorization.identity.sourceOrigin)
-    ) {
-      return json(
-        {
-          error: sessionVerification.ok
-            ? 'study_session_subject_mismatch'
-            : sessionVerification.error,
-          message: sessionVerification.ok
-            ? 'Workspace path does not match the study session.'
-            : sessionVerification.message,
-        },
-        { status: sessionVerification.ok ? 403 : 401 },
-      );
-    }
-    if (
-      !targetStudyAllowed(studyId, env) &&
-      !(
-        sessionVerification?.ok &&
-        sessionVerification.claims.evidenceClass === 'darwin_lab'
-      )
-    ) {
+    logAuthorizationDecision(trace, 'target', true);
+    if (!targetStudyAllowed(studyId, env)) {
       return json(
         { error: 'study_forbidden', message: 'The study is not configured.' },
         { status: 403 },
@@ -2506,64 +3543,92 @@ export const handleRequest = async (
         { status: 503, headers: { 'Retry-After': '5' } },
       );
     }
-    let input: unknown;
-    try {
-      input = JSON.parse(await readBoundedBody(request, 16_384));
-    } catch (error) {
-      return json(
-        {
-          error:
-            error instanceof PayloadTooLargeError
-              ? 'payload_too_large'
-              : 'invalid_request',
-          message: 'Request body must be valid JSON.',
-        },
-        { status: error instanceof PayloadTooLargeError ? 413 : 400 },
-      );
-    }
-
-    const parsed = SimulationRequestSchema.safeParse(input);
-    if (!parsed.success) {
-      return json(
-        {
-          error: 'invalid_request',
-          message: 'Simulation input failed validation.',
-          issues: parsed.error.issues,
-        },
-        { status: 400 },
-      );
-    }
-
-    const configuredSeed = Number(env?.DARWIN_DEMO_SEED ?? 1859);
-    if (parsed.data.seed !== configuredSeed) {
-      return json(
-        {
-          error: 'simulation_not_allowed',
-          message: 'Only the configured deterministic demo seed is allowed.',
-        },
-        { status: 403 },
-      );
-    }
-
-    const configuredEventCount = Number(env?.DARWIN_EVENT_COUNT ?? 10_000);
-    const eventCount =
-      configuredEventCount === 10_000 ? configuredEventCount : 10_000;
     simulationInFlight = true;
-    let result: SimulationResult;
     try {
-      result = simulate({ ...parsed.data, eventCount });
+      const maximumSimulationBodyBytes = 4_096;
+      const declaredBodyBytes = Number(
+        request.headers.get('Content-Length') ?? 0,
+      );
+      if (declaredBodyBytes > maximumSimulationBodyBytes) {
+        return json(
+          {
+            error: 'payload_too_large',
+            message: 'Simulation request body is too large.',
+          },
+          { status: 413 },
+        );
+      }
+      let input: unknown;
+      try {
+        const body = await request.text();
+        if (
+          new TextEncoder().encode(body).byteLength > maximumSimulationBodyBytes
+        ) {
+          return json(
+            {
+              error: 'payload_too_large',
+              message: 'Simulation request body is too large.',
+            },
+            { status: 413 },
+          );
+        }
+        input = JSON.parse(body);
+      } catch {
+        return json(
+          {
+            error: 'invalid_request',
+            message: 'Request body must be valid JSON.',
+          },
+          { status: 400 },
+        );
+      }
+
+      const parsed = SimulationRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        return json(
+          {
+            error: 'invalid_request',
+            message: 'Simulation input failed validation.',
+            issues: parsed.error.issues,
+          },
+          { status: 400 },
+        );
+      }
+
+      const configuredSeed = Number(env?.DARWIN_DEMO_SEED ?? 1859);
+      if (
+        parsed.data.seed !== configuredSeed ||
+        parsed.data.variant !== 'baseline'
+      ) {
+        return json(
+          {
+            error: 'simulation_not_allowed',
+            message:
+              'Only the configured baseline deterministic demo replay is allowed.',
+          },
+          { status: 403 },
+        );
+      }
+
+      const configuredEventCount = Number(env?.DARWIN_EVENT_COUNT ?? 10_000);
+      const eventCount =
+        configuredEventCount === 10_000 ? configuredEventCount : 10_000;
+      const result: SimulationResult = simulate({
+        ...parsed.data,
+        eventCount,
+      });
+      storeSimulation(result);
+
+      return json(
+        { run: result.run, summary: result.summary },
+        {
+          status: 201,
+          headers: { Location: `/api/simulations/${result.run.id}` },
+        },
+      );
     } finally {
       simulationInFlight = false;
     }
-    storeSimulation(result);
-
-    return json(
-      { run: result.run, summary: result.summary },
-      {
-        status: 201,
-        headers: { Location: `/api/simulations/${result.run.id}` },
-      },
-    );
   }
 
   const summaryMatch = pathname.match(/^\/api\/simulations\/([^/]+)\/summary$/);
@@ -2603,204 +3668,172 @@ export const handleRequest = async (
   );
 };
 
+const recordOperationalTrace = async (
+  request: Request,
+  env: Partial<Env>,
+  trace: RequestTrace,
+  response: Response,
+) => {
+  trace.afterState = trace.afterState ?? (await responseState(response));
+  const outcome = response.ok ? 'success' : 'failure';
+  const errorCode = trace.afterState.startsWith('error:')
+    ? trace.afterState.slice('error:'.length)
+    : response.ok
+      ? null
+      : `http_${response.status}`;
+  const durationMs = Math.max(
+    0,
+    Math.round(performance.now() - trace.startedAt),
+  );
+  const action = auditedAction(request.method, new URL(request.url).pathname);
+
+  console.info(
+    '[darwin:request]',
+    JSON.stringify({
+      event: 'request_completed',
+      requestId: trace.requestId,
+      actor: trace.actor,
+      action: action ?? trace.action,
+      target: trace.target,
+      outcome,
+      status: response.status,
+      durationMs,
+      beforeState: trace.beforeState,
+      afterState: trace.afterState,
+      errorCode,
+    }),
+  );
+  for (const metric of trace.metrics) {
+    console.info(
+      '[darwin:metric]',
+      JSON.stringify({
+        event: 'provider_operation',
+        requestId: trace.requestId,
+        actor: trace.actor,
+        action: `${metric.provider}.${metric.operation}`,
+        target: trace.target,
+        outcome: metric.outcome,
+        provider: metric.provider,
+        operation: metric.operation,
+        durationMs: metric.durationMs,
+        errorCode: metric.errorCode,
+      }),
+    );
+  }
+
+  if (!action && trace.metrics.length === 0) return;
+  try {
+    const repository = getTelemetryRepository(env.DB);
+    const occurredAt = new Date().toISOString();
+    const events: OperationalEvent[] = trace.metrics.map((metric) => ({
+      eventId: crypto.randomUUID(),
+      kind: 'metric',
+      requestId: trace.requestId,
+      occurredAt,
+      actor: trace.actor,
+      action: `${metric.provider}.${metric.operation}`,
+      target: trace.target,
+      outcome: metric.outcome,
+      beforeState: null,
+      afterState: null,
+      provider: metric.provider,
+      operation: metric.operation,
+      durationMs: metric.durationMs,
+      errorCode: metric.errorCode,
+    }));
+    if (action) {
+      events.unshift({
+        eventId: crypto.randomUUID(),
+        kind: 'audit',
+        requestId: trace.requestId,
+        occurredAt,
+        actor: trace.actor,
+        action,
+        target: trace.target,
+        outcome,
+        beforeState: trace.beforeState ?? 'requested',
+        afterState: trace.afterState,
+        provider: null,
+        operation: null,
+        durationMs,
+        errorCode,
+      });
+    }
+    await repository.saveOperationalEvents(events);
+  } catch (error) {
+    console.error(
+      '[darwin:audit]',
+      JSON.stringify({
+        event: 'operational_trace_persistence_failed',
+        requestId: trace.requestId,
+        actor: 'system',
+        action: 'audit.persist',
+        target: 'operational_events',
+        outcome: 'failure',
+        errorCode: providerErrorCode(error),
+      }),
+    );
+  }
+};
+
 export const handleWorkerRequest = async (
   request: Request,
   env: Partial<Env>,
 ) => {
-  const requestId = requestIdFor(request);
-  const startedAt = performance.now();
+  const trace = createRequestTrace(request);
+  let response: Response;
   try {
-    const response = await handleRequest(request, env);
-    const durationMs = Math.max(0, Math.round(performance.now() - startedAt));
-    const pathname = new URL(request.url).pathname;
-    operationalLog(
-      response.status >= 500
-        ? 'error'
-        : response.status >= 400
-          ? 'warn'
-          : 'info',
-      'request_completed',
-      {
-        requestId,
-        method: request.method,
-        path: pathname,
-        status: response.status,
-        durationMs,
-      },
-    );
-    operationalLog(
-      response.status === 401 || response.status === 403 ? 'warn' : 'info',
-      'authentication_decision',
-      {
-        requestId,
-        boundary: isCallbackRoute(request)
-          ? 'github_callback'
-          : isTargetRoute(pathname)
-            ? 'projectflow_target'
-            : pathname === '/api/health'
-              ? 'public_health'
-              : 'operator',
-        outcome:
-          response.status === 401 || response.status === 403
-            ? 'rejected'
-            : 'accepted',
-        status: response.status,
-      },
-    );
-
-    const auditMutation =
-      request.method !== 'GET' &&
-      request.method !== 'OPTIONS' &&
-      (pathname === '/api/demo/reset' ||
-        pathname.startsWith('/api/retention/') ||
-        pathname.startsWith('/api/target-connection') ||
-        pathname.includes('/evidence') ||
-        pathname.includes('/codex-manifest') ||
-        pathname.includes('/repository-executions') ||
-        pathname === '/api/simulations' ||
-        pathname.startsWith('/api/lab/'));
-    if (auditMutation) {
-      const callbackRoute = isCallbackRoute(request);
-      const targetRoute = isTargetRoute(pathname);
-      const authorization =
-        !callbackRoute && !targetRoute
-          ? await authorizeOperator(
-              request,
-              env,
-              requiredOperatorCapability(request.method, pathname),
-            )
-          : null;
-      const actor = callbackRoute
-        ? 'github-actions'
-        : targetRoute
-          ? 'projectflow-target'
-          : authorization?.ok
-            ? authorization.identity.actor
-            : 'unauthenticated';
-      let afterState: string | null = null;
-      if (
-        response.headers.get('Content-Type')?.includes('application/json') &&
-        (pathname.includes('/repository-executions') ||
-          pathname.includes('/codex-manifest') ||
-          pathname === '/api/demo/reset')
-      ) {
-        try {
-          const payload = (await response.clone().json()) as {
-            status?: unknown;
-            rollback?: { status?: unknown };
-          };
-          afterState =
-            typeof payload.rollback?.status === 'string'
-              ? `rollback:${payload.rollback.status}`
-              : typeof payload.status === 'string'
-                ? payload.status
-                : null;
-        } catch {
-          afterState = null;
-        }
-      }
-      const beforeState = pathname.endsWith('/rollback/release')
-        ? 'rollback:preview_ready'
-        : pathname.endsWith('/rollback')
-          ? 'released'
-          : pathname.endsWith('/release')
-            ? 'preview_ready'
-            : pathname.includes('/callback')
-              ? 'workflow_in_progress'
-              : null;
-      const event = OperationalAuditEventSchema.parse({
-        auditEventId: `audit-${crypto.randomUUID()}`,
-        requestId,
-        occurredAt: new Date().toISOString(),
-        actor,
-        target: pathname,
-        action: `${request.method} ${pathname}`.slice(0, 128),
-        outcome:
-          response.status < 400
-            ? 'succeeded'
-            : response.status < 500
-              ? 'rejected'
-              : 'failed',
-        beforeState,
-        afterState,
-        durationMs,
-        metadata: { status: response.status },
-      });
-      operationalLog(
-        event.outcome === 'failed'
-          ? 'error'
-          : event.outcome === 'rejected'
-            ? 'warn'
-            : 'info',
-        'privileged_transition',
-        {
-          requestId,
-          actor: event.actor,
-          target: event.target,
-          action: event.action,
-          outcome: event.outcome,
-          beforeState: event.beforeState,
-          afterState: event.afterState,
-          durationMs,
-        },
-      );
-      await timeOperation(
-        'd1',
-        'record_audit_event',
-        () => getTelemetryRepository(env.DB).recordAuditEvent(event),
-        requestId,
-      ).catch(() => undefined);
-    }
-
-    const tracedResponse = new Response(response.body, response);
-    tracedResponse.headers.set('X-Darwin-Request-ID', requestId);
-    return tracedResponse;
+    response = await handleRequest(request, env, trace);
   } catch (error) {
     console.error(
       '[darwin:api]',
       JSON.stringify({
         event: 'unhandled_request_error',
-        requestId,
+        requestId: trace.requestId,
+        actor: trace.actor,
+        action: trace.action,
+        target: trace.target,
+        outcome: 'failure',
         method: request.method,
         path: new URL(request.url).pathname,
-        error: error instanceof Error ? error.name : 'UnknownError',
+        errorCode: providerErrorCode(error),
       }),
     );
-    return jsonResponse(
+    response = jsonResponse(
       {
         error: 'internal_error',
         message: 'Darwin API could not complete the request.',
       },
       {
         status: 500,
-        headers: { 'X-Darwin-Request-ID': requestId },
+        headers: { 'X-Request-ID': trace.requestId },
       },
       corsForRequest(request, env).corsHeaders,
     );
   }
+  await recordOperationalTrace(request, env, trace, response);
+  return response;
 };
+
+export const runRetentionMaintenance = async (
+  env: Partial<Env>,
+  now = new Date().toISOString(),
+) =>
+  getTelemetryRepository(env.DB).runRetentionSweep(retentionPolicy(env), now);
 
 const worker: ExportedHandler<Env> = {
   fetch: handleWorkerRequest,
-  async scheduled(_controller, env, context) {
+  scheduled(_controller, env, context) {
     context.waitUntil(
-      getTelemetryRepository(env.DB)
-        .compactRetention()
-        .then((result) => {
-          console.info(
-            '[darwin:retention]',
-            JSON.stringify({ event: 'retention_run_completed', ...result }),
-          );
-        })
-        .catch((error) => {
-          console.error(
-            '[darwin:retention]',
-            JSON.stringify({
-              event: 'retention_run_failed',
-              error: error instanceof Error ? error.name : 'UnknownError',
-            }),
-          );
-        }),
+      runRetentionMaintenance(env).then((result) => {
+        console.info(
+          '[darwin:retention]',
+          JSON.stringify({
+            event: 'retention_sweep_completed',
+            ...result,
+          }),
+        );
+      }),
     );
   },
 };

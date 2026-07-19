@@ -200,11 +200,23 @@ export const authorizeTargetRequest = async (
   const secret = env?.PROJECTFLOW_INGESTION_SECRET?.trim();
   if (!secret) {
     if (isLocalHostname(url.hostname)) {
+      const requestOrigin = request.headers.get('Origin');
+      let sourceOrigin = url.origin;
+      if (requestOrigin) {
+        try {
+          const parsedOrigin = new URL(requestOrigin);
+          if (isLocalHostname(parsedOrigin.hostname)) {
+            sourceOrigin = parsedOrigin.origin;
+          }
+        } catch {
+          // An invalid Origin is left out of the local target identity.
+        }
+      }
       return {
         ok: true,
         identity: {
           targetId: 'projectflow',
-          sourceOrigin: url.origin,
+          sourceOrigin,
           clientKey: 'local-development',
         },
       };

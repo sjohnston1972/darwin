@@ -187,6 +187,26 @@ describe('Darwin Lab API', () => {
       ]),
     );
 
+    const promotedResponse = await handleRequest(
+      request(
+        `/api/lab/experiments/${created.experimentId}/promote-eval`,
+        'POST',
+      ),
+    );
+    const promoted = LabExperimentSchema.parse(await promotedResponse.json());
+    expect(promotedResponse.status).toBe(201);
+    expect(promoted.behaviouralEval).toMatchObject({
+      evalId: 'BE-001',
+      sourceExperimentId: created.experimentId,
+      status: 'active',
+      evidencePackId: promoted.evidence?.evidencePackId,
+    });
+    const evalsResponse = await handleRequest(
+      request('/api/behavioural-evals'),
+    );
+    const evalPayload = (await evalsResponse.json()) as { evals: unknown[] };
+    expect(evalPayload.evals).toHaveLength(1);
+
     const listResponse = await handleRequest(request('/api/lab/experiments'));
     expect(
       LabExperimentsResponseSchema.parse(await listResponse.json()).experiments,

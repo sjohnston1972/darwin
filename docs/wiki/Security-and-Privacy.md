@@ -1,5 +1,7 @@
 # Security and Privacy
 
+> Canonical trust boundaries: [`docs/ARCHITECTURE.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/ARCHITECTURE.md). Canonical telemetry boundary: [`docs/REAL_TELEMETRY_PLAN.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/REAL_TELEMETRY_PLAN.md).
+
 ## Security posture
 
 Darwin is a public hackathon proof of life connected to one configured public demo target. It demonstrates a controlled workflow, but the current public deployment is not approved for private repositories, customer telemetry, personal data, or unsupervised production changes.
@@ -21,16 +23,46 @@ Darwin is a public hackathon proof of life connected to one configured public de
 - Raw behavioral evidence and repository artifacts require the evidence-inspector capability.
 - Protected JSON responses use `Cache-Control: no-store`.
 - ProjectFlow sends telemetry and workspace requests through a narrow same-origin Pages Function that HMAC-signs target, deployment origin, timestamp, edge-derived client key, and body.
-- Telemetry accepts only the configured ProjectFlow study, provenance, and application-version formats.
+- Target connection records a non-secret ingestion scope for the configured target, studies, deployment origins, and HMAC credential version.
+- Telemetry accepts only explicitly configured baseline versions or commit versions already present in the connected repository/execution history.
+- Signed telemetry requests are single-use within their validity window; D1 rejects exact request replays before ingestion.
+- Ingestion rate limits use the target identity plus the HMAC-protected client key derived from the visitor address by ProjectFlow's edge gateway, so rotating study or participant IDs does not rotate the limit bucket.
 - The 10,000-event simulation is operator-only, rate/concurrency limited, fixed to the configured seed, and retained as metadata in a four-entry TTL/LRU cache.
 - Repository workflow requests sign the execution, repository, manifest hash, timestamp, nonce, and payload digest; D1 rejects replayed signatures and terminal state rewrites.
 - Callback bodies, patches, output, checks, and changed-file arrays have explicit size limits.
+- D1 records have indexed expiries, nightly deletion/compaction, per-study and per-target event quotas, and operator-only targeted deletion. See [Data retention and deletion](../RETENTION.md).
+- Every Worker response carries a bounded request ID; structured authorization,
+  request, provider-latency, and privileged-transition records use redacted
+  fields only.
+- Privileged audit events and aggregate provider metrics have a 30-day rolling
+  retention window and are visible only through the protected diagnostics API.
 
 ## Privacy boundary
 
 The telemetry contract excludes typed values, search text, feedback text, keystrokes, arbitrary page text, DOM paths, raw cursor trails, and absolute screen coordinates.
 
 Participant and session IDs are pseudonymous. They still require access control and retention because behavioral traces can be linkable.
+
+Normal control-room telemetry responses are aggregate-only and omit event records, participant IDs, and session IDs. Pseudonymous IDs, raw event records, evidence traces, repository patches, Codex output, and execution history are restricted to the `inspect_evidence` capability.
+
+## Data classification and current retention
+
+| Data class | Examples | Classification | Current retention |
+| ---------- | -------- | -------------- | ----------------- |
+| Public service status | service/version, configured analysis mode and availability | public operational metadata | response only; not persisted by Darwin |
+| Aggregate study metrics | event, session, participant and behavioral-signal counts | protected operational data | derived on request from retained telemetry |
+| Raw study telemetry | pseudonymous participant/session IDs, semantic routes, targets and timings | protected behavioral data | 30 days; nightly sweep or earlier operator deletion |
+| Evidence and reasoning | journeys, task attempts, evidence citations and GPT analysis | protected derived behavioral data | 90 days; nightly sweep or earlier operator deletion |
+| Repository artifacts | source hashes, manifests, patches, checks, Codex output and execution history | protected repository/operational data | large artifacts 30 days; compact fossil records 365 days |
+| Operational diagnostics | privileged transitions, bounded error codes and provider timing aggregates | protected operational data | 30-day rolling window |
+| Scale replay | seeded 10,000-event run metadata and summary | protected synthetic data | in-memory for 15 minutes, capped at four runs; raw simulated events are not persisted |
+
+Raw telemetry expires after 30 days, derived evidence after 90 days, large execution artifacts after 30 days, and compact fossil records after 365 days. Nightly sweeps and operator-targeted deletion enforce those boundaries; Darwin still must not ingest personally identifying telemetry.
+
+Operational diagnostics deliberately exclude request/callback bodies, raw
+telemetry, prompts and model output, patches, arbitrary provider messages,
+headers, and credentials. Error diagnostics use bounded codes rather than raw
+exception messages. Exports from System status preserve that same boundary.
 
 ## Open security work
 
@@ -39,7 +71,6 @@ The July 2026 repository audit identified these priority items:
 | Issue                                                    | Priority | Risk                                     |
 | -------------------------------------------------------- | -------- | ---------------------------------------- |
 | [#4](https://github.com/sjohnston1972/darwin/issues/4)   | medium   | missing CSP and complete browser headers |
-| [#18](https://github.com/sjohnston1972/darwin/issues/18) | medium   | no retention/deletion policy             |
 | [#30](https://github.com/sjohnston1972/darwin/issues/30) | medium   | mutable GitHub Action references         |
 
 ## Deployment guidance

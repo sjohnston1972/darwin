@@ -2,6 +2,9 @@ name = "darwin-api"
 main = "src/index.ts"
 compatibility_date = "2026-07-01"
 
+[triggers]
+crons = ["17 3 * * *"]
+
 [vars]
 DARWIN_AI_MODE = "live"
 OPENAI_MODEL = "gpt-5.6"
@@ -9,12 +12,16 @@ OPENAI_LAB_AGENT_MODEL = "gpt-5.6-luna"
 OPENAI_TIMEOUT_MS = "90000"
 DARWIN_DEMO_SEED = "1859"
 DARWIN_EVENT_COUNT = "10000"
-DARWIN_STUDY_EVENT_QUOTA = "100000"
-DARWIN_TARGET_EVENT_QUOTA = "1000000"
+DARWIN_MAX_EVENTS_PER_STUDY = "50000"
+DARWIN_MAX_EVENTS_PER_TARGET = "250000"
 PROJECTFLOW_REPOSITORY = "sjohnston1972/projectflow"
 PROJECTFLOW_BRANCH = "main"
 PROJECTFLOW_PRODUCTION_URL = "https://darwin-projectflow.pages.dev/"
 PROJECTFLOW_STUDY_URL = "https://darwin-projectflow.pages.dev/?study=true"
+PROJECTFLOW_ALLOWED_APP_VERSIONS = "baseline,1.0.0"
+PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS = "90000"
+PROJECTFLOW_DEPLOYMENT_POLL_MS = "5000"
+PROJECTFLOW_RESET_MAX_ATTEMPTS = "60"
 PROJECTFLOW_LAB_STUDY_ID = "projectflow-darwin-lab"
 DARWIN_LAB_ALLOWED_ORIGINS = "http://localhost:5174,http://127.0.0.1:5174"
 ALLOWED_ORIGINS = "https://darwin-control-room.pages.dev,https://darwin-projectflow.pages.dev,https://sjohnston1972.github.io,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"

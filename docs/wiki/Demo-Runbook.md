@@ -1,5 +1,7 @@
 # Demo Runbook
 
+> Canonical three-minute sequence: [`docs/DEMO_SCRIPT.md`](https://github.com/sjohnston1972/darwin/blob/main/docs/DEMO_SCRIPT.md). This runbook adds preparation, recovery, and narration details without changing the proof claims.
+
 ## Goal
 
 Demonstrate that a real ProjectFlow interaction can become inspectable evidence, a GPT-selected product mutation, a real Codex repository change, and a retained or reverted Genome record without editing source during the presentation.
@@ -29,9 +31,9 @@ Confirm:
 
 ## Reset
 
-Use **Reset evolution demo** only after exporting required Genome, Observation archive, and diagnostics records. Type the exact confirmation only when you are prepared to irreversibly clear Darwin telemetry, Lab data, evidence, analyses, manifests, and execution history and dispatch the ProjectFlow baseline-reset workflow.
+Use **Reset evolution demo** to dispatch the ProjectFlow baseline workflow. Darwin preserves telemetry, evidence, analyses, manifests, and execution history while the reset is queued, running, validating, or deploying. The measured-study launcher remains locked during this interval.
 
-The current reset endpoint reports after dispatch rather than verified deployment completion. Wait for the ProjectFlow reset workflow and production deployment before starting measured interaction. This gap is tracked in issue [#10](https://github.com/sjohnston1972/darwin/issues/10).
+Begin measured interaction only after Darwin reports **Baseline deployment verified**. If validation or deployment verification fails, open the linked workflow, correct the cause, and use **Retry reset**; the prior evidence remains available until a retry completes.
 
 ## Three-minute choreography
 

@@ -9,8 +9,15 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
+import rootPackage from '../../../package.json';
 
 const timestamp = '2026-07-16T12:00:00.000Z';
+const webBuildRelease =
+  import.meta.env.VITE_DARWIN_RELEASE || rootPackage.version;
+const webBuildCommit = import.meta.env.VITE_DARWIN_COMMIT_SHA || 'local';
+const expectedWebBuild = `v${webBuildRelease} · ${
+  webBuildCommit === 'local' ? webBuildCommit : webBuildCommit.slice(0, 7)
+}`;
 const repository = {
   owner: 'sjohnston1972',
   name: 'projectflow',
@@ -29,6 +36,34 @@ const repository = {
   productionUrl: 'https://darwin-projectflow.pages.dev/',
   studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
 } as const;
+const applicationMap = {
+  source: {
+    repositorySha: 'd'.repeat(40),
+    sourceHash: 'e'.repeat(64),
+  },
+  product: {
+    name: 'ProjectFlow',
+    purpose: 'Project management workspace.',
+    primaryUser: 'Knowledge worker.',
+    domainEntities: ['project', 'task', 'user'],
+    primaryGoals: ['find assigned work'],
+  },
+  activeGenome: {
+    version: 'dddddddddddd',
+    navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
+    capabilities: ['project-scoped task search'],
+  },
+  interfaceInventory: [
+    {
+      area: 'dashboard-capacity',
+      purpose: 'Inspect workload allocation.',
+      primaryActions: ['open capacity report'],
+    },
+  ],
+  routes: ['/study/dashboard'],
+  mutableAreas: ['navigation', 'dashboard-capacity'],
+  protectedAreas: ['telemetry-history'],
+} as const;
 const targetConnection = {
   connectionId: 'target-test',
   status: 'connected',
@@ -42,6 +77,7 @@ const targetConnection = {
     defaultBranch: 'main',
   },
   repository,
+  applicationMap,
   checks: [
     {
       id: 'repository',
@@ -78,18 +114,38 @@ const evidence = {
   study: {
     studyId: 'projectflow-baseline-study',
     appVersion: '1.0.0',
-    sourceEventCount: 14,
-    participants: 1,
-    sessions: 1,
+    measuredCommit: repository.baseSha,
+    deploymentVerifiedAt: timestamp,
+    sourceEventCount: 993,
+    participants: 3,
+    sessions: 4,
     attempts: 1,
   },
   quality: {
     strength: 'directional',
     score: 60,
-    eventCount: 14,
-    sessionCount: 1,
-    participantCount: 1,
+    eventCount: 993,
+    sessionCount: 4,
+    participantCount: 3,
     completedAttemptCount: 1,
+    terminalAttemptCount: 1,
+    dimensions: {
+      volume: { score: 28, observedEvents: 14, minimumEvents: 50 },
+      diversity: {
+        score: 33,
+        observedParticipants: 1,
+        minimumParticipants: 3,
+        observedSessions: 1,
+        minimumSessions: 3,
+      },
+      completion: {
+        score: 33,
+        terminalAttempts: 1,
+        minimumTerminalAttempts: 3,
+      },
+      recency: { score: 100, latestEventAt: timestamp, maximumAgeDays: 7 },
+      weakestScore: 28,
+    },
     limitations: ['Fewer than three independent sessions were observed.'],
   },
   journeys: [
@@ -145,6 +201,7 @@ const evidence = {
     },
   ],
   applicationMap: {
+    source: applicationMap.source,
     product: {
       name: 'ProjectFlow',
       purpose: 'Project management workspace.',
@@ -152,9 +209,8 @@ const evidence = {
       domainEntities: ['project', 'task', 'user'],
       primaryGoals: ['find assigned work'],
     },
-    activeVariant: {
-      name: 'baseline',
-      version: '1.0.0',
+    activeGenome: {
+      version: 'dddddddddddd',
       navigation: ['Dashboard', 'Projects', 'Reports', 'Settings'],
       capabilities: ['project-scoped task search'],
     },
@@ -170,6 +226,65 @@ const evidence = {
     protectedAreas: ['telemetry-history'],
   },
 } as const;
+
+const observationRules = [
+  'task_abandonment',
+  'navigation_loop',
+  'hover_hesitation',
+  'drag_expectation',
+] as const;
+const observationEvidence = {
+  ...evidence,
+  study: { ...evidence.study, sourceEventCount: 84, attempts: 1 },
+  taskAttempts: [
+    {
+      attemptId: 'attempt-observation-test',
+      taskId: 'find-assigned-task',
+      participantId: 'participant-observation-test',
+      sessionId: 'session-observation-test',
+      appVersion: '1.0.0',
+      source: 'real_user',
+      outcome: 'abandoned',
+      startedAt: timestamp,
+      endedAt: timestamp,
+      durationMs: 42_000,
+      interactionCount: 9,
+      routePath: ['/study/dashboard', '/study/projects'],
+      eventIds: ['00000000-0000-4000-8000-000000000001'],
+    },
+  ],
+  frictionSignals: Array.from({ length: 10 }, (_, index) => {
+    const sequence = index + 1;
+    const eventId = `00000000-0000-4000-8000-${sequence.toString().padStart(12, '0')}`;
+    const ruleId = observationRules[index % observationRules.length]!;
+    const targetId = index % 2 === 0 ? 'nav-projects' : 'capacity-member-1';
+    return {
+      evidenceId: `EV-${sequence.toString().padStart(3, '0')}`,
+      ruleId,
+      ruleVersion: '1.2.0',
+      severity: index < 3 ? 'high' : index < 7 ? 'medium' : 'low',
+      taskId: 'find-assigned-task',
+      summary: `${ruleId.replaceAll('_', ' ')} recurred on ${targetId}.`,
+      affectedAttemptIds: ['attempt-observation-test'],
+      supportingEventIds: [eventId],
+      trace: [
+        {
+          eventId,
+          sequence,
+          eventType: index % 2 === 0 ? 'element_clicked' : 'hover_ended',
+          route: '/study/dashboard',
+          targetId,
+        },
+      ],
+      support: {
+        events: 8 - (index % 4),
+        attempts: 1,
+        sessions: 1,
+        participants: 1,
+      },
+    };
+  }),
+};
 
 const makeCandidate = (
   id: string,
@@ -299,141 +414,381 @@ const manifest = {
   validationCommands: ['npm run verify'],
 } as const;
 
+const makeExecution = () => ({
+  executionId: 'execution-measured-test',
+  manifestId: manifest.manifestId,
+  analysisId: analysis.analysisId,
+  repository,
+  status: 'preview_ready',
+  branch: 'darwin/evolution-measured-test',
+  baseSha: repository.baseSha,
+  headSha: 'f'.repeat(40),
+  workflowRunId: 123,
+  workflowUrl: 'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+  pullRequestNumber: 7,
+  pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
+  previewUrl:
+    'https://darwin-evolution-test.darwin-projectflow.pages.dev/?study=true',
+  patch: '@@ live repository patch @@\n-old behavior\n+measured behavior',
+  changedFiles: ['apps/projectflow/src/App.tsx'],
+  checks: [
+    {
+      name: 'npm run verify',
+      status: 'passed',
+      durationMs: 1200,
+      output: 'Typecheck, tests, and build passed.',
+    },
+  ],
+  codex: {
+    threadId: null,
+    finalMessage: 'Implemented the approved measured mutation.',
+    inputTokens: null,
+    cachedInputTokens: null,
+    outputTokens: null,
+  },
+  error: null,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  completedAt: null,
+});
+
 const response = (body: unknown, status = 200) =>
   new Response(status === 204 ? null : JSON.stringify(body), { status });
+
+const makeArchivedExecution = (executionId: string, shaCharacter: string) => ({
+  executionId,
+  manifestId: `${manifest.manifestId}-${executionId}`,
+  analysisId: analysis.analysisId,
+  repository,
+  status: 'released',
+  branch: `darwin/${executionId}`,
+  baseSha: repository.baseSha,
+  headSha: shaCharacter.repeat(40),
+  workflowRunId: 123,
+  workflowUrl: 'https://github.com/sjohnston1972/projectflow/actions/runs/123',
+  pullRequestNumber: 7,
+  pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
+  previewUrl: repository.studyUrl,
+  patch: '@@ archived patch @@\n-old behavior\n+measured behavior',
+  changedFiles: ['apps/projectflow/src/App.tsx'],
+  checks: [
+    {
+      name: 'npm run verify',
+      status: 'passed',
+      durationMs: 1200,
+      output: 'Typecheck, tests, and build passed.',
+    },
+  ],
+  codex: {
+    threadId: null,
+    finalMessage: 'Implemented the approved measured mutation.',
+    inputTokens: null,
+    cachedInputTokens: null,
+    outputTokens: null,
+  },
+  error: null,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  completedAt: timestamp,
+});
+
+interface RemoteWorkflow {
+  evidence: unknown | null;
+  analysis: unknown | null;
+  manifest: unknown | null;
+  execution: unknown | null;
+  failures?: Set<string>;
+}
+
+const executionSummary = (execution: Record<string, unknown>) => ({
+  executionId: execution.executionId,
+  manifestId: execution.manifestId,
+  analysisId: execution.analysisId,
+  repository: {
+    fullName: repository.fullName,
+    url: repository.url,
+    branch: repository.branch,
+    baseSha: repository.baseSha,
+    sourceHash: repository.sourceHash,
+  },
+  status: execution.status,
+  branch: execution.branch,
+  baseSha: execution.baseSha,
+  headSha: execution.headSha,
+  changedFileCount: Array.isArray(execution.changedFiles)
+    ? execution.changedFiles.length
+    : 0,
+  checkSummary: {
+    total: Array.isArray(execution.checks) ? execution.checks.length : 0,
+    passed: Array.isArray(execution.checks)
+      ? execution.checks.filter(
+          (check) =>
+            typeof check === 'object' &&
+            check !== null &&
+            'status' in check &&
+            check.status === 'passed',
+        ).length
+      : 0,
+    failed: Array.isArray(execution.checks)
+      ? execution.checks.filter(
+          (check) =>
+            typeof check === 'object' &&
+            check !== null &&
+            'status' in check &&
+            check.status === 'failed',
+        ).length
+      : 0,
+  },
+  hasPatch: typeof execution.patch === 'string',
+  hasCodexOutput: execution.codex !== null && execution.codex !== undefined,
+  hasError: execution.error !== null && execution.error !== undefined,
+  rollback: null,
+  createdAt: execution.createdAt,
+  updatedAt: execution.updatedAt,
+  completedAt: execution.completedAt,
+});
+
+const observationArchiveSummary = () => ({
+  archiveId: 'execution-measured-test',
+  evidence: {
+    evidenceId: evidence.evidenceId,
+    evidenceHash: evidence.evidenceHash,
+    generatedAt: evidence.generatedAt,
+    evidenceClass: evidence.evidenceClass,
+    study: evidence.study,
+    quality: {
+      strength: evidence.quality.strength,
+      score: evidence.quality.score,
+    },
+    signalCount: evidence.frictionSignals.length,
+    fitness: {
+      terminalAttemptCount: 0,
+      completedAttemptCount: 0,
+      medianInteractions: null,
+    },
+  },
+  analysis: {
+    analysisId: analysis.analysisId,
+    model: analysis.model,
+    createdAt: analysis.createdAt,
+    selectedMutation: {
+      id: analysis.selectedMutation.id,
+      title: analysis.selectedMutation.title,
+    },
+  },
+  execution: {
+    executionId: 'execution-measured-test',
+    manifestId: manifest.manifestId,
+    status: 'released',
+    createdAt: timestamp,
+    completedAt: timestamp,
+  },
+});
+
+const resetExecution = (status: 'queued' | 'failed' | 'complete') => ({
+  resetId: `reset-${status}`,
+  status,
+  repository: {
+    fullName: repository.fullName,
+    branch: repository.branch,
+    studyUrl: repository.studyUrl,
+  },
+  baselineTag: 'demo-baseline-v2',
+  policyHash: 'a'.repeat(64),
+  repositoryResetDispatched: status !== 'complete',
+  workflowRunId: status === 'complete' ? null : 901,
+  workflowUrl:
+    status === 'complete'
+      ? null
+      : 'https://github.com/sjohnston1972/projectflow/actions/runs/901',
+  baselineCommit: status === 'complete' ? '1'.repeat(40) : null,
+  deploymentVerification: null,
+  error: status === 'failed' ? 'Baseline validation failed.' : null,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  completedAt: status === 'queued' ? null : timestamp,
+});
+
+const measuredFitnessOutcome = {
+  outcomeId: 'fitness-execution-measured-test',
+  executionId: 'execution-measured-test',
+  studyId: 'projectflow-baseline-study',
+  formulaVersion: '1.0.0',
+  status: 'measured',
+  generatedAt: timestamp,
+  invalidatedAt: null,
+  baseline: {
+    evidenceId: evidence.evidenceId,
+    evidenceHash: evidence.evidenceHash,
+    appVersion: '1.0.0',
+    measuredCommit: repository.baseSha,
+    participants: 3,
+    sessions: 3,
+    terminalAttempts: 3,
+    taskIds: ['find-assigned-task', 'create-project', 'create-assigned-task'],
+  },
+  evolved: {
+    evidenceId: 'evidence-evolved-test',
+    evidenceHash: '9'.repeat(64),
+    appVersion: '1'.repeat(12),
+    measuredCommit: '1'.repeat(40),
+    participants: 3,
+    sessions: 3,
+    terminalAttempts: 3,
+    taskIds: ['find-assigned-task', 'create-project', 'create-assigned-task'],
+  },
+  minimumSample: {
+    terminalAttempts: 3,
+    sessions: 3,
+    participants: 3,
+    tasks: 3,
+    matchingTaskSet: true,
+  },
+  components: [
+    ['task_completion', 30, 67, 100],
+    ['navigation_efficiency', 25, 60, 88],
+    ['error_rate', 15, 75, 100],
+    ['feature_discovery', 15, 100, 100],
+    ['median_duration', 15, 70, 90],
+  ].map(([metric, weight, baselineScore, evolvedScore]) => ({
+    metric,
+    weight,
+    baselineScore,
+    evolvedScore,
+    delta: Number(evolvedScore) - Number(baselineScore),
+  })),
+  baselineScore: 73,
+  evolvedScore: 94,
+  delta: 21,
+  limitations: [],
+};
 
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
+  initialGenomeExecutionsOrReset: Record<string, unknown>[] | unknown = [],
+  remoteWorkflow?: RemoteWorkflow,
+  latestEvidence: unknown = evidence,
 ) => {
+  const initialGenomeExecutions = Array.isArray(initialGenomeExecutionsOrReset)
+    ? initialGenomeExecutionsOrReset
+    : [];
+  const initialReset = Array.isArray(initialGenomeExecutionsOrReset)
+    ? null
+    : initialGenomeExecutionsOrReset;
   let liveExecution: Record<string, unknown> | null = null;
   let liveConnection: unknown = initialConnection;
+  let liveReset: unknown = initialReset;
   const fetchMock = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
-      if (url.includes('/events?limit=200')) {
+      if (url.includes('/events/raw?limit=200')) {
+        if (remoteWorkflow?.failures?.has('events')) return response({}, 503);
         return response({
           studyId: 'projectflow-baseline-study',
           events: [],
+          cursor: 'cursor-test',
+          hasMore: false,
+          count: 993,
+          sessionCounts: {
+            'session-one': 320,
+            'session-two': 280,
+            'session-three': 210,
+            'session-four': 183,
+          },
+          participantCount: 3,
+          behaviorSignalCount: 8,
+        });
+      }
+      if (url.endsWith('/events')) {
+        return response({
+          studyId: 'projectflow-baseline-study',
           count: 14,
-          sessionCounts: { 'session-test': 14 },
+          sessionCount: 1,
           participantCount: 1,
           behaviorSignalCount: 8,
         });
       }
-      if (url.endsWith('/api/genome')) {
+      if (url.includes('/api/genome?')) {
+        if (remoteWorkflow?.failures?.has('genome')) return response({}, 503);
         const released = liveExecution?.status === 'released';
         return response({
           evolutionCycle: {
             studyId: 'projectflow-baseline-study',
             startedAt: released ? timestamp : null,
             genomeEvolutionCount: released ? 1 : 0,
+            measuredCommit: released ? '1'.repeat(40) : null,
+            appVersion: released ? '1'.repeat(12) : null,
+            deploymentVerifiedAt: released ? timestamp : null,
           },
-          executions: liveExecution ? [liveExecution] : [],
+          executions: liveExecution
+            ? [executionSummary(liveExecution)]
+            : initialGenomeExecutions.map(executionSummary),
+          fitnessOutcomes: released ? [measuredFitnessOutcome] : [],
+          page: { limit: 10, nextCursor: null },
         });
       }
-      if (url.endsWith('/api/observations/archives')) {
+      if (url.includes('/api/observations/archives?')) {
+        if (remoteWorkflow?.failures?.has('archives')) return response({}, 503);
         const released = liveExecution?.status === 'released';
         return response({
-          archives: released
-            ? [
-                {
-                  archiveId: 'execution-measured-test',
-                  evidenceId: evidence.evidenceId,
-                  evidenceHash: evidence.evidenceHash,
-                  provenance: {
-                    evidenceClass: 'human_study',
-                    label: 'Measured study',
-                    labExperimentId: null,
-                    taskDefinitionId: null,
-                    taskDefinitionHash: null,
-                    evidencePackId: evidence.evidenceId,
-                    evidenceHash: evidence.evidenceHash,
-                    runIds: [],
-                  },
-                  sourceEventCount: evidence.study.sourceEventCount,
-                  sessions: evidence.study.sessions,
-                  participants: evidence.study.participants,
-                  attempts: evidence.study.attempts,
-                  completionRate: 1,
-                  medianInteractionCount: 3,
-                  qualityStrength: evidence.quality.strength,
-                  qualityScore: evidence.quality.score,
-                  frictionSignalCount: evidence.frictionSignals.length,
-                  mutationTitle: analysis.selectedMutation.title,
-                  model: analysis.model,
-                  execution: {
-                    executionId: 'execution-measured-test',
-                    manifestId: manifest.manifestId,
-                    status: 'released',
-                    createdAt: timestamp,
-                    completedAt: timestamp,
-                  },
-                },
-              ]
-            : [],
+          archives: released ? [observationArchiveSummary()] : [],
+          page: { limit: 10, nextCursor: null },
         });
       }
       if (url.endsWith('/api/observations/archives/execution-measured-test')) {
         return response({
-          archiveId: 'execution-measured-test',
-          evidence,
-          analysis,
-          execution: {
-            executionId: 'execution-measured-test',
-            manifestId: manifest.manifestId,
-            status: 'released',
-            createdAt: timestamp,
-            completedAt: timestamp,
+          archive: {
+            archiveId: 'execution-measured-test',
+            evidence,
+            analysis,
+            execution: {
+              executionId: 'execution-measured-test',
+              manifestId: manifest.manifestId,
+              status: 'released',
+              createdAt: timestamp,
+              completedAt: timestamp,
+            },
           },
+          summary: observationArchiveSummary(),
         });
       }
-      if (url.includes('/evidence/latest')) return response(evidence);
-      if (url.includes('/evidence-analysis/latest'))
-        return latestAnalysis ? response(latestAnalysis) : response(null, 204);
+      if (url.endsWith('/api/genome/execution-measured-test')) {
+        return response({
+          execution: liveExecution,
+          summary: executionSummary(liveExecution!),
+        });
+      }
+      if (url.includes('/evidence/latest')) {
+        if (remoteWorkflow?.failures?.has('evidence')) return response({}, 503);
+        const currentEvidence = remoteWorkflow
+          ? remoteWorkflow.evidence
+          : latestEvidence;
+        return currentEvidence
+          ? response(currentEvidence)
+          : response(null, 204);
+      }
+      if (url.includes('/evidence-analysis/latest')) {
+        if (remoteWorkflow?.failures?.has('analysis')) return response({}, 503);
+        const currentAnalysis = remoteWorkflow
+          ? remoteWorkflow.analysis
+          : latestAnalysis;
+        return currentAnalysis
+          ? response(currentAnalysis)
+          : response(null, 204);
+      }
       if (url.endsWith('/analyse-evidence')) return response(analysis, 201);
       if (url.endsWith('/codex-manifest/execution')) {
+        if (init?.method !== 'POST' && remoteWorkflow) {
+          if (remoteWorkflow.failures?.has('execution'))
+            return response({}, 503);
+          return remoteWorkflow.execution
+            ? response(remoteWorkflow.execution)
+            : response(null, 204);
+        }
         if (init?.method !== 'POST' && !liveExecution)
           return response(null, 204);
-        liveExecution ??= {
-          executionId: 'execution-measured-test',
-          manifestId: manifest.manifestId,
-          analysisId: analysis.analysisId,
-          repository,
-          status: 'preview_ready',
-          branch: 'darwin/evolution-measured-test',
-          baseSha: repository.baseSha,
-          headSha: 'f'.repeat(40),
-          workflowRunId: 123,
-          workflowUrl:
-            'https://github.com/sjohnston1972/projectflow/actions/runs/123',
-          pullRequestNumber: 7,
-          pullRequestUrl: 'https://github.com/sjohnston1972/projectflow/pull/7',
-          previewUrl:
-            'https://darwin-evolution-test.darwin-projectflow.pages.dev/?study=true',
-          patch:
-            '@@ live repository patch @@\n-old behavior\n+measured behavior',
-          changedFiles: ['apps/projectflow/src/App.tsx'],
-          checks: [
-            {
-              name: 'npm run verify',
-              status: 'passed',
-              durationMs: 1200,
-              output: 'Typecheck, tests, and build passed.',
-            },
-          ],
-          codex: {
-            threadId: null,
-            finalMessage: 'Implemented the approved measured mutation.',
-            inputTokens: null,
-            cachedInputTokens: null,
-            outputTokens: null,
-          },
-          error: null,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          completedAt: null,
-        };
+        liveExecution ??= makeExecution();
         return response(liveExecution, 201);
       }
       if (url.endsWith('/api/repository-executions/execution-measured-test')) {
@@ -509,11 +864,28 @@ const installApi = (
           status: 'released',
           headSha: '1'.repeat(40),
           previewUrl: repository.studyUrl,
+          deploymentVerification: {
+            status: 'verified',
+            expectedCommit: '1'.repeat(40),
+            expectedAppVersion: '1'.repeat(12),
+            observedCommit: '1'.repeat(40),
+            observedAppVersion: '1'.repeat(12),
+            attempts: 2,
+            verifiedAt: timestamp,
+            lastError: null,
+          },
           completedAt: timestamp,
         };
         return response(liveExecution);
       }
       if (url.includes('/codex-manifest')) {
+        if (init?.method !== 'POST' && remoteWorkflow) {
+          if (remoteWorkflow.failures?.has('manifest'))
+            return response({}, 503);
+          return remoteWorkflow.manifest
+            ? response(remoteWorkflow.manifest)
+            : response({}, 404);
+        }
         const requestBody =
           typeof init?.body === 'string' ? JSON.parse(init.body) : {};
         const candidates = [
@@ -542,15 +914,67 @@ const installApi = (
           201,
         );
       }
+      if (url.includes('/api/diagnostics')) {
+        return response({
+          requestId: 'diagnostics-test',
+          generatedAt: timestamp,
+          retentionDays: 30,
+          events: [
+            {
+              eventId: 'd7bfb4f3-0984-4af4-88a9-998c341a7785',
+              kind: 'audit',
+              requestId: 'mutation-request-test',
+              occurredAt: timestamp,
+              actor: 'operator',
+              action: 'mutation.release',
+              target:
+                '/api/repository-executions/execution-measured-test/release',
+              outcome: 'success',
+              beforeState: 'preview_ready',
+              afterState: 'released',
+              provider: null,
+              operation: null,
+              durationMs: 245,
+              errorCode: null,
+            },
+          ],
+          metrics: [
+            {
+              provider: 'github',
+              operation: 'merge_evolution_pull_request',
+              count: 2,
+              failureCount: 0,
+              averageDurationMs: 210,
+              maximumDurationMs: 245,
+            },
+          ],
+        });
+      }
       if (url.endsWith('/api/health')) {
         return response({
           status: 'ok',
           service: 'darwin-api',
           version: '0.19.1',
-          build: {
-            release: '0.19.1',
-            commit: '0123456789abcdef0123456789abcdef01234567',
-            identifier: '0.19.1+0123456',
+          commitSha: 'a'.repeat(40),
+          buildId: 'v0.19.1@aaaaaaa',
+          retention: {
+            status: 'healthy',
+            policy: {
+              version: '1.0.0',
+              rawTelemetryDays: 30,
+              workspaceDays: 30,
+              derivedEvidenceDays: 90,
+              executionArtifactDays: 30,
+              fossilRecordDays: 365,
+              operationalAuditDays: 90,
+              maxEventsPerStudy: 50_000,
+              maxEventsPerTarget: 250_000,
+            },
+            eventCount: 14,
+            studyCount: 1,
+            largestStudyEventCount: 14,
+            expiredRecordCount: 0,
+            lastSweepAt: null,
           },
           analysis: {
             mode: 'live',
@@ -572,10 +996,11 @@ const installApi = (
         return liveConnection ? response(liveConnection) : response(null, 204);
       }
       if (url.endsWith('/api/demo/reset')) {
-        return response({
-          status: 'reset',
-          repositoryResetDispatched: true,
-        });
+        if (init?.method === 'POST') {
+          liveReset = resetExecution('complete');
+          return response(liveReset);
+        }
+        return liveReset ? response(liveReset) : response(null, 204);
       }
       return response({ error: 'unexpected_test_route', url }, 404);
     },
@@ -593,6 +1018,31 @@ afterEach(() => {
 });
 
 describe('Darwin control room', () => {
+  it('hydrates a deep-linked observation outside the first archive page', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/?view=observations#observation-execution-measured-test',
+    );
+    const fetchMock = installApi();
+
+    render(<App />);
+
+    expect(await screen.findByText('Evidence assessment')).toBeVisible();
+    expect(
+      document.querySelector<HTMLDetailsElement>(
+        '#observation-execution-measured-test',
+      )?.open,
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith(
+          '/api/observations/archives/execution-measured-test',
+        ),
+      ),
+    ).toHaveLength(1);
+  });
+
   it('keeps the control room as a concise operational overview', async () => {
     const fetchMock = installApi();
     render(<App />);
@@ -633,6 +1083,14 @@ describe('Darwin control room', () => {
       screen.queryByRole('heading', { name: 'Repository genome · --' }),
     ).not.toBeInTheDocument();
     expect(await screen.findByText('Selection pressure')).toBeVisible();
+    const measuredSessions = screen
+      .getByText('Measured sessions')
+      .closest('article');
+    expect(measuredSessions).not.toBeNull();
+    expect(within(measuredSessions!).getByText('4')).toBeVisible();
+    expect(
+      within(measuredSessions!).getByText('3 anonymous participants'),
+    ).toBeVisible();
     expect(screen.getByText('Fitness delta')).toBeVisible();
     expect(screen.getByText('Release confidence')).toBeVisible();
     const navigation = screen.getByRole('navigation', {
@@ -661,9 +1119,25 @@ describe('Darwin control room', () => {
       });
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/events?limit=200'),
+        expect.stringContaining('/events/raw?limit=200'),
       ),
     );
+  });
+
+  it('shows redacted operational diagnostics in System status', async () => {
+    window.history.replaceState({}, '', '/?view=status');
+    installApi();
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Operational diagnostics' }),
+    ).toBeVisible();
+    expect(screen.getByText('Provider latency')).toBeVisible();
+    expect(screen.getByText('github')).toBeVisible();
+    expect(screen.getByText(/merge_evolution_pull_request/)).toBeVisible();
+    expect(screen.getByText('Privileged transitions')).toBeVisible();
+    expect(screen.getByText('mutation.release')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Export JSON' })).toBeEnabled();
   });
 
   it('shows live GPT pressure clusters, ranked mutations, and Codex handoff', async () => {
@@ -753,15 +1227,34 @@ describe('Darwin control room', () => {
     expect(
       await screen.findByRole('heading', { name: 'Observation archive' }),
     ).toBeVisible();
+    expect(
+      within(
+        screen.getByLabelText('Verified measurement boundary'),
+      ).getAllByText('111111111111').length,
+    ).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Informed mutation')).toBeVisible();
     const observationArtifact = document.querySelector<HTMLDetailsElement>(
       '#observation-execution-measured-test',
     );
     expect(observationArtifact?.open).toBe(false);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith(
+          '/api/observations/archives/execution-measured-test',
+        ),
+      ),
+    ).toHaveLength(0);
     fireEvent.click(
       observationArtifact!.querySelector(':scope > summary') as HTMLElement,
     );
     expect(await screen.findByText('Evidence assessment')).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith(
+          '/api/observations/archives/execution-measured-test',
+        ),
+      ),
+    ).toHaveLength(1);
     expect(
       screen.getAllByText('Reveal capacity context', { exact: false }).length,
     ).toBeGreaterThanOrEqual(2);
@@ -778,12 +1271,24 @@ describe('Darwin control room', () => {
     expect(
       within(executionArtifact).getByText('Reveal capacity context'),
     ).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith('/api/genome/execution-measured-test'),
+      ),
+    ).toHaveLength(0);
     fireEvent.click(
       executionArtifact!.querySelector(':scope > summary') as HTMLElement,
     );
+    expect(screen.getByText('73/100 → 94/100')).toBeVisible();
+    expect(screen.getByText('formula 1.0.0')).toBeVisible();
     expect(
       await screen.findByRole('heading', { name: 'Codex execution record' }),
     ).toBeVisible();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith('/api/genome/execution-measured-test'),
+      ),
+    ).toHaveLength(1);
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/analyse-evidence'),
@@ -881,6 +1386,33 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: 'Open system status' }),
     ).toHaveAttribute('aria-current', 'page');
+    const runtimePanel = screen
+      .getByRole('heading', { name: 'Runtime connected' })
+      .closest('aside');
+    expect(runtimePanel).not.toBeNull();
+    const workerStatus = within(runtimePanel!)
+      .getByText('Worker API')
+      .closest('div');
+    expect(workerStatus).not.toBeNull();
+    expect(
+      within(workerStatus!).getByText('v0.19.1 · aaaaaaa · online'),
+    ).toBeVisible();
+    const controlRoomStatus = within(runtimePanel!)
+      .getByText('Control room')
+      .closest('div');
+    expect(controlRoomStatus).not.toBeNull();
+    expect(
+      within(controlRoomStatus!).getByText(expectedWebBuild),
+    ).toBeVisible();
+    const retentionStatus = screen
+      .getByText('Storage retention')
+      .closest('div');
+    expect(retentionStatus).not.toBeNull();
+    expect(
+      within(retentionStatus!).getByText(
+        '14 / 250,000 events · 0 expired · awaiting first sweep',
+      ),
+    ).toBeVisible();
   });
 
   it('does not restore reasoning produced from an older evidence pack', async () => {
@@ -901,6 +1433,59 @@ describe('Darwin control room', () => {
     expect(screen.getByRole('button', { name: 'Ask gpt-5.6' })).toBeEnabled();
   });
 
+  it('hydrates workflow state created by another operator on live refresh', async () => {
+    window.history.replaceState({}, '', '/?view=mutations');
+    const remoteWorkflow: RemoteWorkflow = {
+      evidence,
+      analysis: null,
+      manifest: null,
+      execution: null,
+    };
+    installApi(null, null, [], remoteWorkflow);
+    render(<App />);
+
+    expect(
+      await screen.findByText('Evidence pack evidence-measured-test'),
+    ).toBeVisible();
+    expect(
+      screen.queryByText('Reveal capacity context'),
+    ).not.toBeInTheDocument();
+
+    remoteWorkflow.analysis = analysis;
+    remoteWorkflow.manifest = manifest;
+    remoteWorkflow.execution = makeExecution();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh live telemetry' }),
+    );
+
+    expect(await screen.findByText('Reveal capacity context')).toBeVisible();
+    expect(
+      await screen.findByText('MANIFEST manifest-measured-test'),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Codex execution' }),
+    ).toBeVisible();
+  });
+
+  it('reports named subsystem failures without discarding healthy state', async () => {
+    window.history.replaceState({}, '', '/?view=observations');
+    installApi(null, null, [], {
+      evidence,
+      analysis: null,
+      manifest: null,
+      execution: null,
+      failures: new Set(['genome']),
+    });
+    render(<App />);
+
+    expect(
+      await screen.findByText('Evidence pack evidence-measured-test'),
+    ).toBeVisible();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Genome: request returned 503',
+    );
+  });
+
   it('persists the light theme from the header control', () => {
     installApi();
     render(<App />);
@@ -918,7 +1503,13 @@ describe('Darwin control room', () => {
 
   it('keeps detailed telemetry separate from the mutation workspace', async () => {
     window.history.replaceState({}, '', '/?view=observations');
-    const fetchMock = installApi();
+    const fetchMock = installApi(
+      null,
+      null,
+      [],
+      undefined,
+      observationEvidence,
+    );
     render(<App />);
 
     expect(
@@ -927,10 +1518,20 @@ describe('Darwin control room', () => {
     expect(
       await screen.findByRole('heading', { name: 'Live study evidence' }),
     ).toBeVisible();
+    expect(await screen.findByText('incremental updates')).toBeVisible();
+    expect(screen.getByText(/Last update/)).toBeVisible();
     expect(
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();
     expect(screen.getByText('directional')).toBeVisible();
+    expect(screen.getByText('Volume')).toBeVisible();
+    expect(screen.getByText('28/100')).toBeVisible();
+    expect(screen.getByText('Diversity')).toBeVisible();
+    expect(screen.getByText('Completion')).toBeVisible();
+    expect(screen.getByText('Recency')).toBeVisible();
+    const studyCounts = screen.getByLabelText('Real study counts');
+    expect(within(studyCounts).getByText('4')).toBeVisible();
+    expect(within(studyCounts).getByText('3')).toBeVisible();
     expect(
       screen.queryByRole('button', { name: 'Ask gpt-5.6' }),
     ).not.toBeInTheDocument();
@@ -938,16 +1539,98 @@ describe('Darwin control room', () => {
       'aria-current',
       'page',
     );
+    expect(
+      screen.getByRole('heading', {
+        name: 'Ranked by severity and independent support',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', {
+        name: 'Exact detector output and raw event links',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', {
+        name: /Inspect task abandonment on nav-projects/i,
+      }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Severity')).toBeVisible();
+    expect(screen.getByLabelText('Rule / event')).toBeVisible();
+    expect(screen.getByLabelText('Target')).toBeVisible();
+    expect(screen.getByLabelText('Session')).toBeVisible();
+    expect(screen.getByLabelText('Task')).toBeVisible();
+    expect(screen.getByText('1–8 of 10')).toBeVisible();
     expect(document.getElementById('signal-EV-001')).not.toBeNull();
+    expect(document.getElementById('signal-EV-010')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(document.getElementById('signal-EV-010')).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('Severity'), {
+      target: { value: 'high' },
+    });
+    expect(await screen.findByText('3 of 10 signals')).toBeVisible();
+    expect(screen.getByText('1–3 of 3')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Severity'), {
+      target: { value: 'all' },
+    });
+    const firstSignal = await waitFor(() => {
+      const row = document.getElementById('signal-EV-001');
+      expect(row).not.toBeNull();
+      return row as HTMLDetailsElement;
+    });
+    fireEvent.click(
+      firstSignal.querySelector(':scope > summary') as HTMLElement,
+    );
+    expect(
+      within(firstSignal).getByText('Canonical evidence trace'),
+    ).toBeVisible();
+    expect(
+      within(firstSignal).getByText(/outside the latest loaded trace window/i),
+    ).toBeVisible();
     fireEvent.click(
       screen.getByRole('button', { name: 'Refresh live telemetry' }),
     );
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.filter(([input]) =>
-          String(input).includes('/events?limit=200'),
+          String(input).includes('/events/raw?limit=200'),
         ).length,
       ).toBeGreaterThanOrEqual(2),
+    );
+  });
+
+  it('locks measured study access while a baseline reset is incomplete', async () => {
+    installApi(null, null, resetExecution('queued'));
+    render(<App />);
+
+    expect(
+      await screen.findByText('Reset queued in GitHub Actions'),
+    ).toBeVisible();
+    const studyLink = screen.getByText('Measured study locked').closest('a');
+    expect(studyLink).toHaveAttribute('aria-disabled', 'true');
+    expect(studyLink).not.toHaveAttribute('href');
+    expect(
+      screen.getByRole('button', { name: 'Reset evolution demo' }),
+    ).toBeDisabled();
+  });
+
+  it('keeps a visible reset failure and allows a clean retry', async () => {
+    const fetchMock = installApi(null, null, resetExecution('failed'));
+    render(<App />);
+
+    expect(
+      await screen.findByText('Baseline validation failed.'),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry reset' }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/demo/reset'),
+        { method: 'POST' },
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Baseline validation failed.'),
+      ).not.toBeInTheDocument(),
     );
   });
 
@@ -969,5 +1652,41 @@ describe('Darwin control room', () => {
     expect(
       screen.queryByRole('heading', { name: 'Live study evidence' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('uses unique execution IDs and resolvable ARIA references in Genome', async () => {
+    window.history.replaceState({}, '', '/?view=genome');
+    installApi(null, null, [
+      makeArchivedExecution('execution-one', '1'),
+      makeArchivedExecution('execution-two', '2'),
+    ]);
+    render(<App />);
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('.fossil-artifact')).toHaveLength(2),
+    );
+
+    const ids = Array.from(document.querySelectorAll<HTMLElement>('[id]')).map(
+      (element) => element.id,
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+
+    for (const element of document.querySelectorAll<HTMLElement>(
+      '[aria-labelledby], [aria-describedby], [aria-controls]',
+    )) {
+      for (const attribute of [
+        'aria-labelledby',
+        'aria-describedby',
+        'aria-controls',
+      ]) {
+        const references = element.getAttribute(attribute)?.split(/\s+/) ?? [];
+        for (const reference of references) {
+          expect(
+            document.getElementById(reference),
+            `${attribute} must resolve ${reference}`,
+          ).not.toBeNull();
+        }
+      }
+    }
   });
 });

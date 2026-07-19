@@ -388,6 +388,49 @@ export const LabSelectionSchema = z
   })
   .strict();
 
+export const BehaviouralEvalStatusSchema = z.enum([
+  'proposed',
+  'active',
+  'passed',
+  'failed',
+]);
+
+export const BehaviouralEvalSchema = z
+  .object({
+    evalId: LabIdentifierSchema,
+    goal: z.string().min(1).max(300),
+    passCriteria: z.array(z.string().min(1).max(300)).min(1).max(8),
+    forbiddenOutcomes: z.array(z.string().min(1).max(240)).max(8),
+    maxActions: z.number().int().min(1).max(30),
+    sourceExperimentId: LabIdentifierSchema,
+    evidencePackId: LabIdentifierSchema,
+    evidenceIds: z.array(z.string().regex(/^L-EV-\d{3}$/)).min(1),
+    evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
+    seed: z.number().int().positive(),
+    targetUrl: z.string().url().max(512),
+    baseline: z
+      .object({
+        completionRate: z.number().min(0).max(1),
+        medianActions: z.number().nonnegative().nullable(),
+        population: z.number().int().positive(),
+      })
+      .strict(),
+    lastRun: z
+      .object({
+        completionRate: z.number().min(0).max(1),
+        medianActions: z.number().nonnegative().nullable(),
+        population: z.number().int().positive(),
+        completedAt: z.string().datetime(),
+      })
+      .strict()
+      .nullable()
+      .default(null),
+    status: BehaviouralEvalStatusSchema,
+    codexBrief: z.string().min(1).max(2_000),
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
 export const LabExperimentSchema = z
   .object({
     experimentId: LabIdentifierSchema,
@@ -410,6 +453,7 @@ export const LabExperimentSchema = z
     evidence: LabEvidencePackSchema.nullable(),
     analysis: LabAnalysisSchema.nullable(),
     selection: LabSelectionSchema.nullable(),
+    behaviouralEval: BehaviouralEvalSchema.nullable().default(null),
     error: z.string().nullable(),
     evidenceError: z.string().nullable(),
     archivedAt: z.string().datetime().nullable(),
@@ -456,4 +500,6 @@ export type LabEvidenceSignal = z.infer<typeof LabEvidenceSignalSchema>;
 export type LabMutationCandidate = z.infer<typeof LabMutationCandidateSchema>;
 export type LabAnalysis = z.infer<typeof LabAnalysisSchema>;
 export type LabSelection = z.infer<typeof LabSelectionSchema>;
+export type BehaviouralEvalStatus = z.infer<typeof BehaviouralEvalStatusSchema>;
+export type BehaviouralEval = z.infer<typeof BehaviouralEvalSchema>;
 export type LabExperiment = z.infer<typeof LabExperimentSchema>;

@@ -55,7 +55,10 @@ const candidateJsonSchema = {
     evidenceIds: {
       type: 'array',
       minItems: 1,
-      items: { type: 'string', pattern: '^EV-(?:\\d{3}|[a-f0-9]{12})$' },
+      items: {
+        type: 'string',
+        pattern: '^EV-(?:\\d{3}|[a-f0-9]{12})$',
+      },
     },
     pressureClusterIds: {
       type: 'array',
@@ -255,14 +258,20 @@ The evolution catalogue contains concrete examples of powerful mutations that ma
 
 Produce a portfolio containing one selected mutation and two to five genuine alternatives spanning the meaningful pressure clusters. Score each candidate for evidence strength, user impact, feasibility, and validation clarity using integer percentages from 0 to 100, never a 1-5 rubric. Evidence strength must reflect recurrence across events, sessions, participants, and completed tasks. Predictions are hypotheses, not outcomes.
 
-Every behavioral claim and candidate must cite supplied evidence IDs. Every scope value must come from mutableAreas. Never target protectedAreas. Keep the implementation human-approved and bounded to ProjectFlow, but do not reduce a powerful supported mutation to a superficial label or tooltip. Return only the requested structured output.`;
+Every pressure cluster and mutation must have a unique ID. A mutation's evidence IDs must all belong to the pressure clusters it cites. When cited evidence contains semantic targets, name at least one of those observed targets in the cluster. Every behavioral claim and candidate must cite supplied evidence IDs. Every scope value must come from mutableAreas. Never target protectedAreas. Keep the implementation human-approved and bounded to ProjectFlow, but do not reduce a powerful supported mutation to a superficial label or tooltip. Return only the requested structured output.`;
 
 export class EvidenceReasoningError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code = 'analysis_failed',
+  ) {
     super(message);
     this.name = 'EvidenceReasoningError';
   }
 }
+
+const incoherentModelOutput = (message: string) =>
+  new EvidenceReasoningError(message, 'incoherent_model_output');
 
 const canonicalStringify = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -318,32 +327,52 @@ export function validateModelOutput(
   const knownClusters = new Set(
     output.evidenceAssessment.pressureClusters.map((cluster) => cluster.id),
   );
-  const knownTargets = new Set([
-    ...pack.frictionSignals.flatMap((signal) =>
-      signal.trace.flatMap((event) => (event.targetId ? [event.targetId] : [])),
-    ),
-    ...pack.journeys.flatMap((journey) =>
-      journey.events.flatMap((event) =>
-        event.targetId ? [event.targetId] : [],
-      ),
-    ),
-  ]);
   const mutableAreas = new Set(pack.applicationMap.mutableAreas);
   const protectedAreas = new Set(pack.applicationMap.protectedAreas);
 
+  if (
+    knownClusters.size !== output.evidenceAssessment.pressureClusters.length
+  ) {
+    throw incoherentModelOutput(
+      'Pressure cluster IDs must be unique within an analysis.',
+    );
+  }
+  if (
+    new Set(candidates.map((candidate) => candidate.id)).size !==
+    candidates.length
+  ) {
+    throw incoherentModelOutput(
+      'Mutation IDs must be unique across the selected mutation and alternatives.',
+    );
+  }
+
   for (const cluster of output.evidenceAssessment.pressureClusters) {
     if (cluster.evidenceIds.some((id) => !knownEvidence.has(id))) {
-      throw new EvidenceReasoningError(
+      throw incoherentModelOutput(
         `Pressure cluster ${cluster.id} cites an unknown evidence ID.`,
+      );
+    }
+    const citedTargets = new Set(
+      pack.frictionSignals
+        .filter((signal) => cluster.evidenceIds.includes(signal.evidenceId))
+        .flatMap((signal) =>
+          signal.trace.flatMap((event) =>
+            event.targetId ? [event.targetId] : [],
+          ),
+        ),
+    );
+    if (
+      citedTargets.size > 0 &&
+      !cluster.affectedTargets.some((target) => citedTargets.has(target))
+    ) {
+      throw incoherentModelOutput(
+        `Pressure cluster ${cluster.id} must name an observed target from its cited evidence.`,
       );
     }
   }
 
   const pressureClusters = output.evidenceAssessment.pressureClusters.map(
     (cluster) => {
-      const observedModelTargets = cluster.affectedTargets.filter((target) =>
-        knownTargets.has(target),
-      );
       const citedTraceTargets = pack.frictionSignals
         .filter((signal) => cluster.evidenceIds.includes(signal.evidenceId))
         .flatMap((signal) =>
@@ -351,28 +380,36 @@ export function validateModelOutput(
             event.targetId ? [event.targetId] : [],
           ),
         );
+      const citedTargetSet = new Set(citedTraceTargets);
+      const observedModelTargets = cluster.affectedTargets.filter((target) =>
+        citedTargetSet.has(target),
+      );
       return EvidencePressureClusterSchema.parse({
         ...cluster,
-        affectedTargets: [
-          ...new Set(
-            observedModelTargets.length
-              ? observedModelTargets
-              : citedTraceTargets,
-          ),
-        ],
+        affectedTargets: [...new Set(observedModelTargets)],
       });
     },
   );
 
   for (const candidate of candidates) {
     if (candidate.evidenceIds.some((id) => !knownEvidence.has(id))) {
-      throw new EvidenceReasoningError(
+      throw incoherentModelOutput(
         `Mutation ${candidate.id} cites an unknown evidence ID.`,
       );
     }
     if (candidate.pressureClusterIds.some((id) => !knownClusters.has(id))) {
-      throw new EvidenceReasoningError(
+      throw incoherentModelOutput(
         `Mutation ${candidate.id} cites an unknown pressure cluster.`,
+      );
+    }
+    const clusteredEvidence = new Set(
+      output.evidenceAssessment.pressureClusters
+        .filter((cluster) => candidate.pressureClusterIds.includes(cluster.id))
+        .flatMap((cluster) => cluster.evidenceIds),
+    );
+    if (candidate.evidenceIds.some((id) => !clusteredEvidence.has(id))) {
+      throw incoherentModelOutput(
+        `Mutation ${candidate.id} cites evidence outside its pressure clusters.`,
       );
     }
     if (
@@ -380,7 +417,7 @@ export function validateModelOutput(
         (scope) => protectedAreas.has(scope) || !mutableAreas.has(scope),
       )
     ) {
-      throw new EvidenceReasoningError(
+      throw incoherentModelOutput(
         `Mutation ${candidate.id} exceeds the mutable application scope.`,
       );
     }
@@ -423,10 +460,20 @@ function normalizeCandidateScore(
         0,
       ) / citedSignals.length
     : 0;
-  const evidenceStrength = Math.min(pack.quality.score, Math.round(recurrence));
-  const userImpact = candidate.scorecard.userImpact;
-  const feasibility = candidate.scorecard.feasibility;
-  const validationClarity = candidate.scorecard.validationClarity;
+  const evidenceStrength = Math.min(
+    pack.quality.score,
+    pack.quality.dimensions.weakestScore,
+    Math.round(recurrence),
+  );
+  const modelDimensions = [
+    candidate.scorecard.userImpact,
+    candidate.scorecard.feasibility,
+    candidate.scorecard.validationClarity,
+  ];
+  const scale = modelDimensions.every((score) => score <= 5) ? 20 : 1;
+  const userImpact = candidate.scorecard.userImpact * scale;
+  const feasibility = candidate.scorecard.feasibility * scale;
+  const validationClarity = candidate.scorecard.validationClarity * scale;
   const total = Math.round(
     evidenceStrength * 0.35 +
       userImpact * 0.25 +

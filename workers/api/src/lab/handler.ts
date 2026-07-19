@@ -5,6 +5,7 @@ import {
   LabAgentRunFinishRequestSchema,
   LabAgentRunSchema,
   LabAgentRunStartRequestSchema,
+  BehaviouralEvalSchema,
   LabExperimentCreateRequestSchema,
   LabExperimentStatusSchema,
   LabExperimentUpdateRequestSchema,
@@ -198,8 +199,23 @@ export async function handleLabRequest(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   const { pathname } = url;
-  if (!pathname.startsWith('/api/lab/')) return null;
+  if (
+    !pathname.startsWith('/api/lab/') &&
+    pathname !== '/api/behavioural-evals'
+  )
+    return null;
   const repository = getLabRepository(env?.DB);
+
+  if (request.method === 'GET' && pathname === '/api/behavioural-evals') {
+    const experiments = await repository.listExperiments();
+    return json({
+      evals: experiments
+        .map((experiment) => experiment.behaviouralEval)
+        .filter((evaluation): evaluation is NonNullable<typeof evaluation> =>
+          Boolean(evaluation),
+        ),
+    });
+  }
 
   if (request.method === 'GET' && pathname === '/api/lab/experiments') {
     const requestedStatus = url.searchParams.get('status');
@@ -269,6 +285,7 @@ export async function handleLabRequest(
         evidence: null,
         analysis: null,
         selection: null,
+        behaviouralEval: null,
         error: null,
         evidenceError: null,
         archivedAt: null,
@@ -858,37 +875,37 @@ export async function handleLabRequest(
         completedAt: new Date().toISOString(),
         evidenceError: null,
       });
-      const persistedCompleted = await repository.compareAndSwapExperiment(
-        latest,
-        completed,
-      );
-      if (!persistedCompleted) return json(persistedRun);
-
-      try {
-        const evidence = await buildLabEvidence(persistedCompleted);
-        const withEvidence = LabExperimentSchema.parse({
-          ...persistedCompleted,
-          evidence,
-          evidenceError: null,
-        });
-        await repository.compareAndSwapExperiment(
-          persistedCompleted,
-          withEvidence,
-        );
-      } catch (error) {
-        const failedEvidence = LabExperimentSchema.parse({
-          ...persistedCompleted,
-          evidenceError:
-            error instanceof Error
-              ? error.message
-              : 'Lab evidence generation failed.',
-        });
-        await repository.compareAndSwapExperiment(
-          persistedCompleted,
-          failedEvidence,
-        );
-      }
-      return json(persistedRun);
+      const evidence = complete ? await buildLabEvidence(intermediate) : null;
+      const completedEvidence = evidence ?? intermediate.evidence;
+      const behaviouralEval =
+        complete && intermediate.behaviouralEval && completedEvidence
+          ? {
+              ...intermediate.behaviouralEval,
+              status:
+                completedEvidence.metrics.completionRate >=
+                  intermediate.behaviouralEval.baseline.completionRate &&
+                completedEvidence.metrics.medianActions !== null &&
+                completedEvidence.metrics.medianActions <=
+                  intermediate.behaviouralEval.maxActions &&
+                completedEvidence.population.successful ===
+                  completedEvidence.population.completed
+                  ? 'passed'
+                  : 'failed',
+              lastRun: {
+                completionRate: completedEvidence.metrics.completionRate,
+                medianActions: completedEvidence.metrics.medianActions,
+                population: completedEvidence.population.completed,
+                completedAt: new Date().toISOString(),
+              },
+            }
+          : intermediate.behaviouralEval;
+      const updated = LabExperimentSchema.parse({
+        ...intermediate,
+        evidence: completedEvidence,
+        behaviouralEval,
+      });
+      await repository.saveExperiment(updated);
+      return json(updatedRun);
     } catch (error) {
       return errorResponse(json, error, 'Lab run result was invalid.');
     }
@@ -1041,92 +1058,108 @@ export async function handleLabRequest(
     }
   }
 
-  const manifestMatch = pathname.match(
-    /^\/api\/lab\/experiments\/([^/]+)\/codex-manifest$/,
+  const promoteMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/promote-eval$/,
   );
-  if (request.method === 'POST' && manifestMatch) {
+  if (request.method === 'POST' && promoteMatch) {
     const experiment = await repository.getExperiment(
-      decodeURIComponent(manifestMatch[1]!),
+      decodeURIComponent(promoteMatch[1]!),
     );
     if (!experiment) return missingExperiment(json);
-    const mutation = experiment.analysis?.mutations.find(
-      (candidate) => candidate.mutationId === experiment.selection?.mutationId,
-    );
     if (
       !experiment.evidence ||
-      !experiment.analysis ||
-      !experiment.selection ||
-      !mutation
+      !['completed', 'analysed'].includes(experiment.status) ||
+      experiment.evidence.signals.length === 0
     ) {
       return json(
         {
-          error: 'lab_selection_conflict',
-          message: 'Select an evidence-citing Darwin Lab mutation first.',
+          error: 'lab_state_conflict',
+          message:
+            'A completed synthetic evidence pack is required to create an eval.',
         },
         { status: 409 },
       );
     }
-    try {
-      const snapshot = await captureRepositorySnapshot({
-        fullName: env?.PROJECTFLOW_REPOSITORY,
-        branch: env?.PROJECTFLOW_BRANCH,
-        githubToken: env?.GITHUB_TOKEN,
-        productionUrl: env?.PROJECTFLOW_PRODUCTION_URL,
-        studyUrl: env?.PROJECTFLOW_STUDY_URL,
-      });
-      const provenance = {
-        ...experiment.evidence.provenance,
-        evidencePackId: experiment.evidence.evidencePackId,
-        evidenceHash: experiment.evidence.evidenceHash,
-      };
-      const payload = {
-        provenance,
-        analysisId: experiment.analysis.analysisId,
-        mutationId: mutation.mutationId,
-        mutationIds: [mutation.mutationId],
-        evidenceHash: experiment.evidence.evidenceHash,
-        promptVersion: '3.0.0' as const,
-        repositoryCommit: snapshot.context.baseSha,
-        repository: snapshot.context,
-        brief: `[Darwin Lab] ${mutation.implementationBrief}`,
-        evidenceCitations: mutation.evidenceIds,
-        allowedPaths: snapshot.context.mutablePaths,
-        protectedPaths: snapshot.context.protectedPaths,
-        acceptanceCriteria: [
-          experiment.task.successDescription,
-          `Retest: ${mutation.validationPlan}`,
-        ],
-        validationCommands: snapshot.context.validationCommands,
-      };
-      const manifestHash = await sha256(payload);
-      const manifest = CodexImplementationManifestSchema.parse({
-        ...payload,
-        manifestId: `manifest-${manifestHash.slice(0, 12)}`,
-        manifestHash,
-        createdAt: new Date().toISOString(),
-      });
-      const telemetryRepository = getTelemetryRepository(env?.DB);
-      await telemetryRepository.saveCodexManifest(manifest);
-      const persistedManifest =
-        (await telemetryRepository.getCodexManifestById(manifest.manifestId)) ??
-        manifest;
-      const withManifest = LabExperimentSchema.parse({
-        ...experiment,
-        selection: {
-          ...experiment.selection,
-          manifestId: persistedManifest.manifestId,
+    if (experiment.behaviouralEval) return json(experiment);
+    const selectedMutation = experiment.analysis?.mutations.find(
+      (mutation) => mutation.mutationId === experiment.selection?.mutationId,
+    );
+    const existingEvals = (await repository.listExperiments()).filter(
+      (candidate) => candidate.behaviouralEval,
+    ).length;
+    const evaluation = BehaviouralEvalSchema.parse({
+      evalId: `BE-${String(existingEvals + 1).padStart(3, '0')}`,
+      goal: experiment.task.instruction,
+      passCriteria: [
+        'The agent identifies the complete Project Apollo assignment set.',
+        'The task completes within the behavioural action budget.',
+        'No navigation loop or abandonment occurs.',
+      ],
+      forbiddenOutcomes: ['navigation loop', 'incorrect result', 'abandonment'],
+      maxActions: Math.min(experiment.maxActions, 5),
+      sourceExperimentId: experiment.experimentId,
+      evidencePackId: experiment.evidence.evidencePackId,
+      evidenceIds: experiment.evidence.signals.map(
+        (signal) => signal.evidenceId,
+      ),
+      evidenceHash: experiment.evidence.evidenceHash,
+      seed: experiment.seed,
+      targetUrl: experiment.targetUrl,
+      baseline: {
+        completionRate: experiment.evidence.metrics.completionRate,
+        medianActions: experiment.evidence.metrics.medianActions,
+        population: experiment.evidence.population.completed,
+      },
+      status: 'active',
+      codexBrief: [
+        `Make behavioural eval pass: ${experiment.task.instruction}`,
+        'Do not change the oracle, seed, thresholds, telemetry provenance, or protected paths.',
+        selectedMutation
+          ? `Use the selected evidence-led hypothesis as context: ${selectedMutation.implementationBrief}`
+          : 'Choose the implementation; Darwin does not prescribe a UI click path.',
+      ].join('\n'),
+      createdAt: new Date().toISOString(),
+    });
+    const updated = LabExperimentSchema.parse({
+      ...experiment,
+      behaviouralEval: evaluation,
+    });
+    await repository.saveExperiment(updated);
+    return json(updated, { status: 201 });
+  }
+
+  const rerunMatch = pathname.match(
+    /^\/api\/lab\/experiments\/([^/]+)\/rerun-eval$/,
+  );
+  if (request.method === 'POST' && rerunMatch) {
+    const experiment = await repository.getExperiment(
+      decodeURIComponent(rerunMatch[1]!),
+    );
+    if (!experiment) return missingExperiment(json);
+    if (!experiment.behaviouralEval) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message: 'Promote an eval before rerunning it.',
         },
-      });
-      await repository.compareAndSwapExperiment(experiment, withManifest);
-      return json(persistedManifest, { status: 201 });
-    } catch (error) {
-      return errorResponse(
-        json,
-        error,
-        'Darwin Lab implementation manifest could not be prepared.',
-        502,
+        { status: 409 },
       );
     }
+    const updated = LabExperimentSchema.parse({
+      ...experiment,
+      status: 'awaiting_runner',
+      runnerId: null,
+      startedAt: null,
+      completedAt: null,
+      runs: [],
+      evidence: null,
+      analysis: null,
+      selection: null,
+      error: null,
+      behaviouralEval: { ...experiment.behaviouralEval, status: 'active' },
+    });
+    await repository.saveExperiment(updated);
+    return json(updated);
   }
 
   return null;

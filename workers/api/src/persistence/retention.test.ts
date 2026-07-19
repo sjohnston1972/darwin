@@ -1,121 +1,123 @@
-import { StudyTelemetryEventSchema } from '@darwin/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import type {
+  CodexImplementationManifest,
+  EvidenceAnalysis,
+  RepositoryMutationExecution,
+} from '@darwin/shared';
+import { describe, expect, it } from 'vitest';
 
 import { InMemoryTelemetryRepository } from './telemetry-repository';
+import { retentionPolicy } from './retention';
 
-const provenance = {
-  evidenceClass: 'human_study' as const,
-  label: 'Human study',
-  labExperimentId: null,
-  taskDefinitionId: null,
-  taskDefinitionHash: null,
-  evidencePackId: null,
-  evidenceHash: null,
-  runIds: [],
+const execution: RepositoryMutationExecution = {
+  revision: 0,
+  executionId: 'execution-retention-test',
+  manifestId: 'manifest-retention-test',
+  analysisId: 'analysis-retention-test',
+  repository: {
+    owner: 'sjohnston1972',
+    name: 'projectflow',
+    fullName: 'sjohnston1972/projectflow',
+    url: 'https://github.com/sjohnston1972/projectflow',
+    branch: 'main',
+    baseSha: 'a'.repeat(40),
+    sourceHash: 'b'.repeat(64),
+    capturedAt: '2025-01-01T00:00:00.000Z',
+    mutablePaths: ['apps/projectflow/src/**'],
+    protectedPaths: ['.github/**'],
+    contextPaths: ['AGENTS.md'],
+    validationCommands: ['npm run test'],
+    maximumChangedFiles: 8,
+    maximumChangedLines: 700,
+    productionUrl: 'https://darwin-projectflow.pages.dev/',
+    studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
+  },
+  status: 'failed',
+  branch: 'darwin/candidate-retention-test',
+  baseSha: 'a'.repeat(40),
+  headSha: null,
+  workflowRunId: null,
+  workflowUrl: null,
+  pullRequestNumber: null,
+  pullRequestUrl: null,
+  previewUrl: null,
+  deploymentVerification: null,
+  patch: 'diff --git a/App.tsx b/App.tsx',
+  changedFiles: ['apps/projectflow/src/App.tsx'],
+  checks: [],
+  codex: {
+    threadId: 'thread-retention-test',
+    finalMessage: 'Implemented the bounded mutation.',
+    inputTokens: 100,
+    cachedInputTokens: 50,
+    outputTokens: 25,
+  },
+  rollback: null,
+  error: 'Validation stopped the candidate.',
+  createdAt: '2025-01-01T00:00:00.000Z',
+  updatedAt: '2025-01-01T00:05:00.000Z',
+  completedAt: '2025-01-01T00:05:00.000Z',
 };
-const event = (
-  eventId: string,
-  participantId = 'participant-retention',
-  studyId = 'study-retention',
-) =>
-  StudyTelemetryEventSchema.parse({
-    schemaVersion: 1,
-    eventId,
-    sessionId: 'session-retention',
-    participantId,
-    studyId,
-    appVersion: '1.0.0',
-    source: 'real_user',
-    provenance,
-    occurredAt: '2026-06-01T00:00:00.000Z',
-    sequence: 0,
-    route: '/study/dashboard',
-    viewport: 'desktop',
-    eventType: 'page_view',
-  });
 
-describe('retention, quotas, and targeted deletion', () => {
-  const repository = new InMemoryTelemetryRepository();
+describe('retention policy', () => {
+  it('compacts large execution output before expiring the fossil record', async () => {
+    const repository = new InMemoryTelemetryRepository();
+    const policy = retentionPolicy();
+    await repository.reset();
+    await repository.saveRepositoryExecution(execution, null);
 
-  beforeEach(async () => repository.reset());
-
-  it('enforces a per-study event quota while accepting idempotent retries', async () => {
-    const first = event('10000000-0000-4000-8000-000000000001');
-    const second = event('10000000-0000-4000-8000-000000000002');
-
-    expect(
-      await repository.insertEvents(
-        [first, second],
-        '2026-07-19T08:00:00.000Z',
-        1,
-      ),
-    ).toEqual({ accepted: 1, duplicates: 0, quotaRejected: 1 });
-    expect(
-      await repository.insertEvents([first], '2026-07-19T08:01:00.000Z', 1),
-    ).toEqual({ accepted: 0, duplicates: 1, quotaRejected: 0 });
-  });
-
-  it('enforces the target-wide quota across studies while accepting duplicates', async () => {
-    const first = event(
-      '10000000-0000-4000-8000-000000000011',
-      'participant-one',
-      'study-one',
+    const compacted = await repository.runRetentionSweep(
+      policy,
+      '2025-02-01T00:00:00.000Z',
     );
-    const second = event(
-      '10000000-0000-4000-8000-000000000012',
-      'participant-two',
-      'study-two',
-    );
-
-    expect(
-      await repository.insertEvents(
-        [first, second],
-        '2026-07-19T08:00:00.000Z',
-        100,
-        1,
-      ),
-    ).toEqual({ accepted: 1, duplicates: 0, quotaRejected: 1 });
-    expect(
-      await repository.insertEvents(
-        [first],
-        '2026-07-19T08:01:00.000Z',
-        100,
-        1,
-      ),
-    ).toEqual({ accepted: 0, duplicates: 1, quotaRejected: 0 });
-  });
-
-  it('expires old raw telemetry and reports retention health', async () => {
-    await repository.insertEvents(
-      [event('10000000-0000-4000-8000-000000000003')],
-      '2026-06-01T00:00:00.000Z',
-    );
-
-    const result = await repository.compactRetention(
-      '2026-07-19T08:00:00.000Z',
-    );
-    const health = await repository.getStorageHealth(100_000);
-
-    expect(result.deletedRecords).toBe(1);
-    expect(health.telemetryEvents).toBe(0);
-    expect(health.lastRetentionRunAt).toBe('2026-07-19T08:00:00.000Z');
-  });
-
-  it('deletes only the requested participant records', async () => {
-    await repository.insertEvents(
-      [
-        event('10000000-0000-4000-8000-000000000004', 'participant-one'),
-        event('10000000-0000-4000-8000-000000000005', 'participant-two'),
-      ],
-      '2026-07-19T08:00:00.000Z',
-    );
-
-    expect(
-      await repository.deleteParticipant('study-retention', 'participant-one'),
-    ).toBe(1);
-    expect(await repository.summarizeEvents('study-retention')).toMatchObject({
-      count: 1,
-      participantCount: 1,
+    expect(compacted).toMatchObject({
+      compactedExecutions: 1,
+      deleted: { executions: 0 },
     });
+    await expect(
+      repository.getRepositoryExecution(execution.executionId),
+    ).resolves.toMatchObject({
+      executionId: execution.executionId,
+      patch: null,
+      codex: { finalMessage: null },
+    });
+
+    const expired = await repository.runRetentionSweep(
+      policy,
+      '2026-01-02T00:00:00.000Z',
+    );
+    expect(expired.deleted.executions).toBe(1);
+    await expect(
+      repository.getRepositoryExecution(execution.executionId),
+    ).resolves.toBeNull();
+  });
+
+  it('retains study lineage after analysis JSON expires', async () => {
+    const repository = new InMemoryTelemetryRepository();
+    const policy = retentionPolicy();
+    await repository.reset();
+    await repository.saveEvidenceAnalysis('study-retention-test', {
+      analysisId: execution.analysisId,
+      cacheKey: 'cache-retention-test',
+      createdAt: execution.createdAt,
+    } as EvidenceAnalysis);
+    await repository.saveCodexManifest({
+      analysisId: execution.analysisId,
+      createdAt: execution.createdAt,
+    } as CodexImplementationManifest);
+    await repository.saveRepositoryExecution(execution, null);
+
+    await repository.runRetentionSweep(policy, '2025-04-02T00:00:00.000Z');
+    await expect(
+      repository.getEvidenceAnalysis(execution.analysisId),
+    ).resolves.toBeNull();
+    await expect(
+      repository.getRepositoryExecution(execution.executionId),
+    ).resolves.not.toBeNull();
+
+    const deleted = await repository.deleteStudy('study-retention-test');
+    expect(deleted).toMatchObject({ manifests: 1, executions: 1 });
+    await expect(
+      repository.getRepositoryExecution(execution.executionId),
+    ).resolves.toBeNull();
   });
 });

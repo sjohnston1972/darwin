@@ -1,5 +1,7 @@
 # Troubleshooting
 
+> Canonical supported commands and deployment flow: [`README.md`](https://github.com/sjohnston1972/darwin/blob/main/README.md). Update this page whenever a release changes a failure or recovery path.
+
 ## Darwin API shows offline
 
 1. Open `/api/health` directly.
@@ -87,7 +89,7 @@ Concurrent release hardening is tracked in issue #5.
 
 ## Reset appears complete but ProjectFlow is unchanged
 
-The current endpoint confirms dispatch, not finished deployment. Open the ProjectFlow reset workflow and wait for production Pages deployment. Verified reset state is tracked in issue #10.
+Darwin marks reset complete only when ProjectFlow production reports the restored commit and matching app version. If reset remains queued, open the linked workflow and confirm its signed callbacks can reach Darwin. If it remains deploying, inspect Pages deployment health and the observed identity in the reset state. A failed reset preserves existing evidence and exposes **Retry reset**.
 
 ## UI looks stale in another tab
 
@@ -95,7 +97,7 @@ The current manual refresh does not reload every derived artifact. Reload the pa
 
 ## Tooltip is clipped
 
-Current explanatory tooltips use a body-level portal and viewport clamping. If clipping recurs, record the view, element, viewport dimensions, zoom, theme, and screenshot, then add a focused regression case to the planned Playwright suite.
+Current explanatory tooltips use a body-level portal and viewport clamping. If clipping recurs, record the view, element, viewport dimensions, zoom, theme, and screenshot, then extend the focused Playwright edge-position regression case.
 
 ## Safe diagnostics
 

@@ -81,7 +81,8 @@ Every event carries:
 
 Event-specific Zod schemas reject unknown properties. The client keeps a bounded
 local outbox, batches up to 50 events, retries failed delivery and uses Beacon on
-page exit when supported. Phase 9 adds the D1 ingestion endpoint.
+page exit when supported. The signed Worker ingestion endpoint validates,
+deduplicates and persists accepted records in D1.
 
 ## Deterministic parsing
 
@@ -125,9 +126,12 @@ GPT-5.6 must reconcile them with ordered journeys and actual ProjectFlow source.
 The client emits the observable measurements and bounded derived signals. The
 versioned TypeScript evidence engine, not GPT-5.6, decides which measurements
 cross a selection-pressure threshold and turns them into citable evidence.
-Repeated behavioral findings are compacted by rule, task and semantic target;
-each group retains at most 12 representative source events. This keeps the live
-session trace rich while keeping the single model call small and auditable.
+The current parser emits each qualifying detector result as its own evidence
+signal and retains its bounded supporting trace. The operator UI may group those
+signals for prioritization, but the canonical evidence pack does not claim a
+compaction step that has not occurred. Any future model-input compaction must be
+implemented deterministically, preserve exact evidence IDs, and be documented
+and tested before it is described as current behavior.
 
 ## Evidence pack and reasoning
 
@@ -145,9 +149,12 @@ output. Results are cached by evidence hash, prompt version, model, and static
 source-context version. Failure produces no substitute recommendation.
 
 Codex receives only the approved proposal, cited evidence, relevant repository
-files, allowed paths and acceptance commands. A local controlled runner records
-the input hashes, commit, diff, checks and machine-readable result. Cloudflare
-never exposes arbitrary command execution.
+files, allowed paths and acceptance commands. The Worker dispatches
+ProjectFlow's authenticated GitHub Actions workflow; Codex produces a patch in a
+read-only-content job, and repository-owned policy gates a separate write job.
+Darwin records only the real commits, diff, checks, pull request, preview and
+machine-readable result returned by that workflow. Cloudflare never exposes
+arbitrary command execution.
 
 The target per evolution cycle is one GPT-5.6 analysis call and one approved
 Codex implementation run.
@@ -181,4 +188,5 @@ significance.
 - GPT-5.6 returns a schema-valid proposal citing real evidence IDs;
 - Codex implements the approved mutation with a reproducible diff;
 - validation results carry an honest evidence class;
-- the fossil record preserves the complete provenance chain.
+- Genome preserves the complete provenance chain for retained and reverted
+  repository changes.
