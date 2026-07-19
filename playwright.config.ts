@@ -31,7 +31,7 @@ export default defineConfig({
     ? [['line'], ['html', { open: 'never' }]]
     : [['list'], ['html', { open: 'never' }]],
   snapshotPathTemplate:
-    '{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}',
+    '{testDir}/{testFilePath}-snapshots/{arg}-{projectName}-{platform}{ext}',
   use: {
     baseURL: 'http://localhost:5173',
     colorScheme: 'dark',
