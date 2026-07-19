@@ -20,6 +20,7 @@ import {
   StudySessionResponseSchema,
   StudySessionIssueResponseSchema,
   StudyTelemetrySummarySchema,
+  StoredEvidencePackSchema,
   TargetApplicationConnectionSchema,
   TelemetryReceiptSchema,
   type StudyTelemetryEvent,
@@ -2574,26 +2575,45 @@ describe('Darwin API', () => {
       delta: null,
     });
 
-    const historicalEvidence = EvidencePackSchema.parse({
+    const historicalEvidence = StoredEvidencePackSchema.parse({
       ...evidence,
       generatedAt: new Date(
         Date.parse(evidence.generatedAt) + 1_000,
       ).toISOString(),
       parserVersion: '1.2.0',
-      applicationMap: { ...evidence.applicationMap, source: undefined },
+      quality: {
+        strength: evidence.quality.strength,
+        score: evidence.quality.score,
+        eventCount: evidence.quality.eventCount,
+        sessionCount: evidence.quality.sessionCount,
+        participantCount: evidence.quality.participantCount,
+        completedAttemptCount: evidence.quality.completedAttemptCount,
+        limitations: evidence.quality.limitations,
+      },
+      applicationMap: {
+        product: evidence.applicationMap.product,
+        activeVariant: {
+          name: 'baseline',
+          ...evidence.applicationMap.activeGenome,
+        },
+        interfaceInventory: evidence.applicationMap.interfaceInventory,
+        routes: evidence.applicationMap.routes,
+        mutableAreas: evidence.applicationMap.mutableAreas,
+        protectedAreas: evidence.applicationMap.protectedAreas,
+      },
     });
-    await getTelemetryRepository().saveEvidence(historicalEvidence);
+    await getTelemetryRepository().saveEvidence(
+      historicalEvidence as unknown as ReturnType<
+        typeof EvidencePackSchema.parse
+      >,
+    );
 
     const historicalLatestResponse = await handleRequest(
       new Request(
         'http://localhost/api/studies/projectflow-baseline-study/evidence/latest?optional=true',
       ),
     );
-    expect(historicalLatestResponse.status).toBe(200);
-    expect(
-      EvidencePackSchema.parse(await historicalLatestResponse.json())
-        .applicationMap.source,
-    ).toBeUndefined();
+    expect(historicalLatestResponse.status).toBe(204);
 
     const historicalArchivesResponse = await handleRequest(
       new Request('http://localhost/api/observations/archives?limit=10'),
@@ -2604,6 +2624,13 @@ describe('Darwin API', () => {
         await historicalArchivesResponse.json(),
       ).archives,
     ).not.toHaveLength(0);
+
+    const historicalArchiveDetailResponse = await handleRequest(
+      new Request(
+        `http://localhost/api/observations/archives/${execution.executionId}`,
+      ),
+    );
+    expect(historicalArchiveDetailResponse.status).toBe(200);
 
     const historicalAnalysisResponse = await handleRequest(
       new Request(analysisPath, { method: 'POST' }),

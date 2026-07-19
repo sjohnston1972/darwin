@@ -30,11 +30,11 @@ import {
   type CodexImplementationManifest,
   type DemoResetExecution,
   type EvidenceAnalysis,
-  type EvidencePack,
   type OperationalEvent,
   type OperationalProvider,
   type RepositoryMutationExecution,
   type SimulationResult,
+  type StoredEvidencePack,
   type TargetApplicationConnection,
 } from '@darwin/shared';
 import rootPackage from '../../../package.json';
@@ -251,7 +251,7 @@ const summarizeObservationArchive = ({
 }: {
   execution: RepositoryMutationExecution;
   analysis: EvidenceAnalysis;
-  evidence: EvidencePack;
+  evidence: StoredEvidencePack;
 }) => {
   const terminalAttempts = evidence.taskAttempts.filter(
     (attempt) => attempt.outcome !== 'open',
@@ -2220,10 +2220,8 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    try {
-      return json(EvidencePackSchema.parse(pack));
-    } catch (error) {
-      console.error('Stored evidence pack failed schema validation.', error);
+    const currentPack = EvidencePackSchema.safeParse(pack);
+    if (!currentPack.success) {
       if (url.searchParams.get('optional') === 'true') {
         return new Response(null, { status: 204, headers: corsHeaders });
       }
@@ -2236,6 +2234,7 @@ export const handleRequest = async (
         { status: 422 },
       );
     }
+    return json(currentPack.data);
   }
 
   const analyseEvidenceMatch = pathname.match(
@@ -2269,7 +2268,8 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
-    if (!pack.applicationMap.source) {
+    const currentPack = EvidencePackSchema.safeParse(pack);
+    if (!currentPack.success) {
       return json(
         {
           error: 'evidence_source_unattested',
@@ -2279,7 +2279,8 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
-    const evidenceSource = pack.applicationMap.source;
+    const evidencePack = currentPack.data;
+    const evidenceSource = evidencePack.applicationMap.source;
     const model = env?.OPENAI_MODEL || 'gpt-5.6';
     const targetConnection = await telemetryRepository.getTargetConnection();
     let repositorySnapshot: Awaited<
@@ -2320,7 +2321,7 @@ export const handleRequest = async (
       );
     }
     const cacheKey = await analysisCacheKey(
-      pack.evidenceHash,
+      evidencePack.evidenceHash,
       model,
       repositorySnapshot.context.sourceHash,
       repositorySnapshot.context.baseSha,
@@ -2350,7 +2351,7 @@ export const handleRequest = async (
         'openai',
         'analyse_evidence',
         () =>
-          analyseEvidence(pack, {
+          analyseEvidence(evidencePack, {
             requestedMode: env?.DARWIN_AI_MODE,
             apiKey: openAIKey(env),
             model,
@@ -2358,7 +2359,7 @@ export const handleRequest = async (
               ? Math.min(90_000, Math.max(1_000, configuredTimeout))
               : 12_000,
             repositorySnapshot,
-            fetch: providerFetch(pack),
+            fetch: providerFetch(evidencePack),
           }),
       );
       console.info(
@@ -2919,12 +2920,18 @@ export const handleRequest = async (
     const analysis = await telemetryRepository.getEvidenceAnalysis(
       execution.analysisId,
     );
-    const baselinePack = analysis
+    const storedBaselinePack = analysis
       ? await telemetryRepository.getEvidence(analysis.evidenceId)
       : null;
-    const evolvedPack = baselinePack
-      ? await telemetryRepository.getLatestEvidence(baselinePack.study.studyId)
+    const storedEvolvedPack = storedBaselinePack
+      ? await telemetryRepository.getLatestEvidence(
+          storedBaselinePack.study.studyId,
+        )
       : null;
+    const baselineResult = EvidencePackSchema.safeParse(storedBaselinePack);
+    const evolvedResult = EvidencePackSchema.safeParse(storedEvolvedPack);
+    const baselinePack = baselineResult.success ? baselineResult.data : null;
+    const evolvedPack = evolvedResult.success ? evolvedResult.data : null;
     if (
       !baselinePack ||
       !evolvedPack ||

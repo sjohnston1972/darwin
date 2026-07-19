@@ -704,16 +704,33 @@ export const EvidenceApplicationMapSchema = z.object({
   protectedAreas: z.array(z.string().min(1)),
 });
 
+const HistoricalEvidenceQualitySchema = EvidenceQualitySchema.pick({
+  strength: true,
+  score: true,
+  eventCount: true,
+  sessionCount: true,
+  participantCount: true,
+  completedAttemptCount: true,
+  limitations: true,
+});
+
 const HistoricalEvidenceApplicationMapSchema =
-  EvidenceApplicationMapSchema.extend({
-    source: EvidenceApplicationMapSchema.shape.source.optional(),
+  EvidenceApplicationMapSchema.omit({
+    source: true,
+    activeGenome: true,
+  }).extend({
+    activeVariant: z.object({
+      name: OrganismVariantSchema,
+      version: z.string().min(1),
+      navigation: z.array(z.string().min(1)).min(1),
+      capabilities: z.array(z.string().min(1)).min(1),
+    }),
   });
 
-const EvidencePackRecordSchema = z.object({
+const EvidencePackBaseSchema = z.object({
   evidenceId: StudyIdentifierSchema,
   evidenceHash: z.string().regex(/^[a-f0-9]{64}$/),
   generatedAt: z.string().datetime(),
-  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0', '1.3.0']),
   evidenceClass: EvidenceClassSchema,
   provenance: DarwinProvenanceSchema.optional(),
   study: z.object({
@@ -732,24 +749,26 @@ const EvidencePackRecordSchema = z.object({
   }),
   taskAttempts: z.array(TaskAttemptSchema),
   tasks: z.array(EvidenceTaskSummarySchema),
-  quality: EvidenceQualitySchema,
   journeys: z.array(EvidenceJourneySchema).min(1).max(50),
   frictionSignals: z.array(EvidenceSignalSchema),
+});
+
+export const EvidencePackSchema = EvidencePackBaseSchema.extend({
+  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0', '1.3.0']),
+  quality: EvidenceQualitySchema,
+  applicationMap: EvidenceApplicationMapSchema,
+});
+
+export const HistoricalEvidencePackSchema = EvidencePackBaseSchema.extend({
+  parserVersion: z.enum(['1.0.0', '1.1.0', '1.2.0']),
+  quality: HistoricalEvidenceQualitySchema,
   applicationMap: HistoricalEvidenceApplicationMapSchema,
 });
 
-export const EvidencePackSchema = EvidencePackRecordSchema.superRefine(
-  (pack, context) => {
-    if (pack.parserVersion === '1.3.0' && !pack.applicationMap.source) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['applicationMap', 'source'],
-        message:
-          'Parser 1.3.0 evidence requires repository source attestation.',
-      });
-    }
-  },
-);
+export const StoredEvidencePackSchema = z.union([
+  EvidencePackSchema,
+  HistoricalEvidencePackSchema,
+]);
 
 export const EvidenceMutationCandidateSchema = z.object({
   provenance: DarwinProvenanceSchema.optional(),
@@ -1291,7 +1310,7 @@ export const GenomeExecutionDetailResponseSchema = z.object({
 
 export const ObservationArchiveSchema = z.object({
   archiveId: StudyIdentifierSchema,
-  evidence: EvidencePackSchema,
+  evidence: StoredEvidencePackSchema,
   analysis: EvidenceAnalysisSchema,
   execution: RepositoryMutationExecutionSchema.pick({
     provenance: true,
@@ -1305,7 +1324,7 @@ export const ObservationArchiveSchema = z.object({
 
 export const ObservationArchiveSummarySchema = z.object({
   archiveId: StudyIdentifierSchema,
-  evidence: EvidencePackRecordSchema.pick({
+  evidence: EvidencePackBaseSchema.pick({
     provenance: true,
     evidenceId: true,
     evidenceHash: true,
@@ -1512,6 +1531,7 @@ export type EvidenceApplicationMap = z.infer<
 >;
 export type EvidenceTaskSummary = z.infer<typeof EvidenceTaskSummarySchema>;
 export type EvidencePack = z.infer<typeof EvidencePackSchema>;
+export type StoredEvidencePack = z.infer<typeof StoredEvidencePackSchema>;
 export type EvidenceMutationCandidate = z.infer<
   typeof EvidenceMutationCandidateSchema
 >;
