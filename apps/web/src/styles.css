@@ -208,8 +208,7 @@ html[data-theme='light'] .lab-trace-visual {
   font-weight: 550;
 }
 
-.lab-form input:not([type='range']),
-.lab-form select {
+.lab-form input:not([type='range']) {
   min-width: 0;
   height: 40px;
   padding: 0 12px;
@@ -219,8 +218,7 @@ html[data-theme='light'] .lab-trace-visual {
   outline: none;
 }
 
-.lab-form input:focus,
-.lab-form select:focus {
+.lab-form input:focus {
   border-color: rgb(112 231 167 / 52%);
   box-shadow: 0 0 0 3px rgb(112 231 167 / 7%);
 }
@@ -1243,6 +1241,17 @@ a:focus-visible {
   color: #cafa8d;
 }
 
+.hero-dna-visual {
+  position: absolute;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center right;
+  opacity: 0.78;
+  inset: 0;
+}
+
 .primary-action {
   display: inline-flex;
   min-height: 44px;
@@ -2121,6 +2130,34 @@ a:focus-visible {
   border: 1px solid #29373d;
   border-radius: 4px;
   font-size: 11px;
+}
+
+.artifact-filter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px;
+  color: #71848a;
+  border-top: 1px solid #243137;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.artifact-filter select {
+  min-width: 180px;
+  height: 34px;
+  padding: 0 9px;
+  color: #c2cdd1;
+  background: #0b1418;
+  border: 1px solid #29373d;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .evidence-signals {
@@ -4211,35 +4248,6 @@ a:focus-visible {
   padding: 26px;
 }
 
-.artifact-filter {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  color: var(--mist);
-  font-size: 0.72rem;
-}
-
-.artifact-filter select {
-  max-width: 13rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  background: var(--surface);
-  color: var(--white);
-  padding: 0.55rem 0.7rem;
-  font: inherit;
-}
-
-.artifact-filter select:focus-visible {
-  outline: 2px solid var(--signal);
-  outline-offset: 2px;
-}
-
-.artifact-empty {
-  padding: 1.5rem;
-  color: var(--mist);
-  font-size: 0.875rem;
-}
-
 .fossil-artifact {
   border-top: 1px solid #2b302d;
   background: #151816;
@@ -5489,6 +5497,7 @@ html[data-theme='light'] .top-pressure-grid button,
 html[data-theme='light'] .pressure-group-list,
 html[data-theme='light'] .evidence-signals,
 html[data-theme='light'] .signal-filters select,
+html[data-theme='light'] .artifact-filter select,
 html[data-theme='light'] .signal-pagination button,
 html[data-theme='light'] .signal-raw-events {
   border-color: #cbd8e2;
@@ -5833,6 +5842,15 @@ html[data-theme='light'] .error-band {
 }
 
 @media (max-width: 900px) {
+  .artifact-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .artifact-filter select {
+    width: 100%;
+  }
+
   .signal-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

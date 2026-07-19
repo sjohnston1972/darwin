@@ -20,6 +20,7 @@ describe('extracted dashboard views', () => {
           },
         ]}
         statusText="Awaiting measured behavior"
+        studyBlocked={false}
         targetApplicationUrl="https://projectflow.example/?study=true"
         targetConnected={false}
       />,

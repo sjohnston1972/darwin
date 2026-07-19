@@ -25,7 +25,7 @@ describe('control-room error boundary', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: /Open System status/i }),
-    ).toHaveAttribute('href', '/system-status');
+    ).toHaveAttribute('href', '/?view=status');
     expect(screen.getByText(/ui-/)).toBeInTheDocument();
   });
 });

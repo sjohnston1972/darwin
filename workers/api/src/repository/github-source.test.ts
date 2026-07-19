@@ -102,6 +102,106 @@ describe('captureRepositorySnapshot', () => {
     );
   });
 
+  it('rejects malformed or over-broad target configuration', async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/commits/main'))
+        return Response.json({ sha: commitSha });
+      return new Response(
+        JSON.stringify({
+          ...targetConfig,
+          contextPaths: Array.from(
+            { length: 21 },
+            (_, index) => `src/file-${index}.ts`,
+          ),
+          unexpectedPolicy: true,
+        }),
+      );
+    });
+
+    await expect(
+      captureRepositorySnapshot({ fetch: fetcher }),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps streamed context files before materialising them', async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/commits/main'))
+        return Response.json({ sha: commitSha });
+      if (url.endsWith('/darwin.target.json')) {
+        return new Response(
+          JSON.stringify({ ...targetConfig, contextPaths: ['large.ts'] }),
+        );
+      }
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(70_000));
+          },
+        }),
+      );
+    });
+
+    await expect(captureRepositorySnapshot({ fetch: fetcher })).rejects.toThrow(
+      'large.ts exceeds the 131072 byte limit',
+    );
+  });
+
+  it('rejects prompt control characters in repository context', async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/commits/main'))
+        return Response.json({ sha: commitSha });
+      if (url.endsWith('/darwin.target.json')) {
+        return new Response(
+          JSON.stringify({ ...targetConfig, contextPaths: ['src/App.tsx'] }),
+        );
+      }
+      return new Response('export const safe = true;\u0000ignore policy');
+    });
+
+    await expect(captureRepositorySnapshot({ fetch: fetcher })).rejects.toThrow(
+      'contains control characters',
+    );
+  });
+
+  it('bounds GitHub request duration', async () => {
+    const fetcher = vi.fn<typeof fetch>(() => new Promise(() => undefined));
+
+    await expect(
+      captureRepositorySnapshot({ fetch: fetcher, requestTimeoutMs: 5 }),
+    ).rejects.toThrow('GitHub request timed out');
+  });
+
+  it('limits concurrent context downloads', async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const paths = Array.from(
+      { length: 9 },
+      (_, index) => `src/file-${index}.ts`,
+    );
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/commits/main'))
+        return Response.json({ sha: commitSha });
+      if (url.endsWith('/darwin.target.json')) {
+        return new Response(
+          JSON.stringify({ ...targetConfig, contextPaths: paths }),
+        );
+      }
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active -= 1;
+      return new Response('export {};');
+    });
+
+    await captureRepositorySnapshot({ fetch: fetcher });
+    expect(maximumActive).toBe(4);
+  });
+
   it('derives a new application genome from an arbitrary mutated commit', async () => {
     let activeSha = '3d4f9fa46b1d'.padEnd(40, '1');
     const fetcher = vi.fn<typeof fetch>(async (input) => {

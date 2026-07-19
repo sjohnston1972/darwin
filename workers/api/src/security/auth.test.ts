@@ -125,7 +125,7 @@ describe('authorization boundaries', () => {
           headers: { Authorization: 'Bearer viewer-secret' },
         }),
         env,
-        'reset',
+        'delete_data',
       ),
     ).resolves.toMatchObject({ ok: false, error: 'forbidden' });
   });

@@ -79,10 +79,7 @@ export const LabFrictionLabelSchema = z.enum([
 
 export const LabSuccessCriterionSchema = z.discriminatedUnion('type', [
   z
-    .object({
-      type: z.literal('route_reached'),
-      route: LabRouteSchema,
-    })
+    .object({ type: z.literal('route_reached'), route: LabRouteSchema })
     .strict(),
   z
     .object({
@@ -131,8 +128,19 @@ export const LabExperimentCreateRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(100).default('Apollo discovery study'),
     targetUrl: z.string().url().max(512),
-    targetAppVersion: z.string().min(1).max(32),
-    task: LabTaskInputSchema,
+    targetAppVersion: z.string().min(1).max(32).default('baseline'),
+    task: LabTaskInputSchema.default({
+      taskId: 'find-apollo-assignees',
+      name: 'Find Project Apollo assignees',
+      instruction: 'Find everyone assigned to Project Apollo.',
+      startRoute: '/',
+      successCriterion: {
+        type: 'semantic_marker',
+        markerId: 'project-apollo-assignees-found',
+      },
+      successDescription:
+        'The agent identifies the complete Project Apollo assignment set.',
+    }),
     populationSize: z.number().int().min(8).max(20).default(8),
     personaAllocation: z.array(LabPersonaAllocationSchema).max(8).default([]),
     maxActions: z.number().int().min(4).max(30).default(12),

@@ -51,12 +51,6 @@ Begin measured interaction only after Darwin reports **Baseline deployment verif
 3. Include one clear friction journey: route loop, inert affordance, browser Back, hover hesitation, drag expectation, or readability zoom.
 4. Complete or explicitly abandon the task attempt.
 
-For the Darwin Lab variant, define a non-Apollo semantic task in the Lab UI,
-choose the verified target version and bounded persona allocation, then launch
-the Playwright population. Show one real target browser trace and its **Darwin
-Lab** chip before generating the Lab evidence pack. Do not call this a
-simulation; reserve that term for Scale replay.
-
 ### 0:55-1:25 - Inspect evidence
 
 1. Return to **Observations**.

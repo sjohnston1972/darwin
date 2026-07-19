@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   HealthResponseSchema,
   EvidenceMutationCandidateSchema,
+  LabActionTargetSchema,
+  LabExperimentCreateRequestSchema,
   OperationalTelemetryMetricsSchema,
   StudyTelemetrySummarySchema,
   StudyTelemetryEventSchema,
   TelemetryBatchSchema,
-} from './contracts';
+} from './index';
 
 describe('shared contracts', () => {
   it('accepts a valid health response', () => {
@@ -254,5 +256,35 @@ describe('shared contracts', () => {
       eventType: 'viewport_zoom_changed',
       properties: { toScale: 1.25 },
     });
+  });
+
+  it('validates bounded configurable Darwin Lab tasks and semantic targets', () => {
+    const experiment = LabExperimentCreateRequestSchema.parse({
+      targetUrl: 'https://projectflow.example/',
+      task: {
+        taskId: 'reach-reports',
+        name: 'Reach reports',
+        instruction: 'Open the Reports workspace.',
+        startRoute: '/study/dashboard',
+        successCriterion: {
+          type: 'route_reached',
+          route: '/study/reports',
+        },
+        successDescription: 'The Reports route is visible.',
+      },
+    });
+
+    expect(experiment).toMatchObject({
+      populationSize: 8,
+      targetAppVersion: 'baseline',
+      task: { taskId: 'reach-reports' },
+    });
+    expect(LabActionTargetSchema.parse({ semanticId: 'nav-reports' })).toEqual({
+      semanticId: 'nav-reports',
+    });
+    expect(LabActionTargetSchema.parse({ role: 'button' })).toEqual({
+      role: 'button',
+    });
+    expect(() => LabActionTargetSchema.parse({ name: 'Reports' })).toThrow();
   });
 });

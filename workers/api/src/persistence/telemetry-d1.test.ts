@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Miniflare } from 'miniflare';
-import {
-  LegacyProvenance,
-  type CodexImplementationManifest,
-} from '@darwin/shared';
+import type { CodexImplementationManifest } from '@darwin/shared';
 
 import {
   createRepositoryExecution,
@@ -17,17 +14,21 @@ const schema = `
     session_id TEXT NOT NULL, task_attempt_id TEXT, app_version TEXT NOT NULL,
     source TEXT NOT NULL, occurred_at TEXT NOT NULL, received_at TEXT NOT NULL,
     sequence INTEGER NOT NULL, event_type TEXT NOT NULL, route TEXT NOT NULL,
-    target_id TEXT, event_json TEXT NOT NULL
+    target_id TEXT, event_json TEXT NOT NULL, expires_at TEXT
   );
   CREATE TABLE repository_executions (
     execution_id TEXT PRIMARY KEY, manifest_id TEXT NOT NULL UNIQUE,
     analysis_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL,
-    version INTEGER NOT NULL DEFAULT 0, execution_json TEXT NOT NULL
+    execution_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT, artifact_expires_at TEXT, record_expires_at TEXT,
+    study_id TEXT
+  );
+  CREATE TABLE evidence_analyses (
+    analysis_id TEXT PRIMARY KEY, study_id TEXT NOT NULL
   );
 `;
 
 const manifest = {
-  provenance: LegacyProvenance,
   manifestId: 'manifest-d1-test',
   manifestHash: 'a'.repeat(64),
   analysisId: 'analysis-d1-test',
@@ -54,11 +55,11 @@ const manifest = {
     studyUrl: 'https://darwin-projectflow.pages.dev/?study=true',
   },
   createdAt: '2026-07-19T08:01:00.000Z',
-  brief: 'Implement the selected mutation.',
+  brief: 'Implement mutation.',
   evidenceCitations: ['EV-001'],
   allowedPaths: ['apps/projectflow/src/**'],
   protectedPaths: ['.github/**'],
-  acceptanceCriteria: ['The behavior is implemented.'],
+  acceptanceCriteria: ['Implemented.'],
   validationCommands: ['npm run verify'],
 } satisfies CodexImplementationManifest;
 
@@ -85,30 +86,30 @@ describe('D1 telemetry repository boundaries', () => {
       manifest,
       '2026-07-19T08:02:00.000Z',
     );
-    await repository.saveRepositoryExecution(prepared);
+    expect(await repository.saveRepositoryExecution(prepared, null)).toBe(true);
     const queued = updateRepositoryExecution(prepared, { status: 'queued' });
     const failed = updateRepositoryExecution(prepared, {
       status: 'failed',
       error: 'dispatch failed',
     });
-
     const results = await Promise.all([
-      repository.compareAndSwapRepositoryExecution(prepared, queued),
-      repository.compareAndSwapRepositoryExecution(prepared, failed),
+      repository.saveRepositoryExecution(queued, prepared),
+      repository.saveRepositoryExecution(failed, prepared),
     ]);
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(
-      (await repository.getRepositoryExecution(prepared.executionId))?.version,
+      (await repository.getRepositoryExecution(prepared.executionId))?.revision,
     ).toBe(1);
   });
 
   it('fails closed with the poisoned record identity but not its JSON contents', async () => {
+    const recordId = '00000000-0000-4000-a000-000000000001';
     await database
       .prepare(
-        `INSERT INTO telemetry_events VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+        `INSERT INTO telemetry_events VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)`,
       )
       .bind(
-        '00000000-0000-4000-a000-000000000001',
+        recordId,
         'study-d1-test',
         'participant-d1-test',
         'session-d1-test',
@@ -122,9 +123,8 @@ describe('D1 telemetry repository boundaries', () => {
         '{"private":"must-not-leak"}',
       )
       .run();
-
     await expect(repository.listEvents('study-d1-test', 10)).rejects.toThrow(
-      '00000000-0000-4000-a000-000000000001',
+      recordId,
     );
     await expect(
       repository.listEvents('study-d1-test', 10),

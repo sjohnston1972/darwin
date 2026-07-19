@@ -44,8 +44,8 @@ jobs:
         run: set -o pipefail; npm run lint 2>&1 | tee ci-logs/lint.log
       - name: Check generated reasoning context and types
         run: set -o pipefail; npm run typecheck 2>&1 | tee ci-logs/typecheck.log
-      - name: Test
-        run: set -o pipefail; npm run test 2>&1 | tee ci-logs/test.log
+      - name: Test with measured coverage gates
+        run: set -o pipefail; npm run test:coverage 2>&1 | tee ci-logs/test.log
       - name: Browser demo smoke
         env:
           PROJECTFLOW_E2E_DIR: .artifacts/projectflow-target

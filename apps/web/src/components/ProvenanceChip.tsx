@@ -3,24 +3,36 @@ import type { DarwinProvenance } from '@darwin/shared';
 export function ProvenanceChip({
   provenance,
 }: {
-  provenance: DarwinProvenance;
+  provenance?: DarwinProvenance;
 }) {
+  const resolved =
+    provenance ??
+    ({
+      evidenceClass: 'legacy',
+      label: 'Unknown / legacy',
+      labExperimentId: null,
+      taskDefinitionId: null,
+      taskDefinitionHash: null,
+      evidencePackId: null,
+      evidenceHash: null,
+      runIds: [],
+    } satisfies DarwinProvenance);
   const label =
-    provenance.evidenceClass === 'darwin_lab'
+    resolved.evidenceClass === 'darwin_lab'
       ? 'Darwin Lab'
-      : provenance.evidenceClass === 'human_study'
+      : resolved.evidenceClass === 'human_study'
         ? 'Human study'
-        : provenance.evidenceClass === 'scale_replay'
+        : resolved.evidenceClass === 'scale_replay'
           ? 'Scale replay'
-          : provenance.evidenceClass === 'automated_study'
+          : resolved.evidenceClass === 'automated_study'
             ? 'Automated study'
             : 'Unknown / legacy';
   return (
     <span
-      className={`provenance-chip provenance-${provenance.evidenceClass}`}
+      className={`provenance-chip provenance-${resolved.evidenceClass}`}
       title={
-        provenance.evidenceClass === 'darwin_lab'
-          ? `Darwin Lab · ${provenance.labExperimentId}`
+        resolved.evidenceClass === 'darwin_lab'
+          ? `Darwin Lab · ${resolved.labExperimentId}`
           : label
       }
     >

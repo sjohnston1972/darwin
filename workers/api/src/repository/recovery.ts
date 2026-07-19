@@ -26,9 +26,7 @@ export const forceFailStrandedExecution = async (
   if (!['queued', 'codex_running', 'validating'].includes(execution.status)) {
     return { outcome: 'not_stranded', execution };
   }
-  const eligibleAt = new Date(
-    new Date(execution.updatedAt).getTime() + minimumAgeMs,
-  );
+  const eligibleAt = new Date(Date.parse(execution.updatedAt) + minimumAgeMs);
   if (now.getTime() < eligibleAt.getTime()) {
     return {
       outcome: 'too_recent',
@@ -36,22 +34,20 @@ export const forceFailStrandedExecution = async (
       eligibleAt: eligibleAt.toISOString(),
     };
   }
+  const timestamp = now.toISOString();
   const failed = updateRepositoryExecution(
     execution,
     {
       status: 'failed',
       error:
         'Operator marked a stranded GitHub workflow as failed after the bounded recovery window.',
-      completedAt: now.toISOString(),
+      completedAt: timestamp,
     },
-    now.toISOString(),
+    timestamp,
   );
-  const persisted = await repository.compareAndSwapRepositoryExecution(
-    execution,
-    failed,
-  );
+  const persisted = await repository.saveRepositoryExecution(failed, execution);
   return persisted
-    ? { outcome: 'recovered', execution: persisted }
+    ? { outcome: 'recovered', execution: failed }
     : {
         outcome: 'not_stranded',
         execution:

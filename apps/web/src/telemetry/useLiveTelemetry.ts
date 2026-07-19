@@ -25,7 +25,7 @@ import {
   type StudyEventsResponse,
 } from '@darwin/shared';
 import { apiFetch } from '../api';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 const studyId = 'projectflow-baseline-study';
@@ -94,7 +94,6 @@ export interface LiveTelemetryState {
   evidence: EvidencePack | null;
   evolutionCycle: EvolutionCycle;
   error: string | null;
-  subsystemErrors: Record<string, string>;
   events: StoredTelemetryEvent[];
   genomeEvolutionCount: number;
   genomeExecutions: RepositoryExecutionSummary[];
@@ -130,8 +129,6 @@ export interface LiveTelemetryState {
     mutationIds: string[],
   ) => Promise<RepositoryMutationExecution | null>;
   status: 'loading' | 'live' | 'offline';
-  lastUpdatedAt: string | null;
-  stale: boolean;
   releaseExecution: (executionId?: string) => Promise<void>;
   releaseRollback: (executionId?: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -719,7 +716,6 @@ export function useLiveTelemetry({
           ) + Math.round(Math.random() * retryJitterMs),
         );
       }
-      schedule(delayMs);
     };
     const handleVisibility = () => {
       clearScheduled();
@@ -768,18 +764,12 @@ export function useLiveTelemetry({
       } catch {
         // Broad API availability remains visible through the telemetry poll.
       }
-      schedule(delayMs);
     };
-    const visibilityChanged = () => {
-      if (document.visibilityState === 'visible') schedule(0);
-      else if (timer !== undefined) window.clearTimeout(timer);
-    };
-    document.addEventListener('visibilitychange', visibilityChanged);
-    schedule(0);
+    const interval = window.setInterval(() => void poll(), 3_000);
+    void poll();
     return () => {
       active = false;
-      if (timer !== undefined) window.clearTimeout(timer);
-      document.removeEventListener('visibilitychange', visibilityChanged);
+      window.clearInterval(interval);
     };
   }, [resetExecution?.resetId, resetExecution?.status]);
 
@@ -1159,9 +1149,6 @@ export function useLiveTelemetry({
         : 'paused',
     );
     setError(null);
-    setSubsystemErrors({});
-    setLastUpdatedAt(null);
-    setStale(false);
     setGenerating(false);
     setAnalysing(false);
     setPreparingManifest(false);
@@ -1180,7 +1167,7 @@ export function useLiveTelemetry({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          confirmation,
+          confirmation: 'RESET DARWIN DEMO',
           exportAcknowledged: true,
         }),
       });
@@ -1266,9 +1253,6 @@ export function useLiveTelemetry({
     startControlledEvolution,
     startRollback,
     status,
-    stale,
-    lastUpdatedAt,
-    subsystemErrors,
     rollingBack,
   };
 }

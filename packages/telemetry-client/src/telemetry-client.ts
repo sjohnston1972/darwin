@@ -54,14 +54,6 @@ export type TelemetryFlushResult =
       retryAt: string;
     };
 
-export interface TelemetryHealth {
-  queued: number;
-  dropped: number;
-  storageAvailable: boolean;
-  consecutiveFailures: number;
-  nextRetryAt: number | null;
-}
-
 interface ActiveAttempt {
   id: string;
   taskId: string;
@@ -138,23 +130,6 @@ const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 
 const roundRatio = (value: number) => Math.round(value * 1000) / 1000;
-
-class TelemetryDeliveryError extends Error {
-  constructor(
-    message: string,
-    readonly retryAfterMs: number | null = null,
-  ) {
-    super(message);
-  }
-}
-
-const retryAfterMilliseconds = (value: string | null) => {
-  if (!value) return null;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
-  const date = Date.parse(value);
-  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
-};
 
 export class DarwinTelemetryClient {
   private readonly config: TelemetryClientConfig & {
@@ -276,7 +251,6 @@ export class DarwinTelemetryClient {
     this.flushTimer = null;
     this.retryTimer = null;
     this.initialized = false;
-    this.flushWithBeacon();
   }
 
   trackPageView(route = this.currentRoute) {
@@ -411,16 +385,7 @@ export class DarwinTelemetryClient {
     const operation = this.deliverNextBatch();
     this.flushPromise = operation;
     try {
-      const result = await operation;
-      this.consecutiveFailures = 0;
-      this.nextRetryAt = null;
-      if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-      this.emitHealth();
-      return result;
-    } catch (error) {
-      this.scheduleRetry(error);
-      throw error;
+      return await operation;
     } finally {
       this.flushPromise = null;
       const requested = this.flushRequested;
@@ -450,7 +415,12 @@ export class DarwinTelemetryClient {
     try {
       const response = await this.fetcher(this.config.endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.config.studySessionToken
+            ? { 'X-Darwin-Study-Session': this.config.studySessionToken }
+            : {}),
+        },
         body: JSON.stringify(batch),
         keepalive: true,
       });
@@ -886,27 +856,7 @@ export class DarwinTelemetryClient {
   }
 
   private flushWithBeacon() {
-    if (!this.config.endpoint || !this.outbox.length) return;
-    // Beacon has no application-level acknowledgement. A keepalive fetch leaves
-    // records in the durable outbox until Darwin returns a validated receipt.
-    void this.flush().catch(() => undefined);
-  }
-
-  private scheduleRetry(error: unknown) {
-    this.consecutiveFailures += 1;
-    const requestedDelay =
-      error instanceof TelemetryDeliveryError ? error.retryAfterMs : null;
-    const exponentialDelay = Math.min(
-      30_000,
-      500 * 2 ** Math.min(6, this.consecutiveFailures - 1),
-    );
-    const delay = Math.min(
-      60_000,
-      (requestedDelay ?? exponentialDelay) + Math.floor(Math.random() * 250),
-    );
-    this.nextRetryAt = Date.now() + delay;
-    if (!this.initialized) {
-      this.emitHealth();
+    if (!this.config.endpoint || !navigator.sendBeacon || !this.outbox.length) {
       return;
     }
     for (

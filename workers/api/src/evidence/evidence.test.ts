@@ -153,6 +153,61 @@ describe('real telemetry evidence engine', () => {
     ]);
   });
 
+  it('ends an unterminated attempt when the next task starts', () => {
+    const secondAttemptId = 'attempt-evidence-second';
+    const boundedEvents: StoredTelemetryEvent[] = [
+      {
+        ...base(0, '/study/dashboard'),
+        eventType: 'task_started',
+        taskAttemptId: attemptId,
+        taskId: 'create-project',
+      },
+      {
+        ...base(1, '/study/projects'),
+        eventType: 'route_changed',
+        properties: { fromRoute: '/study/dashboard' },
+      },
+      {
+        ...base(2, '/study/projects'),
+        eventType: 'task_started',
+        taskAttemptId: secondAttemptId,
+        taskId,
+      },
+      {
+        ...base(3, '/study/projects'),
+        eventType: 'element_clicked',
+        targetId: 'task-open-apl-241',
+        taskAttemptId: secondAttemptId,
+        taskId,
+      },
+      {
+        ...base(4, '/study/projects/apollo/tasks'),
+        eventType: 'task_completed',
+        taskAttemptId: secondAttemptId,
+        taskId,
+        durationMs: 2_000,
+        outcome: 'success',
+      },
+    ];
+
+    const attempts = reconstructAttempts(
+      boundedEvents,
+      '2026-07-16T12:05:00.000Z',
+    );
+
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toMatchObject({
+      attemptId,
+      outcome: 'abandoned',
+      eventIds: [id(1), id(2)],
+    });
+    expect(attempts[1]).toMatchObject({
+      attemptId: secondAttemptId,
+      outcome: 'success',
+      eventIds: [id(3), id(4), id(5)],
+    });
+  });
+
   it('creates stable, traceable excess-path evidence', async () => {
     const first = await buildEvidencePack(
       'projectflow-baseline-study',
@@ -228,6 +283,17 @@ describe('real telemetry evidence engine', () => {
       name: 'EvidenceVersionMismatchError',
       appVersions: ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'],
     });
+  });
+
+  it('rejects a measurement window containing mixed evidence classes', async () => {
+    await expect(
+      buildEvidencePack(
+        'projectflow-baseline-study',
+        [events[0]!, { ...events[1]!, source: 'automated' }],
+        applicationMap,
+        '2026-07-16T12:02:00.000Z',
+      ),
+    ).rejects.toThrow('cannot mix measured, automated, and synthetic');
   });
 
   it('retains the verified deployment boundary in evidence', async () => {
@@ -594,5 +660,102 @@ describe('real telemetry evidence engine', () => {
         completion: { score: 100 },
       },
     });
+  });
+
+  it('bounds citations while preserving the total support count', async () => {
+    const startedAt = Date.parse('2026-07-16T12:00:00.000Z');
+    const longAttempt = Array.from({ length: 82 }, (_, sequence) => {
+      const common = {
+        ...base(0, '/study/projects'),
+        eventId: id(1_000 + sequence),
+        occurredAt: new Date(startedAt + sequence * 10).toISOString(),
+        receivedAt: new Date(startedAt + 60_000 + sequence * 10).toISOString(),
+        sequence,
+        taskAttemptId: attemptId,
+        taskId,
+      };
+      if (sequence === 0) {
+        return { ...common, eventType: 'task_started' as const };
+      }
+      if (sequence === 81) {
+        return {
+          ...common,
+          eventType: 'task_completed' as const,
+          durationMs: 810,
+          outcome: 'success' as const,
+        };
+      }
+      return {
+        ...common,
+        eventType: 'element_clicked' as const,
+        targetId: `target-${sequence}`,
+      };
+    }) satisfies StoredTelemetryEvent[];
+
+    const pack = await buildEvidencePack(
+      'projectflow-baseline-study',
+      longAttempt,
+      applicationMap,
+      '2026-07-16T12:05:00.000Z',
+    );
+    const pathSignal = pack.frictionSignals.find(
+      (signal) => signal.ruleId === 'excess_path_length',
+    );
+
+    expect(pathSignal?.support.events).toBe(82);
+    expect(pathSignal?.supportingEventIds).toHaveLength(50);
+    expect(pathSignal?.trace).toHaveLength(12);
+  });
+
+  it('processes a deterministic 10,000-event study within a bounded budget', async () => {
+    const startedAt = Date.parse('2026-07-16T12:00:00.000Z');
+    const largeStudy = Array.from({ length: 10_000 }, (_, index) => {
+      const attempt = Math.floor(index / 10);
+      const sequence = index % 10;
+      const common = {
+        schemaVersion: 1 as const,
+        eventId: id(10_000 + index),
+        sessionId: `session-performance-${attempt}`,
+        participantId: `participant-performance-${attempt % 4}`,
+        studyId: 'projectflow-baseline-study',
+        appVersion: '1.0.0',
+        source: 'real_user' as const,
+        occurredAt: new Date(startedAt + index).toISOString(),
+        receivedAt: new Date(startedAt + 60_000 + index).toISOString(),
+        sequence,
+        route: '/study/projects',
+        viewport: 'desktop' as const,
+        taskAttemptId: `attempt-performance-${attempt}`,
+        taskId,
+      };
+      if (sequence === 0) {
+        return { ...common, eventType: 'task_started' as const };
+      }
+      if (sequence === 9) {
+        return {
+          ...common,
+          eventType: 'task_completed' as const,
+          durationMs: 90,
+          outcome: 'success' as const,
+        };
+      }
+      return {
+        ...common,
+        eventType: 'element_clicked' as const,
+        targetId: `performance-target-${sequence}`,
+      };
+    }) satisfies StoredTelemetryEvent[];
+    const before = performance.now();
+
+    const pack = await buildEvidencePack(
+      'projectflow-baseline-study',
+      largeStudy,
+      applicationMap,
+      '2026-07-16T12:05:00.000Z',
+    );
+
+    expect(pack.study.sourceEventCount).toBe(10_000);
+    expect(pack.study.attempts).toBe(1_000);
+    expect(performance.now() - before).toBeLessThan(1_500);
   });
 });

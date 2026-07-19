@@ -63,7 +63,7 @@ export class ErrorBoundary extends Component<
               >
                 <RotateCcw size={16} /> Reload control room
               </button>
-              <a className="secondary-action" href="/system-status">
+              <a className="secondary-action" href="/?view=status">
                 <Server size={16} /> Open System status
               </a>
             </div>

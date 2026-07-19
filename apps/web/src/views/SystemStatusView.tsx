@@ -1,9 +1,11 @@
 import {
   Code2,
   Database,
+  Download,
   FileCheck2,
   GitBranch,
   Network,
+  RefreshCw,
   Server,
   ShieldCheck,
   type LucideIcon,
@@ -11,9 +13,9 @@ import {
 import { useEffect, useState } from 'react';
 import {
   DiagnosticsResponseSchema,
+  type DiagnosticsResponse,
   type EvidencePack,
-  type OperationalAuditEvent,
-  type StorageHealth,
+  type RetentionHealth,
 } from '@darwin/shared';
 
 import { apiFetch } from '../api';
@@ -21,14 +23,15 @@ import { InfoTip } from '../components/InfoTip';
 
 export interface RuntimeHealth {
   status: 'checking' | 'online' | 'offline';
-  build: { release: string; commit: string; identifier: string } | null;
-  storage: StorageHealth | null;
+  version: string | null;
+  commitSha: string | null;
+  retention: RetentionHealth | null;
 }
 
 interface SystemStatusViewProps {
   apiBaseUrl: string;
   health: RuntimeHealth;
-  webBuild: { release: string; commit: string };
+  webBuild: { release: string; commitSha: string };
   telemetry: {
     status: string;
     count: number;
@@ -68,86 +71,193 @@ function StatusRow({
 }
 
 function DiagnosticsPanel({ apiBaseUrl }: { apiBaseUrl: string }) {
-  const [events, setEvents] = useState<OperationalAuditEvent[]>([]);
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
-  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(
+    null,
+  );
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+
+  const load = async () => {
+    setStatus('loading');
+    try {
+      const response = await apiFetch(`${apiBaseUrl}/api/diagnostics?limit=50`);
+      if (!response.ok) throw new Error('Diagnostics request failed');
+      const parsed = DiagnosticsResponseSchema.parse(await response.json());
+      setDiagnostics(parsed);
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-    apiFetch(`${apiBaseUrl}/api/diagnostics?limit=30`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Diagnostics request failed.');
-        const result = DiagnosticsResponseSchema.parse(await response.json());
-        if (active) {
-          setEvents(result.auditEvents);
-          setGeneratedAt(result.generatedAt);
-        }
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setDiagnosticsError(
-            error instanceof Error ? error.message : 'Diagnostics unavailable.',
-          );
-        }
-      });
-    return () => {
-      active = false;
-    };
+    void load();
   }, [apiBaseUrl]);
 
   const exportDiagnostics = () => {
-    const blob = new Blob(
-      [JSON.stringify({ generatedAt, auditEvents: events }, null, 2)],
-      { type: 'application/json' },
-    );
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `darwin-diagnostics-${new Date().toISOString()}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    if (!diagnostics) return;
+    const blob = new Blob([JSON.stringify(diagnostics, null, 2)], {
+      type: 'application/json',
+    });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `darwin-diagnostics-${diagnostics.generatedAt.slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(href);
   };
 
   return (
     <aside
       className="surface-panel lg:col-span-2"
-      aria-labelledby="diagnostics-title"
+      aria-labelledby="operational-diagnostics-title"
     >
-      <div className="panel-heading">
+      <div className="panel-heading gap-4">
         <div>
-          <p className="section-label">Operational diagnostics</p>
-          <h2 id="diagnostics-title" className="mt-2 text-xl font-semibold">
-            Recent privileged transitions
-          </h2>
+          <p className="section-label">Operations</p>
+          <div className="heading-with-help">
+            <h2
+              id="operational-diagnostics-title"
+              className="mt-2 text-xl font-semibold"
+            >
+              Operational diagnostics
+            </h2>
+            <InfoTip text="Redacted request transitions and aggregate provider latency retained for 30 days. Request bodies, prompts, telemetry payloads, tokens, and credentials are never included." />
+          </div>
         </div>
-        <button
-          className="secondary-action"
-          disabled={!events.length}
-          onClick={exportDiagnostics}
-          type="button"
-        >
-          Export diagnostics
-        </button>
+        <div className="ml-auto flex flex-wrap justify-end gap-2">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() => void load()}
+            disabled={status === 'loading'}
+          >
+            <RefreshCw
+              className={status === 'loading' ? 'is-spinning' : undefined}
+              size={15}
+            />
+            Refresh
+          </button>
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={exportDiagnostics}
+            disabled={!diagnostics}
+          >
+            <Download size={15} /> Export JSON
+          </button>
+        </div>
       </div>
-      {diagnosticsError ? (
-        <div className="error-band" role="alert">
-          {diagnosticsError}
-        </div>
-      ) : (
-        <div className="diagnostics-list" role="list">
-          {!events.length && <p>No privileged transitions recorded yet.</p>}
-          {events.map((event) => (
-            <div key={event.auditEventId} role="listitem">
-              <code>{event.requestId.slice(0, 20)}</code>
-              <strong>{event.action}</strong>
-              <span>
-                {event.actor} · {event.outcome} · {event.durationMs}ms
+
+      {status === 'error' && (
+        <p className="px-5 py-6 text-sm text-amber sm:px-6">
+          Diagnostics are unavailable. Runtime status remains independent.
+        </p>
+      )}
+      {status === 'loading' && !diagnostics && (
+        <p className="px-5 py-6 text-sm text-mist sm:px-6">
+          Loading redacted operational history…
+        </p>
+      )}
+      {diagnostics && (
+        <div className="grid gap-8 px-5 py-6 sm:px-6 xl:grid-cols-2">
+          <section aria-labelledby="provider-metrics-title">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h3 id="provider-metrics-title" className="font-semibold">
+                Provider latency
+              </h3>
+              <span className="font-mono text-[11px] uppercase tracking-wider text-mist">
+                {diagnostics.retentionDays} day retention
               </span>
-              <small>
-                {event.beforeState ?? '—'} → {event.afterState ?? '—'}
-              </small>
             </div>
-          ))}
+            {diagnostics.metrics.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-line font-mono uppercase tracking-wider text-mist">
+                    <tr>
+                      <th className="pb-3 font-normal">Provider / operation</th>
+                      <th className="pb-3 text-right font-normal">Calls</th>
+                      <th className="pb-3 text-right font-normal">Avg</th>
+                      <th className="pb-3 text-right font-normal">Errors</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {diagnostics.metrics.slice(0, 10).map((metric) => (
+                      <tr key={`${metric.provider}:${metric.operation}`}>
+                        <td className="py-3 pr-3">
+                          <span className="text-signal">{metric.provider}</span>
+                          <span className="text-mist">
+                            {' '}
+                            · {metric.operation}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right font-mono">
+                          {metric.count}
+                        </td>
+                        <td className="py-3 text-right font-mono">
+                          {metric.averageDurationMs} ms
+                        </td>
+                        <td
+                          className={`py-3 text-right font-mono ${metric.failureCount ? 'text-amber' : 'text-mist'}`}
+                        >
+                          {metric.failureCount}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-mist">
+                Provider timings will appear after D1, OpenAI, GitHub, or target
+                verification activity.
+              </p>
+            )}
+          </section>
+
+          <section aria-labelledby="audit-events-title">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h3 id="audit-events-title" className="font-semibold">
+                Privileged transitions
+              </h3>
+              <span className="font-mono text-[11px] text-mist">
+                request {diagnostics.requestId.slice(0, 12)}
+              </span>
+            </div>
+            {diagnostics.events.length ? (
+              <ol className="divide-y divide-line">
+                {diagnostics.events.slice(0, 10).map((event) => (
+                  <li className="grid gap-1 py-3 text-xs" key={event.eventId}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${event.outcome === 'success' ? 'bg-signal' : 'bg-amber'}`}
+                      />
+                      <strong className="font-mono font-medium">
+                        {event.action}
+                      </strong>
+                      <time className="ml-auto text-mist">
+                        {new Date(event.occurredAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </time>
+                    </div>
+                    <span className="pl-3.5 text-mist">
+                      {event.actor} · {event.beforeState ?? '—'} →{' '}
+                      {event.afterState ?? '—'} · {event.durationMs} ms
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-mist">
+                No privileged transitions have been recorded in this retention
+                window.
+              </p>
+            )}
+          </section>
         </div>
       )}
     </aside>
@@ -191,8 +301,8 @@ export function SystemStatusView({
             icon={Server}
             label="Worker API"
             value={
-              health.build
-                ? `v${health.build.release} · ${health.build.commit.slice(0, 7)}`
+              health.version
+                ? `v${health.version} · ${(health.commitSha ?? 'local').slice(0, 7)} · online`
                 : health.status
             }
             ready={health.status === 'online'}
@@ -200,38 +310,32 @@ export function SystemStatusView({
           />
           <StatusRow
             icon={Code2}
-            label="Control room build"
-            value={`v${webBuild.release} · ${webBuild.commit.slice(0, 7)}`}
-            ready={webBuild.commit !== 'development'}
+            label="Control room"
+            value={`v${webBuild.release} · ${webBuild.commitSha === 'local' ? 'local' : webBuild.commitSha.slice(0, 7)}`}
+            ready={webBuild.commitSha !== 'development'}
             help="Release metadata injected into this control-room build by deployment."
           />
           <StatusRow
             icon={Database}
             label="D1 telemetry"
             value={
-              health.storage
-                ? `${health.storage.telemetryEvents.toLocaleString('en-US')} / ${health.storage.eventQuotaPerTarget.toLocaleString('en-US')} target · ${health.storage.eventQuotaPerStudy.toLocaleString('en-US')} study`
-                : telemetry.status === 'live'
-                  ? `${telemetry.count} events`
-                  : telemetry.status
+              telemetry.status === 'live'
+                ? `${telemetry.count} events`
+                : telemetry.status
             }
             ready={telemetry.status === 'live'}
             help="Semantic events persisted in D1, with the configured per-study quota."
           />
           <StatusRow
             icon={ShieldCheck}
-            label="Retention policy"
+            label="Storage retention"
             value={
-              health.storage
-                ? `${health.storage.rawTelemetryRetentionDays}d human · ${health.storage.automatedTelemetryRetentionDays}d automated${
-                    health.storage.lastRetentionRunAt
-                      ? ` · ran ${new Date(health.storage.lastRetentionRunAt).toLocaleDateString()}`
-                      : ' · awaiting scheduled run'
-                  }`
-                : 'storage health unavailable'
+              health.retention
+                ? `${health.retention.eventCount.toLocaleString()} / ${health.retention.policy.maxEventsPerTarget.toLocaleString()} events · ${health.retention.expiredRecordCount} expired · ${health.retention.lastSweepAt ? `swept ${health.retention.lastSweepAt.slice(0, 10)}` : 'awaiting first sweep'}`
+                : health.status
             }
-            ready={Boolean(health.storage)}
-            help="Human and automated raw observations expire on separate schedules."
+            ready={health.retention?.status === 'healthy'}
+            help="The bounded storage policy, quotas, expired-record count, and most recent retention sweep."
           />
           <StatusRow
             icon={FileCheck2}

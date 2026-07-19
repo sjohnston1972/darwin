@@ -25,7 +25,13 @@ Non-secret production variables live in `workers/api/wrangler.toml`:
 
 Do not commit credentials to Wrangler configuration.
 
-Tracked `.env.production` files are Vite build inputs and therefore public. They may contain `VITE_` URLs and other non-secret browser configuration only; `npm run env:check` enforces that rule. Account IDs, D1 database IDs, Pages project names, Worker names, and rate-limit namespace IDs are routing identifiers rather than credentials and may be committed. API tokens, operator/viewer credentials, ingestion/callback secrets, and OpenAI/GitHub tokens must remain in GitHub or Cloudflare secret stores.
+The checked-in D1 database UUID, rate-limit namespace IDs, Worker/Pages names,
+public origins, repository name, and deployment URLs are routing identifiers,
+not credentials. They are intentionally public. API tokens, operator/viewer
+tokens, ingestion/callback secrets, GitHub credentials, and OpenAI credentials
+remain encrypted platform secrets and must never appear in Wrangler or tracked
+Vite environment files. `wrangler.toml.example` contains every required binding
+with replacement infrastructure IDs.
 
 ## Required secrets
 
@@ -125,9 +131,22 @@ Do not delete the database. Inspect remote migration state, make a new forward m
 
 Keep its failed record. Correct provider/workflow configuration and use the explicit retry path so the failure remains auditable.
 
+If a dispatch remains `dispatching` after the 15-minute recovery window and
+GitHub cannot reconcile it, use the execution's force-fail action with the
+exact execution ID. The API compare-and-swap transition preserves the stranded
+record and refuses early or mismatched recovery requests.
+
 ### Released mutation is unsuitable
 
 Use the controlled rollback workflow. Do not force-push or reset ProjectFlow `main`.
+
+### Demo reset and data export
+
+Export the bounded System status diagnostics and any evidence needed for the
+demo record before reset. Reset requires the literal confirmation
+`RESET DARWIN DEMO` plus `exportAcknowledged: true`, and the `delete_data`
+capability. A reset dispatch does not erase state; Darwin clears demo state only
+after the baseline workflow and exact production identity have been verified.
 
 ## Diagnostics failure
 

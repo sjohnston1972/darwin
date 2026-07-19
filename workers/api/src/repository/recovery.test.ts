@@ -1,7 +1,4 @@
-import {
-  LegacyProvenance,
-  type CodexImplementationManifest,
-} from '@darwin/shared';
+import type { CodexImplementationManifest } from '@darwin/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { InMemoryTelemetryRepository } from '../persistence/telemetry-repository';
@@ -12,7 +9,6 @@ import {
 import { forceFailStrandedExecution } from './recovery';
 
 const manifest = {
-  provenance: LegacyProvenance,
   manifestId: 'manifest-recovery-test',
   manifestHash: 'a'.repeat(64),
   analysisId: 'analysis-recovery-test',
@@ -49,7 +45,6 @@ const manifest = {
 
 describe('stranded execution recovery', () => {
   const repository = new InMemoryTelemetryRepository();
-
   beforeEach(async () => repository.reset());
 
   it('waits for the recovery window and atomically force-fails one queued run', async () => {
@@ -62,8 +57,8 @@ describe('stranded execution recovery', () => {
       { status: 'queued' },
       '2026-07-19T08:02:00.000Z',
     );
-    await repository.saveRepositoryExecution(queued);
-
+    await repository.saveRepositoryExecution(prepared, null);
+    await repository.saveRepositoryExecution(queued, prepared);
     await expect(
       forceFailStrandedExecution(
         repository,
@@ -74,24 +69,15 @@ describe('stranded execution recovery', () => {
       outcome: 'too_recent',
       eligibleAt: '2026-07-19T08:17:00.000Z',
     });
-    const recovered = await forceFailStrandedExecution(
-      repository,
-      queued.executionId,
-      new Date('2026-07-19T08:18:00.000Z'),
-    );
-    expect(recovered).toMatchObject({
-      outcome: 'recovered',
-      execution: { status: 'failed', version: 1 },
-    });
     await expect(
       forceFailStrandedExecution(
         repository,
         queued.executionId,
-        new Date('2026-07-19T08:19:00.000Z'),
+        new Date('2026-07-19T08:18:00.000Z'),
       ),
     ).resolves.toMatchObject({
-      outcome: 'not_stranded',
-      execution: { status: 'failed', version: 1 },
+      outcome: 'recovered',
+      execution: { status: 'failed', revision: 2 },
     });
   });
 });

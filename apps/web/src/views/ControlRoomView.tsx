@@ -15,6 +15,7 @@ export function ControlRoomView({
   measuredEventCount,
   metrics,
   statusText,
+  studyBlocked,
   targetApplicationUrl,
   targetConnected,
 }: {
@@ -22,6 +23,7 @@ export function ControlRoomView({
   measuredEventCount: number;
   metrics: readonly ControlRoomMetric[];
   statusText: string;
+  studyBlocked: boolean;
   targetApplicationUrl: string;
   targetConnected: boolean;
 }) {
@@ -68,13 +70,18 @@ export function ControlRoomView({
               </span>
             )}
             <a
-              className="primary-action"
-              href={targetApplicationUrl}
+              className={`primary-action ${studyBlocked ? 'is-disabled' : ''}`}
+              href={studyBlocked ? undefined : targetApplicationUrl}
               target="_blank"
               rel="noreferrer"
+              aria-disabled={studyBlocked || undefined}
+              onClick={(event) => {
+                if (studyBlocked) event.preventDefault();
+              }}
               data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
             >
-              <Radar size={17} /> Open measured study
+              <Radar size={17} />{' '}
+              {studyBlocked ? 'Measured study locked' : 'Open measured study'}
             </a>
           </div>
           {!analysisReady && (

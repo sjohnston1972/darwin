@@ -91,13 +91,13 @@ Local in-memory persistence is used when no D1 binding is supplied. Restarting t
 ## First Darwin Lab population
 
 1. Start Darwin and ProjectFlow locally.
-2. Open **Darwin Lab**, define a task against the verified ProjectFlow version (for example, reach **My work** from the dashboard), and save the draft.
+2. Open **Darwin Lab**, define a task and success criterion, and create the experiment.
 3. Queue the population.
 4. From the Darwin repository, run `npm run lab:runner`.
-5. Watch the automated population touch the real target, then inspect its action replay, raw telemetry IDs, and deterministic `L-EV-*`
+5. Watch the automated population operate the real target, replay actions, and inspect deterministic `L-EV-*`
    evidence populate in the Lab section.
 6. When live reasoning is configured, run the single population analysis and
-   approve an implementation brief. Prepare the normal Codex manifest to continue through diff, validation, PR, preview, and human release.
+   approve an implementation brief.
 
 The runner uses `gpt-5.6-luna` by default for inexpensive per-action decisions.
 The population-level analysis continues to use `gpt-5.6`. Both integrations

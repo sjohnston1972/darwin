@@ -23,13 +23,6 @@ if (!operatorToken) {
   );
 }
 const operatorHeaders = { Authorization: `Bearer ${operatorToken}` };
-const expectedCommit = process.env.DARWIN_BUILD_SHA?.trim();
-const expectedRelease = process.env.DARWIN_RELEASE_VERSION?.trim();
-if (!expectedCommit || !expectedRelease) {
-  throw new Error(
-    'DARWIN_BUILD_SHA and DARWIN_RELEASE_VERSION are required for the production smoke test.',
-  );
-}
 
 const requireOk = async (response: Response, label: string) => {
   if (!response.ok) {

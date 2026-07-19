@@ -8,7 +8,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
       exportAcknowledged: true,
     },
   });
-  expect(reset.ok()).toBeTruthy();
+  expect(reset.ok(), await reset.text()).toBeTruthy();
   const theme = testInfo.project.name === 'mobile-390' ? 'light' : 'dark';
   await page.addInitScript((selectedTheme) => {
     sessionStorage.setItem('darwin:operator-token', 'e2e-token');
@@ -76,19 +76,17 @@ test('@smoke completes the controlled evolution, archive, and rollback path', as
   await page.goto('/?view=observations');
   await page.getByRole('button', { name: 'Generate evidence' }).click();
   await expect(page.getByText(/Evidence pack evidence-/)).toBeVisible();
-  await expect(page.getByText('EV-001', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.evidence-signal-id').first()).toHaveText(
+    /^EV-[a-f0-9]{12}$/,
+  );
 
   await page.goto('/?view=mutations');
   await page.getByRole('button', { name: 'Ask gpt-5.6' }).click();
-  await expect(
-    page.getByRole('checkbox', { name: 'Implement Mutation direct-my-work' }),
-  ).toBeVisible();
-  await page
-    .getByRole('checkbox', { name: 'Implement Mutation dashboard-work-queue' })
-    .check();
-  await expect(
-    page.getByRole('checkbox', { name: 'Implement Mutation direct-my-work' }),
-  ).toBeChecked();
+  const preferredMutation = page.getByRole('checkbox', {
+    name: 'Implement Direct My Work navigation',
+  });
+  await expect(preferredMutation).toBeVisible();
+  await expect(preferredMutation).toBeChecked();
   await page
     .getByRole('button', { name: 'Start controlled evolution' })
     .click();
@@ -96,13 +94,9 @@ test('@smoke completes the controlled evolution, archive, and rollback path', as
     page.getByRole('heading', { name: 'Codex execution' }),
   ).toBeVisible();
 
-  const completed = await request.post(
-    'http://127.0.0.1:8787/__e2e/complete-evolution',
-  );
-  expect(completed.ok()).toBeTruthy();
-  await page.reload();
   await expect(page.getByLabel('ProjectFlow repository diff')).toContainText(
-    'direct assigned-work navigation',
+    'evidence-led task discovery',
+    { timeout: 30_000 },
   );
   await page.getByRole('button', { name: 'Release reviewed mutation' }).click();
   await expect
@@ -119,32 +113,23 @@ test('@smoke completes the controlled evolution, archive, and rollback path', as
     .toBe(1);
 
   await page.goto('/?view=observations');
-  await expect(page.getByText('Mutation direct-my-work')).toBeVisible();
+  await expect(
+    page.getByText('Direct My Work navigation', { exact: true }),
+  ).toBeVisible();
   await page.goto('/?view=genome');
-  await expect(page.getByText('Mutation direct-my-work')).toBeVisible();
-  await page.getByText('Mutation direct-my-work').click();
+  const retainedMutation = page.getByText('Direct My Work navigation', {
+    exact: true,
+  });
+  await expect(retainedMutation).toBeVisible();
+  await retainedMutation.click();
   await page
     .getByRole('button', { name: 'Prepare controlled rollback' })
     .click();
-  await expect
-    .poll(async () => {
-      const response = await request.get('http://127.0.0.1:8787/api/genome', {
-        headers: { Authorization: 'Bearer e2e-token' },
-      });
-      return (
-        (await response.json()) as {
-          executions: Array<{ rollback: { status: string } | null }>;
-        }
-      ).executions[0]?.rollback?.status;
-    })
-    .toBe('queued');
-  const rollbackReady = await request.post(
-    'http://127.0.0.1:8787/__e2e/complete-rollback',
-  );
-  expect(rollbackReady.ok(), await rollbackReady.text()).toBeTruthy();
-  await page.reload();
-  await page.getByText('Mutation direct-my-work').click();
-  await page.getByRole('button', { name: 'Release reviewed rollback' }).click();
+  const releaseRollback = page.getByRole('button', {
+    name: 'Release reviewed rollback',
+  });
+  await expect(releaseRollback).toBeVisible({ timeout: 30_000 });
+  await releaseRollback.click();
   await expect
     .poll(async () => {
       const response = await request.get('http://127.0.0.1:8787/api/genome', {
@@ -158,7 +143,7 @@ test('@smoke completes the controlled evolution, archive, and rollback path', as
     })
     .toBe('released');
   await page.reload();
-  await page.getByText('Mutation direct-my-work').click();
+  await page.getByText('Direct My Work navigation', { exact: true }).click();
   await expect(page.getByText(/ProjectFlow returned to/)).toBeVisible();
 });
 
@@ -303,77 +288,73 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
     expect(finished.ok(), await finished.text()).toBeTruthy();
   };
 
-  await Promise.all(
-    runs.map(async (run) => {
-      const context = await browser.newContext({
-        viewport: { width: 1280, height: 800 },
-      });
-      const target = await context.newPage();
-      const parameters = new URLSearchParams({
-        study: 'true',
-        lab: 'true',
-        source: 'automated',
-        studyId: experiment.studyId,
-        experimentId: experiment.experimentId,
-        runId: run.runId,
-        participantId: run.participantId,
-        sessionId: run.sessionId,
-        taskId: experiment.task.taskId,
-        taskDefinitionId: experiment.task.taskDefinitionId,
-        taskDefinitionHash: experiment.task.definitionHash,
-        appVersion: experiment.targetAppVersion,
-      });
-      const sessionResponse = target.waitForResponse((response) =>
-        response.url().endsWith('/api/study-sessions'),
-      );
-      const initialIngestion = target.waitForResponse((response) =>
-        response.url().endsWith('/api/telemetry/events'),
-      );
-      await target.goto(`http://127.0.0.1:5174/dashboard?${parameters}`);
-      expect((await sessionResponse).status()).toBe(201);
-      await expect(
-        target.locator('[data-darwin-lab-ready="true"]'),
-      ).toBeAttached();
-      await expect(target.getByLabel('Captured events')).not.toHaveText(
-        '0 events',
-      );
-      await target.getByRole('button', { name: 'Reports' }).click();
-      await expect(
-        target.getByRole('heading', { name: 'Reports' }),
-      ).toBeVisible();
-      const interaction = await initialIngestion;
-      const interactionReceipt = (await interaction.json()) as {
-        accepted: number;
-      };
-      expect(interaction.status(), JSON.stringify(interactionReceipt)).toBe(
-        202,
-      );
-      expect(
-        interactionReceipt.accepted,
-        JSON.stringify(interactionReceipt),
-      ).toBeGreaterThan(0);
+  for (const run of runs) {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+    });
+    const target = await context.newPage();
+    const parameters = new URLSearchParams({
+      study: 'true',
+      lab: 'true',
+      source: 'automated',
+      studyId: experiment.studyId,
+      experimentId: experiment.experimentId,
+      runId: run.runId,
+      participantId: run.participantId,
+      sessionId: run.sessionId,
+      taskId: experiment.task.taskId,
+      taskDefinitionId: experiment.task.taskDefinitionId,
+      taskDefinitionHash: experiment.task.definitionHash,
+      appVersion: experiment.targetAppVersion,
+    });
+    const sessionResponse = target.waitForResponse((response) =>
+      response.url().endsWith('/api/study-sessions'),
+    );
+    const initialIngestion = target.waitForResponse((response) =>
+      response.url().endsWith('/api/telemetry/events'),
+    );
+    await target.goto(`http://localhost:5174/dashboard?${parameters}`);
+    expect((await sessionResponse).status()).toBe(201);
+    await expect(
+      target.locator('[data-darwin-lab-ready="true"]'),
+    ).toBeAttached();
+    await expect(target.getByLabel('Captured events')).not.toHaveText(
+      '0 events',
+    );
+    await target.getByRole('button', { name: 'Reports' }).click();
+    await expect(
+      target.getByRole('heading', { name: 'Reports' }),
+    ).toBeVisible();
+    const interaction = await initialIngestion;
+    expect(interaction.status()).toBe(202);
+    const interactionReceipt = (await interaction.json()) as {
+      accepted: number;
+    };
+    expect(
+      interactionReceipt.accepted,
+      JSON.stringify(interactionReceipt),
+    ).toBeGreaterThan(0);
 
-      const stored = await request.get(
-        `${apiBase}/api/studies/${experiment.studyId}/sessions/${run.sessionId}`,
-        { headers: operatorHeaders },
-      );
-      const trace = (await stored.json()) as {
-        events: Array<{ eventId: string; targetId?: string }>;
-      };
-      expect(
-        trace.events.some((event) => event.targetId === 'nav-reports'),
-      ).toBe(true);
-      const write = labWriteChain.then(() =>
-        persistCompletedRun(
-          run,
-          trace.events.map((event) => event.eventId),
-        ),
-      );
-      labWriteChain = write;
-      await write;
-      await context.close();
-    }),
-  );
+    const stored = await request.get(
+      `${apiBase}/api/studies/${experiment.studyId}/sessions/${run.sessionId}`,
+      { headers: operatorHeaders },
+    );
+    const trace = (await stored.json()) as {
+      events: Array<{ eventId: string; targetId?: string }>;
+    };
+    expect(trace.events.some((event) => event.targetId === 'nav-reports')).toBe(
+      true,
+    );
+    const write = labWriteChain.then(() =>
+      persistCompletedRun(
+        run,
+        trace.events.map((event) => event.eventId),
+      ),
+    );
+    labWriteChain = write;
+    await write;
+    await context.close();
+  }
 
   const completedResponse = await request.get(
     `${apiBase}/api/lab/experiments/${experiment.experimentId}`,
@@ -396,7 +377,7 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
     },
   });
   await page.goto('/?view=lab');
-  await expect(page.getByText('8/8')).toBeVisible();
+  await expect(page.getByText('8/8', { exact: true })).toBeVisible();
   await expect(page.locator('.lab-status.status-completed')).toBeVisible();
 });
 
@@ -412,8 +393,16 @@ for (const [name, path] of Object.entries({
   test(`visual ${name}`, async ({ page }) => {
     await page.goto(path);
     await expect(page.locator('main')).toBeVisible();
-    await expect(page.getByText('v0.25.0-e2e online')).toBeVisible();
-    await expect(page).toHaveScreenshot(`${name}.png`, { fullPage: true });
+    await expect(
+      page.getByText('v0.25.0-e2e · 0123456 · online').first(),
+    ).toBeVisible();
+    if (name === 'observations' || name === 'mutations') {
+      await expect(page.getByText('incremental updates')).toBeVisible();
+    }
+    await expect(page).toHaveScreenshot(`${name}.png`, {
+      fullPage: true,
+      mask: [page.locator('time')],
+    });
   });
 }
 

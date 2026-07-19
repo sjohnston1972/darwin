@@ -8,6 +8,7 @@
 flowchart TB
   subgraph Browser
     PF[ProjectFlow]
+    LAB[Darwin Lab browser workers]
     UI[Darwin control room]
     TC[Telemetry client]
   end
@@ -25,6 +26,7 @@ flowchart TB
   end
 
   PF --> TC
+  LAB -->|real target actions| PF
   TC --> API
   UI --> API
   PAGES --> UI
@@ -95,6 +97,12 @@ D1 tables currently store:
 | `demo_state`             | evolution cycle state                                  |
 | `target_connections`     | verified target snapshot and checks                    |
 | `operational_events`     | 30-day redacted audit transitions and provider metrics |
+| `lab_experiments`        | versioned tasks, lifecycle, hashes, and provenance     |
+| `lab_agent_runs`         | append-only isolated browser-run outcomes              |
+| `lab_agent_actions`      | idempotent semantic action observations                |
+| `lab_evidence_records`   | immutable hashed Darwin Lab evidence                   |
+| `lab_analyses`           | evidence-citing Lab GPT portfolios                     |
+| `lab_selection_results`  | human-approved Lab mutation selection                  |
 
 In-memory implementations support local tests and development without D1.
 
@@ -127,6 +135,12 @@ queued -> running -> validating -> deploying -> complete
 Only an explicit release call merges a reviewed pull request. Candidate previews never replace production automatically. After merge, Darwin polls the configured ProjectFlow study deployment for semantic commit and app-version metadata. The execution remains deployment-ready until both match the merge result; only then does Darwin record `released` and start the next evidence cycle at the verified deployment timestamp. Evidence generation rejects mixed-version measurement windows.
 
 Reset uses the same signed, execution-scoped callback boundary. Darwin retains telemetry, evidence, analyses, manifests, and Genome history while the reset is queued, running, validating, or deploying. It clears that state only after production reports the exact restored baseline commit, then anchors the clean baseline cycle at the verified deployment timestamp. Failures remain persisted and retryable.
+
+Darwin Lab experiments use compare-and-swap lifecycle transitions plus
+append-only, idempotent runs and actions. Evidence is derived only after terminal
+run state is durable. Cancellation, retry, archival, and force-fail recovery keep
+stranded work inspectable. The `darwin_lab` provenance record survives every
+artifact and is never inferred from a study-name convention.
 
 ## Generated reasoning context
 

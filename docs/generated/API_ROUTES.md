@@ -23,10 +23,10 @@ Access labels distinguish public health, operator-session verification, capabili
 
 | Method | Route | Access | Purpose |
 | --- | --- | --- | --- |
-| POST | `/api/retention/sweep` | operator: reset | Run the bounded retention and compaction sweep. |
-| DELETE | `/api/studies/:studyId/participants/:participantId` | operator: reset | Delete one participant and invalidate derived evidence. |
-| DELETE | `/api/studies/:studyId` | operator: reset | Delete one study and its derived artifacts. |
-| DELETE | `/api/repository-executions/:executionId/artifacts` | operator: reset | Delete one execution artifact bundle and callback material. |
+| POST | `/api/retention/sweep` | operator: delete_data | Run the bounded retention and compaction sweep. |
+| DELETE | `/api/studies/:studyId/participants/:participantId` | operator: delete_data | Delete one participant and invalidate derived evidence. |
+| DELETE | `/api/studies/:studyId` | operator: delete_data | Delete one study and its derived artifacts. |
+| DELETE | `/api/repository-executions/:executionId/artifacts` | operator: delete_data | Delete one execution artifact bundle and callback material. |
 
 ## Target connection
 
@@ -36,12 +36,13 @@ Access labels distinguish public health, operator-session verification, capabili
 | POST | `/api/target-connection` | operator: connect | Verify and persist the configured target boundary. |
 | POST | `/api/target-connection/disconnect` | operator: connect | Remove the active target connection. |
 | GET | `/api/demo/reset` | operator: observe | Return the latest verified reset lifecycle or 204. |
-| POST | `/api/demo/reset` | operator: reset | Clear Darwin demo state and dispatch target restoration. |
+| POST | `/api/demo/reset` | operator: delete_data | Clear Darwin demo state and dispatch target restoration. |
 
 ## Telemetry and workspaces
 
 | Method | Route | Access | Purpose |
 | --- | --- | --- | --- |
+| POST | `/api/study-sessions` | signed target | Issue a short-lived study session bound to signed ProjectFlow context. |
 | POST | `/api/telemetry/events` | signed target | Ingest a signed batch of semantic telemetry events. |
 | GET | `/api/studies/:studyId/events` | operator: observe | Return aggregate measured study counts. |
 | GET | `/api/studies/:studyId/events/raw` | operator: inspect_evidence | Return recent pseudonymous event records. |
@@ -67,6 +68,7 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | operator: inspect_evidence | Return the manifest execution or 204. |
 | POST | `/api/evidence-analyses/:analysisId/codex-manifest/execution` | operator: execute | Dispatch the bounded ProjectFlow mutation workflow. |
 | GET | `/api/repository-executions/:executionId` | operator: inspect_evidence | Poll the real repository execution state. |
+| POST | `/api/repository-executions/:executionId/recovery/force-fail` | operator: execute | Force-fail a stranded execution after its recovery window. |
 | GET | `/api/repository-executions/:executionId/fitness` | operator: inspect_evidence | Return the persisted measured fitness outcome or 204. |
 | POST | `/api/repository-executions/:executionId/fitness` | operator: reason | Calculate and persist fitness from compatible measured cohorts. |
 | POST | `/api/repository-executions/:executionId/release` | operator: release | Merge the reviewed mutation pull request. |
@@ -87,24 +89,32 @@ Access labels distinguish public health, operator-session verification, capabili
 | Method | Route | Access | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/behavioural-evals` | operator: inspect_evidence | List retained outcome-based behavioural acceptance tests. |
-| POST | `/api/lab/experiments/:experimentId/promote-eval` | operator: execute | Promote synthetic failure evidence into a retained behavioural eval. |
+| POST | `/api/lab/experiments/:experimentId/promote-eval` | operator: execute | Promote an automated Lab failure into a retained behavioural eval. |
 | POST | `/api/lab/experiments/:experimentId/rerun-eval` | operator: simulate | Rerun a retained behavioural eval through the bounded browser runner. |
 
 ## Darwin Lab
 
 | Method | Route | Access | Purpose |
 | --- | --- | --- | --- |
-| GET | `/api/lab/experiments` | operator: inspect_evidence | List bounded synthetic user-population experiments. |
-| POST | `/api/lab/experiments` | operator: simulate | Create a bounded synthetic ProjectFlow experiment. |
-| GET | `/api/lab/experiments/:experimentId` | operator: inspect_evidence | Inspect one synthetic population, evidence pack, and analysis. |
+| GET | `/api/lab/experiments` | operator: inspect_evidence | List bounded automated task populations against ProjectFlow. |
+| POST | `/api/lab/experiments` | operator: simulate | Create a configurable real-target Darwin Lab task. |
+| GET | `/api/lab/experiments/:experimentId` | operator: inspect_evidence | Inspect one automated population, evidence pack, and analysis. |
+| PUT | `/api/lab/experiments/:experimentId` | operator: simulate | Edit a draft task before any target interaction begins. |
+| POST | `/api/lab/experiments/:experimentId/duplicate` | operator: simulate | Duplicate a task into a new immutable draft identity. |
+| POST | `/api/lab/experiments/:experimentId/cancel` | operator: simulate | Cancel a draft, queued, or running population. |
+| POST | `/api/lab/experiments/:experimentId/retry` | operator: simulate | Retry failed work under a new experiment identity. |
+| POST | `/api/lab/experiments/:experimentId/force-fail` | operator: simulate | Force-fail a stranded population while preserving its runs. |
+| POST | `/api/lab/experiments/:experimentId/archive` | operator: simulate | Archive terminal Lab work without deleting its provenance. |
+| POST | `/api/lab/experiments/:experimentId/rebuild-evidence` | operator: execute | Retry deterministic evidence after a recorded derivation error. |
 | POST | `/api/lab/experiments/:experimentId/start` | operator: simulate | Queue a draft experiment for the browser runner. |
-| POST | `/api/lab/experiments/:experimentId/claim` | operator: simulate | Claim queued synthetic work for one runner. |
-| POST | `/api/lab/experiments/:experimentId/runs` | operator: simulate | Start one isolated low-cost synthetic agent run. |
+| POST | `/api/lab/experiments/:experimentId/claim` | operator: simulate | Claim queued real-target work for one runner. |
+| POST | `/api/lab/experiments/:experimentId/runs` | operator: simulate | Start one isolated automated browser run. |
 | POST | `/api/lab/experiments/:experimentId/runs/:runId/actions` | operator: simulate | Append one bounded semantic agent action. |
 | POST | `/api/lab/experiments/:experimentId/runs/:runId/finish` | operator: simulate | Finish a run and finalize population evidence when complete. |
 | POST | `/api/lab/agent-decision` | operator: reason | Ask the configured low-cost model for one bounded UI action. |
-| POST | `/api/lab/experiments/:experimentId/analyse` | operator: reason | Run one GPT population analysis over synthetic evidence. |
-| POST | `/api/lab/experiments/:experimentId/mutations/select` | operator: execute | Record the human-approved synthetic implementation brief. |
+| POST | `/api/lab/experiments/:experimentId/analyse` | operator: reason | Run one GPT population analysis over Darwin Lab evidence. |
+| POST | `/api/lab/experiments/:experimentId/mutations/select` | operator: execute | Record the human-approved Darwin Lab implementation brief. |
+| POST | `/api/lab/experiments/:experimentId/codex-manifest` | operator: execute | Prepare an immutable ProjectFlow manifest carrying Darwin Lab provenance. |
 
 ## Synthetic scale replay
 
@@ -114,4 +124,4 @@ Access labels distinguish public health, operator-session verification, capabili
 | GET | `/api/simulations/:runId` | operator: inspect_evidence | Return synthetic replay metadata. |
 | GET | `/api/simulations/:runId/summary` | operator: inspect_evidence | Return deterministic synthetic aggregates. |
 
-**Contract total:** 58 method/path entries.
+**Contract total:** 68 method/path entries.

@@ -51,31 +51,34 @@ describe('artifact cursor pagination', () => {
   it('returns bounded stable pages across many evolution cycles', async () => {
     const base = createRepositoryExecution(manifest);
     for (let index = 0; index < 45; index += 1) {
-      await repository.saveRepositoryExecution({
+      const execution = {
         ...base,
         executionId: `execution-page-${String(index).padStart(3, '0')}`,
         updatedAt: new Date(Date.UTC(2026, 6, 19, 8, 0, index)).toISOString(),
-      });
+      };
+      expect(await repository.saveRepositoryExecution(execution, null)).toBe(
+        true,
+      );
     }
 
-    const first = await repository.listRepositoryExecutionsPage(20);
-    const second = await repository.listRepositoryExecutionsPage(
-      20,
-      first.cursor,
-    );
-    const third = await repository.listRepositoryExecutionsPage(
-      20,
-      second.cursor,
-    );
+    const first = await repository.listRepositoryExecutionPage({ limit: 20 });
+    const second = await repository.listRepositoryExecutionPage({
+      limit: 20,
+      cursor: first.nextCursor ?? undefined,
+    });
+    const third = await repository.listRepositoryExecutionPage({
+      limit: 20,
+      cursor: second.nextCursor ?? undefined,
+    });
 
-    expect(first.items).toHaveLength(20);
-    expect(second.items).toHaveLength(20);
-    expect(third.items).toHaveLength(5);
-    expect(first.hasMore).toBe(true);
-    expect(third.hasMore).toBe(false);
+    expect(first.executions).toHaveLength(20);
+    expect(second.executions).toHaveLength(20);
+    expect(third.executions).toHaveLength(5);
+    expect(first.nextCursor).toBeTruthy();
+    expect(third.nextCursor).toBeNull();
     expect(
       new Set(
-        [...first.items, ...second.items, ...third.items].map(
+        [...first.executions, ...second.executions, ...third.executions].map(
           (item) => item.executionId,
         ),
       ).size,

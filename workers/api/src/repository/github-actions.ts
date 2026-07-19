@@ -14,6 +14,17 @@ const headers = (token: string) => ({
 
 const commitShaPattern = /^[a-f0-9]{40}$/;
 
+const githubRequest = (
+  fetcher: typeof fetch,
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+) =>
+  timeOperation(
+    'github',
+    `${init.method ?? 'GET'} ${String(input).split('/').slice(-2).join('/')}`,
+    () => fetcher(input, init),
+  );
+
 export class GitHubMergeStateUnknownError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -32,7 +43,8 @@ const readMergedCommit = async ({
   pullRequestNumber: number;
   fetcher: typeof fetch;
 }) => {
-  const response = await fetcher(
+  const response = await githubRequest(
+    fetcher,
     `https://api.github.com/repos/${repository}/pulls/${pullRequestNumber}`,
     { headers: headers(token) },
   );
@@ -72,7 +84,8 @@ const mergePullRequest = async ({
   let response: Response | null = null;
   let requestError: Error | null = null;
   try {
-    response = await fetcher(
+    response = await githubRequest(
+      fetcher,
       `https://api.github.com/repos/${repository}/pulls/${pullRequestNumber}/merge`,
       {
         method: 'PUT',
@@ -161,8 +174,8 @@ export async function dispatchEvolutionWorkflow({
           repository: execution.repository.fullName,
           callback_url: callbackUrl,
           callback_nonce: callbackNonce,
-          provenance_class: execution.provenance.evidenceClass,
-          lab_experiment_id: execution.provenance.labExperimentId ?? '',
+          provenance_class: execution.provenance?.evidenceClass ?? 'legacy',
+          lab_experiment_id: execution.provenance?.labExperimentId ?? '',
         },
       }),
     },
@@ -210,8 +223,8 @@ export async function dispatchRollbackWorkflow({
           repository: execution.repository.fullName,
           callback_url: callbackUrl,
           callback_nonce: callbackNonce,
-          provenance_class: execution.provenance.evidenceClass,
-          lab_experiment_id: execution.provenance.labExperimentId ?? '',
+          provenance_class: execution.provenance?.evidenceClass ?? 'legacy',
+          lab_experiment_id: execution.provenance?.labExperimentId ?? '',
         },
       }),
     },

@@ -5,42 +5,93 @@ import {
   type RepositoryContext,
 } from '@darwin/shared';
 import { z } from 'zod';
-import { timeOperation } from '../observability';
 
-const targetConfigSchema = z.object({
-  schemaVersion: z.literal(1),
-  targetId: z.literal('projectflow'),
-  name: z.string().min(1),
-  purpose: z.string().min(1),
-  defaultBranch: z.string().min(1),
-  application: z.object({
-    primaryUser: z.string().min(1),
-    domainEntities: z.array(z.string().min(1)).min(1),
-    primaryGoals: z.array(z.string().min(1)).min(1),
-    navigation: z.array(z.string().min(1)).min(1),
-    capabilities: z.array(z.string().min(1)).min(1),
-    interfaceInventory: z
-      .array(
-        z.object({
-          area: z.string().min(1),
-          purpose: z.string().min(1),
-          primaryActions: z.array(z.string().min(1)).min(1),
-        }),
-      )
-      .min(1),
-    routes: z.array(z.string().min(1).startsWith('/')).min(1),
-    mutableAreas: z.array(z.string().min(1)),
-    protectedAreas: z.array(z.string().min(1)),
-  }),
-  mutablePaths: z.array(z.string().min(1)).min(1),
-  protectedPaths: z.array(z.string().min(1)).min(1),
-  contextPaths: z.array(z.string().min(1)).min(1),
-  validationCommands: z.array(z.string().min(1)).min(1),
-  limits: z.object({
-    maximumChangedFiles: z.number().int().positive(),
-    maximumChangedLines: z.number().int().positive(),
-  }),
-});
+const MAXIMUM_CONFIG_BYTES = 64 * 1024;
+const MAXIMUM_CONTEXT_PATHS = 20;
+const MAXIMUM_FILE_BYTES = 128 * 1024;
+const MAXIMUM_CONTEXT_BYTES = 512 * 1024;
+const MAXIMUM_CONCURRENT_FETCHES = 4;
+const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
+const containsControlCharacter = (value: string, allowLayout = false) =>
+  [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return (
+      code === 127 ||
+      (code < 32 && (!allowLayout || ![9, 10, 13].includes(code)))
+    );
+  });
+const printableText = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine((value) => !containsControlCharacter(value), {
+    message: 'Control characters are not allowed.',
+  });
+const repositoryPath = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[a-zA-Z0-9._*-]+(?:\/[a-zA-Z0-9._*-]+)*$/);
+const contextPath = repositoryPath.refine(
+  (value) => !value.includes('*'),
+  'Context paths must identify exact files.',
+);
+const semanticRoute = z
+  .string()
+  .min(1)
+  .max(160)
+  .regex(
+    /^\/(?:[a-z0-9._-]+|:[a-z][a-zA-Z0-9]*)(?:\/(?:[a-z0-9._-]+|:[a-z][a-zA-Z0-9]*))*$/,
+  );
+const boundedTextList = z.array(printableText).min(1).max(40);
+
+const targetConfigSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    targetId: z.literal('projectflow'),
+    name: printableText,
+    purpose: printableText,
+    defaultBranch: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9._/-]+$/),
+    application: z
+      .object({
+        primaryUser: printableText,
+        domainEntities: boundedTextList,
+        primaryGoals: boundedTextList,
+        navigation: boundedTextList,
+        capabilities: boundedTextList,
+        interfaceInventory: z
+          .array(
+            z
+              .object({
+                area: printableText,
+                purpose: printableText,
+                primaryActions: boundedTextList,
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(30),
+        routes: z.array(semanticRoute).min(1).max(40),
+        mutableAreas: z.array(printableText).max(40),
+        protectedAreas: z.array(printableText).max(40),
+      })
+      .strict(),
+    mutablePaths: z.array(repositoryPath).min(1).max(40),
+    protectedPaths: z.array(repositoryPath).min(1).max(40),
+    contextPaths: z.array(contextPath).min(1).max(MAXIMUM_CONTEXT_PATHS),
+    validationCommands: z.array(printableText).min(1).max(12),
+    limits: z
+      .object({
+        maximumChangedFiles: z.number().int().positive().max(50),
+        maximumChangedLines: z.number().int().positive().max(5_000),
+      })
+      .strict(),
+  })
+  .strict();
 
 const commitResponseSchema = z.object({
   sha: z.string().regex(/^[a-f0-9]{40}$/),
@@ -90,15 +141,10 @@ const fetchWithTimeout = async (
     }, timeoutMs);
   });
   try {
-    const operation = String(input).includes('/commits/')
-      ? 'commit_lookup'
-      : 'source_download';
-    return await timeOperation('github', operation, () =>
-      Promise.race([
-        fetcher(input, { ...init, signal: controller.signal }),
-        timeoutPromise,
-      ]),
-    );
+    return await Promise.race([
+      fetcher(input, { ...init, signal: controller.signal }),
+      timeoutPromise,
+    ]);
   } finally {
     if (timeout) clearTimeout(timeout);
   }
@@ -135,7 +181,7 @@ const readBoundedResponse = async (
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(bytes);
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 };
 
 export interface RepositorySnapshot {
@@ -177,16 +223,30 @@ export async function captureRepositorySnapshot(
   if (options.commitSha) {
     baseSha = commitResponseSchema.parse({ sha: options.commitSha }).sha;
   } else {
-    const commitResponse = await fetcher(
+    const commitResponse = await fetchWithTimeout(
+      fetcher,
       `https://api.github.com/repos/${fullName}/commits/${encodeURIComponent(branch)}`,
       { headers },
+      requestTimeoutMs,
     );
     if (!commitResponse.ok) {
       throw new Error(
         `GitHub commit lookup failed with ${commitResponse.status}.`,
       );
     }
-    baseSha = commitResponseSchema.parse(await commitResponse.json()).sha;
+    let commitJson: unknown;
+    try {
+      commitJson = JSON.parse(
+        await readBoundedResponse(
+          commitResponse,
+          16 * 1024,
+          'GitHub commit response',
+        ),
+      );
+    } catch (error) {
+      throw new Error('GitHub commit response was invalid.', { cause: error });
+    }
+    baseSha = commitResponseSchema.parse(commitJson).sha;
   }
   const raw = async (path: string) => {
     const safePath = assertPath(path);
@@ -203,31 +263,19 @@ export async function captureRepositorySnapshot(
     if (!response.ok) {
       throw new Error(`GitHub source lookup failed for ${safePath}.`);
     }
-    return readBoundedResponse(response, MAXIMUM_FILE_BYTES, safePath);
+    return readBoundedResponse(
+      response,
+      safePath === 'darwin.target.json'
+        ? MAXIMUM_CONFIG_BYTES
+        : MAXIMUM_FILE_BYTES,
+      safePath,
+    );
   };
-  const configResponse = await fetchWithTimeout(
-    fetcher,
-    `https://raw.githubusercontent.com/${fullName}/${baseSha}/darwin.target.json`,
-    {
-      headers: options.githubToken
-        ? { Authorization: `Bearer ${options.githubToken}` }
-        : {},
-    },
-    requestTimeoutMs,
-  );
-  if (!configResponse.ok) {
-    throw new Error('GitHub source lookup failed for darwin.target.json.');
-  }
-  const configText = await readBoundedResponse(
-    configResponse,
-    MAXIMUM_CONFIG_BYTES,
-    'darwin.target.json',
-  );
   let configJson: unknown;
   try {
-    configJson = JSON.parse(configText);
+    configJson = JSON.parse(await raw('darwin.target.json'));
   } catch (error) {
-    throw new Error('darwin.target.json must contain valid JSON.', {
+    throw new Error('darwin.target.json must contain valid bounded JSON.', {
       cause: error,
     });
   }
@@ -239,23 +287,21 @@ export async function captureRepositorySnapshot(
     index < targetConfig.contextPaths.length;
     index += MAXIMUM_CONCURRENT_FETCHES
   ) {
-    const paths = targetConfig.contextPaths.slice(
-      index,
-      index + MAXIMUM_CONCURRENT_FETCHES,
-    );
     const batch = await Promise.all(
-      paths.map(async (path) => {
-        const safePath = assertPath(path);
-        const content = (await raw(safePath))
-          .replaceAll('\r\n', '\n')
-          .trimEnd();
-        if (containsControlCharacter(content, true)) {
-          throw new Error(
-            `Repository context file ${safePath} contains control characters.`,
-          );
-        }
-        return { path: safePath, content };
-      }),
+      targetConfig.contextPaths
+        .slice(index, index + MAXIMUM_CONCURRENT_FETCHES)
+        .map(async (path) => {
+          const safePath = assertPath(path);
+          const content = (await raw(safePath))
+            .replaceAll('\r\n', '\n')
+            .trimEnd();
+          if (containsControlCharacter(content, true)) {
+            throw new Error(
+              `Repository context file ${safePath} contains control characters.`,
+            );
+          }
+          return { path: safePath, content };
+        }),
     );
     for (const source of batch) {
       aggregateBytes += new TextEncoder().encode(source.content).byteLength;

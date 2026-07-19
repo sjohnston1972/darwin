@@ -1,7 +1,14 @@
 import {
+  CodexImplementationManifestSchema,
+  DemoResetExecutionSchema,
+  EvidenceAnalysisSchema,
+  EvidencePackSchema,
   EvolutionCycleSchema,
   FitnessOutcomeSchema,
+  OperationalEventSchema,
+  ProjectFlowWorkspaceSchema,
   RepositoryMutationExecutionSchema,
+  StudyTelemetryEventSchema,
   TargetApplicationConnectionSchema,
   type CodexImplementationManifest,
   type DemoResetExecution,
@@ -21,6 +28,28 @@ import {
   type StudyTelemetryEvent,
   type TargetApplicationConnection,
 } from '@darwin/shared';
+
+interface StoredValueSchema<T> {
+  parse(value: unknown): T;
+}
+
+const safeDiagnosticId = (value: string) =>
+  value.replace(/[^a-zA-Z0-9._:-]/g, '?').slice(0, 128);
+
+const parseStoredValue = <T>(
+  schema: StoredValueSchema<T>,
+  json: string,
+  kind: string,
+  recordId: string,
+) => {
+  try {
+    return schema.parse(JSON.parse(json));
+  } catch {
+    throw new Error(
+      `Stored ${kind} record ${safeDiagnosticId(recordId)} is corrupt.`,
+    );
+  }
+};
 
 import {
   addDeletedCounts,
@@ -276,10 +305,6 @@ const operationalMetricStore = new Map<OperationalMetricName, number>();
 let operationalMetricsUpdatedAt: string | null = null;
 const operationalEventStore = new Map<string, OperationalEvent>();
 let targetConnectionStore: TargetApplicationConnection | null = null;
-let lastRetentionRunAt: string | null = null;
-const retentionPolicyVersion = '2026-07-19.1';
-const rawTelemetryRetentionDays = 30;
-const automatedTelemetryRetentionDays = 14;
 const baselineStudyId = 'projectflow-baseline-study';
 const defaultEvolutionCycle = (): EvolutionCycle => ({
   studyId: baselineStudyId,
@@ -588,9 +613,11 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   }
 
   async saveCodexManifest(manifest: CodexImplementationManifest) {
-    manifestStore.set(manifest.analysisId, manifest);
+    if (!manifestStore.has(manifest.manifestId)) {
+      manifestStore.set(manifest.manifestId, manifest);
+    }
     const lineage = analysisStudyStore.get(manifest.analysisId);
-    if (lineage) manifestStudyStore.set(manifest.analysisId, lineage.studyId);
+    if (lineage) manifestStudyStore.set(manifest.manifestId, lineage.studyId);
   }
 
   async getCodexManifest(analysisId: string) {
@@ -738,78 +765,6 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     );
   }
 
-  async listRepositoryExecutionsPage(
-    limit: number,
-    cursor?: PageCursor | null,
-  ) {
-    const eligible = (await this.listRepositoryExecutions()).filter(
-      (execution) =>
-        !cursor ||
-        execution.updatedAt < cursor.updatedAt ||
-        (execution.updatedAt === cursor.updatedAt &&
-          execution.executionId < cursor.executionId),
-    );
-    const items = eligible.slice(0, limit);
-    const last = items.at(-1);
-    return {
-      items,
-      hasMore: eligible.length > limit,
-      cursor: last
-        ? { updatedAt: last.updatedAt, executionId: last.executionId }
-        : null,
-    };
-  }
-
-  async getObservationArchive(executionId: string) {
-    const execution = await this.getRepositoryExecution(executionId);
-    if (!execution || !['released', 'failed'].includes(execution.status)) {
-      return null;
-    }
-    const analysis = await this.getEvidenceAnalysis(execution.analysisId);
-    if (!analysis) return null;
-    const evidence = await this.getEvidence(analysis.evidenceId);
-    if (!evidence) return null;
-    return {
-      archiveId: execution.executionId,
-      evidence,
-      analysis,
-      execution: {
-        executionId: execution.executionId,
-        manifestId: execution.manifestId,
-        status: execution.status,
-        createdAt: execution.createdAt,
-        completedAt: execution.completedAt,
-      },
-    };
-  }
-
-  async listObservationArchivesPage(limit: number, cursor?: PageCursor | null) {
-    const eligible = (await this.listRepositoryExecutions()).filter(
-      (execution) =>
-        ['released', 'failed'].includes(execution.status) &&
-        (!cursor ||
-          execution.updatedAt < cursor.updatedAt ||
-          (execution.updatedAt === cursor.updatedAt &&
-            execution.executionId < cursor.executionId)),
-    );
-    const executions = eligible.slice(0, limit);
-    const archives = await Promise.all(
-      executions.map((execution) =>
-        this.getObservationArchive(execution.executionId),
-      ),
-    );
-    const last = executions.at(-1);
-    return {
-      items: archives.filter(
-        (archive): archive is ObservationArchive => archive !== null,
-      ),
-      hasMore: eligible.length > limit,
-      cursor: last
-        ? { updatedAt: last.updatedAt, executionId: last.executionId }
-        : null,
-    };
-  }
-
   async saveExecutionCallbackCredential(
     credential: ExecutionCallbackCredential,
   ) {
@@ -874,17 +829,11 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
   }
 
   async getEvolutionCycle() {
-    const retained = [...repositoryExecutionStore.values()].filter(
-      (execution) => execution.status === 'released',
-    );
-    if (!retained.length) return defaultEvolutionCycle();
     return {
-      studyId: baselineStudyId,
-      startedAt: retained.reduce<string | null>((latest, execution) => {
-        const retainedAt = execution.completedAt ?? execution.updatedAt;
-        return !latest || retainedAt > latest ? retainedAt : latest;
-      }, null),
-      genomeEvolutionCount: retained.length,
+      ...evolutionCycleStore,
+      genomeEvolutionCount: [...repositoryExecutionStore.values()].filter(
+        (execution) => execution.status === 'released',
+      ).length,
     };
   }
 
@@ -894,10 +843,13 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
       'startedAt' | 'measuredCommit' | 'appVersion' | 'deploymentVerifiedAt'
     >,
   ) {
+    const releasedCount = [...repositoryExecutionStore.values()].filter(
+      (execution) => execution.status === 'released',
+    ).length;
     evolutionCycleStore = {
       studyId: baselineStudyId,
       ...boundary,
-      genomeEvolutionCount: evolutionCycleStore.genomeEvolutionCount + 1,
+      genomeEvolutionCount: releasedCount,
     };
     return evolutionCycleStore;
   }
@@ -1030,15 +982,15 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
       evidenceAnalysisStore.delete(cacheKey);
       deleted.analyses += 1;
     }
-    for (const [analysisId] of manifestStore) {
+    for (const [manifestId, manifest] of manifestStore) {
       if (
-        !analysisIds.has(analysisId) &&
-        manifestStudyStore.get(analysisId) !== studyId
+        !analysisIds.has(manifest.analysisId) &&
+        manifestStudyStore.get(manifestId) !== studyId
       ) {
         continue;
       }
-      manifestStore.delete(analysisId);
-      manifestStudyStore.delete(analysisId);
+      manifestStore.delete(manifestId);
+      manifestStudyStore.delete(manifestId);
       deleted.manifests += 1;
     }
     for (const [executionId, execution] of repositoryExecutionStore) {
@@ -1141,10 +1093,10 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
         deleted.analyses += 1;
       }
     }
-    for (const [analysisId, manifest] of manifestStore) {
+    for (const [manifestId, manifest] of manifestStore) {
       if (isExpired(manifest.createdAt, policy.fossilRecordDays, now)) {
-        manifestStore.delete(analysisId);
-        manifestStudyStore.delete(analysisId);
+        manifestStore.delete(manifestId);
+        manifestStudyStore.delete(manifestId);
         deleted.manifests += 1;
       }
     }
@@ -1346,9 +1298,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
           policy.maxEventsPerStudy,
         ),
     );
-    const results = statements.length
-      ? await this.database.batch(statements)
-      : [];
+    const results = await this.database.batch(statements);
     const accepted = results.reduce(
       (count, result) => count + (result.meta.changes > 0 ? 1 : 0),
       0,
@@ -1396,26 +1346,24 @@ export class D1TelemetryRepository implements TelemetryRepository {
     receivedAfter?: string | null,
     source?: StudyTelemetryEvent['source'],
   ) {
-    const conditions = ['study_id = ?'];
-    const bindings: Array<string | number> = [studyId];
-    if (source) {
-      conditions.push('source = ?');
-      bindings.push(source);
-    }
-    if (receivedAfter) {
-      conditions.push('received_at > ?');
-      bindings.push(receivedAfter);
-    }
-    bindings.push(limit);
     const result = await this.database
       .prepare(
         `SELECT event_id, event_json, received_at
          FROM telemetry_events
-         WHERE ${conditions.join(' AND ')}
+         WHERE study_id = ?
+           AND (? IS NULL OR source = ?)
+           AND (? IS NULL OR received_at > ?)
          ORDER BY received_at DESC, sequence DESC
          LIMIT ?`,
       )
-      .bind(...bindings)
+      .bind(
+        studyId,
+        source ?? null,
+        source ?? null,
+        receivedAfter ?? null,
+        receivedAfter ?? null,
+        limit,
+      )
       .all<{ event_id: string; event_json: string; received_at: string }>();
 
     return result.results
@@ -1478,7 +1426,12 @@ export class D1TelemetryRepository implements TelemetryRepository {
             received_at: string;
           }>();
     const mapped = result.results.map((row) => ({
-      ...(JSON.parse(row.event_json) as StudyTelemetryEvent),
+      ...parseStoredValue(
+        StudyTelemetryEventSchema,
+        row.event_json,
+        'telemetry event',
+        row.event_id,
+      ),
       receivedAt: row.received_at,
     }));
     return {
@@ -1625,20 +1578,20 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async getLatestEvidence(studyId: string) {
     const row = await this.database
       .prepare(
-        `SELECT evidence_id, evidence_pack_json
+        `SELECT evidence_pack_json
          FROM analysis_runs
          WHERE study_id = ?
          ORDER BY generated_at DESC
          LIMIT 1`,
       )
       .bind(studyId)
-      .first<{ evidence_id: string; evidence_pack_json: string }>();
+      .first<{ evidence_pack_json: string }>();
     return row
       ? parseStoredValue(
           EvidencePackSchema,
           row.evidence_pack_json,
           'evidence pack',
-          row.evidence_id,
+          studyId,
         )
       : null;
   }
@@ -1690,16 +1643,16 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async getEvidenceAnalysisByCacheKey(cacheKey: string) {
     const row = await this.database
       .prepare(
-        `SELECT analysis_id, analysis_json FROM evidence_analyses WHERE cache_key = ?`,
+        `SELECT analysis_json FROM evidence_analyses WHERE cache_key = ?`,
       )
       .bind(cacheKey)
-      .first<{ analysis_id: string; analysis_json: string }>();
+      .first<{ analysis_json: string }>();
     return row
       ? parseStoredValue(
           EvidenceAnalysisSchema,
           row.analysis_json,
           'evidence analysis',
-          row.analysis_id,
+          cacheKey,
         )
       : null;
   }
@@ -1724,20 +1677,20 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async getLatestEvidenceAnalysis(studyId: string) {
     const row = await this.database
       .prepare(
-        `SELECT analysis_id, analysis_json
+        `SELECT analysis_json
          FROM evidence_analyses
          WHERE study_id = ?
          ORDER BY created_at DESC
          LIMIT 1`,
       )
       .bind(studyId)
-      .first<{ analysis_id: string; analysis_json: string }>();
+      .first<{ analysis_json: string }>();
     return row
       ? parseStoredValue(
           EvidenceAnalysisSchema,
           row.analysis_json,
           'evidence analysis',
-          row.analysis_id,
+          studyId,
         )
       : null;
   }
@@ -1753,16 +1706,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
            ?, ?, ?, ?, ?, ?, ?, ?, ?,
            (SELECT study_id FROM evidence_analyses WHERE analysis_id = ?)
          )
-         ON CONFLICT(analysis_id) DO UPDATE SET
-           manifest_id = excluded.manifest_id,
-           mutation_id = excluded.mutation_id,
-           evidence_hash = excluded.evidence_hash,
-           manifest_hash = excluded.manifest_hash,
-           repository_commit = excluded.repository_commit,
-           created_at = excluded.created_at,
-           manifest_json = excluded.manifest_json,
-           expires_at = excluded.expires_at,
-           study_id = COALESCE(excluded.study_id, codex_manifests.study_id)`,
+         ON CONFLICT(manifest_id) DO NOTHING`,
       )
       .bind(
         manifest.manifestId,
@@ -1782,20 +1726,17 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async getCodexManifest(analysisId: string) {
     const versioned = await this.database
       .prepare(
-        `SELECT manifest_id, manifest_json
-         FROM codex_manifest_versions
-         WHERE analysis_id = ?
-         ORDER BY created_at DESC
-         LIMIT 1`,
+        `SELECT manifest_json FROM codex_manifest_versions
+         WHERE analysis_id = ? ORDER BY created_at DESC LIMIT 1`,
       )
       .bind(analysisId)
-      .first<{ manifest_id: string; manifest_json: string }>();
+      .first<{ manifest_json: string }>();
     if (versioned) {
       return parseStoredValue(
         CodexImplementationManifestSchema,
         versioned.manifest_json,
         'Codex manifest',
-        versioned.manifest_id,
+        analysisId,
       );
     }
     const legacy = await this.database
@@ -1817,9 +1758,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async getCodexManifestById(manifestId: string) {
     const versioned = await this.database
       .prepare(
-        `SELECT manifest_json
-         FROM codex_manifest_versions
-         WHERE manifest_id = ?`,
+        `SELECT manifest_json FROM codex_manifest_versions WHERE manifest_id = ?`,
       )
       .bind(manifestId)
       .first<{ manifest_json: string }>();
@@ -1935,34 +1874,6 @@ export class D1TelemetryRepository implements TelemetryRepository {
     return (result.meta.changes ?? 0) === 1;
   }
 
-  async compareAndSwapRepositoryExecution(
-    expected: RepositoryMutationExecution,
-    next: RepositoryMutationExecution,
-  ) {
-    const parsedExpected = RepositoryMutationExecutionSchema.parse(expected);
-    const persisted = RepositoryMutationExecutionSchema.parse({
-      ...next,
-      version: parsedExpected.version + 1,
-    });
-    const result = await this.database
-      .prepare(
-        `UPDATE repository_executions
-         SET status = ?, updated_at = ?, version = ?, execution_json = ?
-         WHERE execution_id = ? AND status = ? AND version = ?`,
-      )
-      .bind(
-        persisted.status,
-        persisted.updatedAt,
-        persisted.version,
-        JSON.stringify(persisted),
-        parsedExpected.executionId,
-        parsedExpected.status,
-        parsedExpected.version,
-      )
-      .run();
-    return (result.meta.changes ?? 0) === 1 ? persisted : null;
-  }
-
   private async findRepositoryExecution(where: string, value: string) {
     const row = await this.database
       .prepare(
@@ -1972,7 +1883,12 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .first<{ execution_json: string; revision: number }>();
     return row
       ? RepositoryMutationExecutionSchema.parse({
-          ...(JSON.parse(row.execution_json) as RepositoryMutationExecution),
+          ...parseStoredValue(
+            RepositoryMutationExecutionSchema,
+            row.execution_json,
+            'repository execution',
+            value,
+          ),
           revision: row.revision,
         })
       : null;
@@ -1996,9 +1912,14 @@ export class D1TelemetryRepository implements TelemetryRepository {
         `SELECT execution_json, revision FROM repository_executions ORDER BY updated_at DESC`,
       )
       .all<{ execution_json: string; revision: number }>();
-    return result.results.map((row) =>
+    return result.results.map((row, index) =>
       RepositoryMutationExecutionSchema.parse({
-        ...(JSON.parse(row.execution_json) as RepositoryMutationExecution),
+        ...parseStoredValue(
+          RepositoryMutationExecutionSchema,
+          row.execution_json,
+          'repository execution',
+          `list:${index}`,
+        ),
         revision: row.revision,
       }),
     );
@@ -2010,7 +1931,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       ? `WHERE updated_at < ? OR (updated_at = ? AND execution_id < ?)`
       : '';
     const statement = this.database.prepare(
-      `SELECT execution_json
+      `SELECT execution_id, execution_json
        FROM repository_executions
        ${cursorClause}
        ORDER BY updated_at DESC, execution_id DESC
@@ -2024,9 +1945,17 @@ export class D1TelemetryRepository implements TelemetryRepository {
           options.limit + 1,
         )
       : statement.bind(options.limit + 1);
-    const result = await bound.all<{ execution_json: string }>();
-    const executions = result.results.map(
-      (row) => JSON.parse(row.execution_json) as RepositoryMutationExecution,
+    const result = await bound.all<{
+      execution_id: string;
+      execution_json: string;
+    }>();
+    const executions = result.results.map((row) =>
+      parseStoredValue(
+        RepositoryMutationExecutionSchema,
+        row.execution_json,
+        'repository execution',
+        row.execution_id,
+      ),
     );
     const page = executions.slice(0, options.limit);
     return {
@@ -2041,7 +1970,8 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async getObservationArchive(executionId: string) {
     const row = await this.database
       .prepare(
-        `SELECT r.execution_json, a.analysis_json, e.evidence_pack_json
+        `SELECT r.execution_id, r.execution_json, a.analysis_id,
+                a.analysis_json, e.evidence_id, e.evidence_pack_json
          FROM repository_executions r
          JOIN evidence_analyses a ON a.analysis_id = r.analysis_id
          JOIN analysis_runs e ON e.evidence_id = a.evidence_id
@@ -2050,17 +1980,33 @@ export class D1TelemetryRepository implements TelemetryRepository {
       )
       .bind(executionId)
       .first<{
+        execution_id: string;
         execution_json: string;
+        analysis_id: string;
         analysis_json: string;
+        evidence_id: string;
         evidence_pack_json: string;
       }>();
     return row
       ? {
-          execution: JSON.parse(
+          execution: parseStoredValue(
+            RepositoryMutationExecutionSchema,
             row.execution_json,
-          ) as RepositoryMutationExecution,
-          analysis: JSON.parse(row.analysis_json) as EvidenceAnalysis,
-          evidence: JSON.parse(row.evidence_pack_json) as EvidencePack,
+            'repository execution',
+            row.execution_id,
+          ),
+          analysis: parseStoredValue(
+            EvidenceAnalysisSchema,
+            row.analysis_json,
+            'evidence analysis',
+            row.analysis_id,
+          ),
+          evidence: parseStoredValue(
+            EvidencePackSchema,
+            row.evidence_pack_json,
+            'evidence pack',
+            row.evidence_id,
+          ),
         }
       : null;
   }
@@ -2071,7 +2017,8 @@ export class D1TelemetryRepository implements TelemetryRepository {
       ? `AND (r.updated_at < ? OR (r.updated_at = ? AND r.execution_id < ?))`
       : '';
     const statement = this.database.prepare(
-      `SELECT r.execution_json, a.analysis_json, e.evidence_pack_json
+      `SELECT r.execution_id, r.execution_json, a.analysis_id,
+              a.analysis_json, e.evidence_id, e.evidence_pack_json
        FROM repository_executions r
        JOIN evidence_analyses a ON a.analysis_id = r.analysis_id
        JOIN analysis_runs e ON e.evidence_id = a.evidence_id
@@ -2088,14 +2035,32 @@ export class D1TelemetryRepository implements TelemetryRepository {
         )
       : statement.bind(options.limit + 1);
     const result = await bound.all<{
+      execution_id: string;
       execution_json: string;
+      analysis_id: string;
       analysis_json: string;
+      evidence_id: string;
       evidence_pack_json: string;
     }>();
     const records = result.results.map((row) => ({
-      execution: JSON.parse(row.execution_json) as RepositoryMutationExecution,
-      analysis: JSON.parse(row.analysis_json) as EvidenceAnalysis,
-      evidence: JSON.parse(row.evidence_pack_json) as EvidencePack,
+      execution: parseStoredValue(
+        RepositoryMutationExecutionSchema,
+        row.execution_json,
+        'repository execution',
+        row.execution_id,
+      ),
+      analysis: parseStoredValue(
+        EvidenceAnalysisSchema,
+        row.analysis_json,
+        'evidence analysis',
+        row.analysis_id,
+      ),
+      evidence: parseStoredValue(
+        EvidencePackSchema,
+        row.evidence_pack_json,
+        'evidence pack',
+        row.evidence_id,
+      ),
     }));
     const archives = records.slice(0, options.limit);
     return {
@@ -2134,16 +2099,30 @@ export class D1TelemetryRepository implements TelemetryRepository {
       )
       .bind(resetId)
       .first<{ execution_json: string }>();
-    return row ? (JSON.parse(row.execution_json) as DemoResetExecution) : null;
+    return row
+      ? parseStoredValue(
+          DemoResetExecutionSchema,
+          row.execution_json,
+          'reset execution',
+          resetId,
+        )
+      : null;
   }
 
   async getLatestResetExecution() {
     const row = await this.database
       .prepare(
-        'SELECT execution_json FROM reset_executions ORDER BY updated_at DESC, rowid DESC LIMIT 1',
+        'SELECT reset_id, execution_json FROM reset_executions ORDER BY updated_at DESC, rowid DESC LIMIT 1',
       )
-      .first<{ execution_json: string }>();
-    return row ? (JSON.parse(row.execution_json) as DemoResetExecution) : null;
+      .first<{ reset_id: string; execution_json: string }>();
+    return row
+      ? parseStoredValue(
+          DemoResetExecutionSchema,
+          row.execution_json,
+          'reset execution',
+          row.reset_id,
+        )
+      : null;
   }
 
   async saveFitnessOutcome(outcome: FitnessOutcome) {
@@ -2177,190 +2156,29 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .bind(`fitness-${executionId}`)
       .first<{ validation_json: string }>();
     return row
-      ? FitnessOutcomeSchema.parse(JSON.parse(row.validation_json))
+      ? parseStoredValue(
+          FitnessOutcomeSchema,
+          row.validation_json,
+          'fitness outcome',
+          `fitness-${executionId}`,
+        )
       : null;
   }
 
   async listFitnessOutcomes() {
     const result = await this.database
       .prepare(
-        'SELECT validation_json FROM outcome_validations ORDER BY generated_at DESC',
+        'SELECT validation_id, validation_json FROM outcome_validations ORDER BY generated_at DESC',
       )
-      .all<{ validation_json: string }>();
+      .all<{ validation_id: string; validation_json: string }>();
     return result.results.map((row) =>
-      FitnessOutcomeSchema.parse(JSON.parse(row.validation_json)),
+      parseStoredValue(
+        FitnessOutcomeSchema,
+        row.validation_json,
+        'fitness outcome',
+        row.validation_id,
+      ),
     );
-  }
-
-  async listRepositoryExecutionsPage(
-    limit: number,
-    cursor?: PageCursor | null,
-  ) {
-    const statement = cursor
-      ? this.database
-          .prepare(
-            `SELECT execution_id, execution_json
-             FROM repository_executions
-             WHERE updated_at < ? OR (updated_at = ? AND execution_id < ?)
-             ORDER BY updated_at DESC, execution_id DESC LIMIT ?`,
-          )
-          .bind(
-            cursor.updatedAt,
-            cursor.updatedAt,
-            cursor.executionId,
-            limit + 1,
-          )
-      : this.database
-          .prepare(
-            `SELECT execution_id, execution_json
-             FROM repository_executions
-             ORDER BY updated_at DESC, execution_id DESC LIMIT ?`,
-          )
-          .bind(limit + 1);
-    const result = await statement.all<{
-      execution_id: string;
-      execution_json: string;
-    }>();
-    const items = result.results
-      .slice(0, limit)
-      .map((row) =>
-        parseStoredValue(
-          RepositoryMutationExecutionSchema,
-          row.execution_json,
-          'repository execution',
-          row.execution_id,
-        ),
-      );
-    const last = items.at(-1);
-    return {
-      items,
-      hasMore: result.results.length > limit,
-      cursor: last
-        ? { updatedAt: last.updatedAt, executionId: last.executionId }
-        : null,
-    };
-  }
-
-  private parseObservationArchiveRow(row: {
-    execution_id: string;
-    execution_json: string;
-    analysis_id: string;
-    analysis_json: string;
-    evidence_id: string;
-    evidence_pack_json: string;
-  }): ObservationArchive {
-    const execution = parseStoredValue(
-      RepositoryMutationExecutionSchema,
-      row.execution_json,
-      'repository execution',
-      row.execution_id,
-    );
-    const analysis = parseStoredValue(
-      EvidenceAnalysisSchema,
-      row.analysis_json,
-      'evidence analysis',
-      row.analysis_id,
-    );
-    const evidence = parseStoredValue(
-      EvidencePackSchema,
-      row.evidence_pack_json,
-      'evidence pack',
-      row.evidence_id,
-    );
-    return {
-      archiveId: execution.executionId,
-      evidence,
-      analysis,
-      execution: {
-        executionId: execution.executionId,
-        manifestId: execution.manifestId,
-        status: execution.status,
-        createdAt: execution.createdAt,
-        completedAt: execution.completedAt,
-      },
-    };
-  }
-
-  async getObservationArchive(executionId: string) {
-    const row = await this.database
-      .prepare(
-        `SELECT re.execution_id, re.execution_json,
-                ea.analysis_id, ea.analysis_json,
-                ar.evidence_id, ar.evidence_pack_json
-         FROM repository_executions re
-         JOIN evidence_analyses ea ON ea.analysis_id = re.analysis_id
-         JOIN analysis_runs ar ON ar.evidence_id = ea.evidence_id
-         WHERE re.execution_id = ? AND re.status IN ('released', 'failed')
-         LIMIT 1`,
-      )
-      .bind(executionId)
-      .first<{
-        execution_id: string;
-        execution_json: string;
-        analysis_id: string;
-        analysis_json: string;
-        evidence_id: string;
-        evidence_pack_json: string;
-      }>();
-    return row ? this.parseObservationArchiveRow(row) : null;
-  }
-
-  async listObservationArchivesPage(limit: number, cursor?: PageCursor | null) {
-    const select = `SELECT re.execution_id, re.execution_json,
-                           ea.analysis_id, ea.analysis_json,
-                           ar.evidence_id, ar.evidence_pack_json
-                    FROM repository_executions re
-                    JOIN evidence_analyses ea ON ea.analysis_id = re.analysis_id
-                    JOIN analysis_runs ar ON ar.evidence_id = ea.evidence_id
-                    WHERE re.status IN ('released', 'failed')`;
-    const statement = cursor
-      ? this.database
-          .prepare(
-            `${select}
-             AND (re.updated_at < ? OR
-                  (re.updated_at = ? AND re.execution_id < ?))
-             ORDER BY re.updated_at DESC, re.execution_id DESC LIMIT ?`,
-          )
-          .bind(
-            cursor.updatedAt,
-            cursor.updatedAt,
-            cursor.executionId,
-            limit + 1,
-          )
-      : this.database
-          .prepare(
-            `${select}
-             ORDER BY re.updated_at DESC, re.execution_id DESC LIMIT ?`,
-          )
-          .bind(limit + 1);
-    const result = await statement.all<{
-      execution_id: string;
-      execution_json: string;
-      analysis_id: string;
-      analysis_json: string;
-      evidence_id: string;
-      evidence_pack_json: string;
-    }>();
-    const pageRows = result.results.slice(0, limit);
-    const items = pageRows.map((row) => this.parseObservationArchiveRow(row));
-    const lastExecution = pageRows.at(-1)
-      ? parseStoredValue(
-          RepositoryMutationExecutionSchema,
-          pageRows.at(-1)!.execution_json,
-          'repository execution',
-          pageRows.at(-1)!.execution_id,
-        )
-      : null;
-    return {
-      items,
-      hasMore: result.results.length > limit,
-      cursor: lastExecution
-        ? {
-            updatedAt: lastExecution.updatedAt,
-            executionId: lastExecution.executionId,
-          }
-        : null,
-    };
   }
 
   async saveExecutionCallbackCredential(
@@ -2496,39 +2314,61 @@ export class D1TelemetryRepository implements TelemetryRepository {
   }
 
   async getEvolutionCycle() {
-    const row = await this.database
-      .prepare('SELECT state_json FROM demo_state WHERE state_key = ?')
-      .bind('evolution-cycle')
-      .first<{ state_json: string }>();
-    if (row) {
-      try {
-        const parsed = EvolutionCycleSchema.safeParse(
-          JSON.parse(row.state_json),
-        );
-        if (parsed.success) return parsed.data;
-      } catch {
-        // Fall through to the retained-release compatibility path.
-      }
-    }
-    const retained = (await this.listRepositoryExecutions()).filter(
-      (execution) => execution.status === 'released',
+    const [stateResult, countResult] = await this.database.batch([
+      this.database
+        .prepare('SELECT state_json FROM demo_state WHERE state_key = ?')
+        .bind('evolution-cycle'),
+      this.database.prepare(
+        `SELECT COUNT(*) AS released_count
+         FROM repository_executions
+         WHERE status = 'released'`,
+      ),
+    ]);
+    const row = stateResult?.results[0] as { state_json: string } | undefined;
+    const releasedCount = Number(
+      (countResult?.results[0] as { released_count?: number } | undefined)
+        ?.released_count ?? 0,
     );
-    if (!retained.length) return defaultEvolutionCycle();
+    if (row) {
+      const stored = parseStoredValue(
+        EvolutionCycleSchema,
+        row.state_json,
+        'evolution cycle',
+        'evolution-cycle',
+      );
+      return { ...stored, genomeEvolutionCount: releasedCount };
+    }
+    if (!releasedCount) return defaultEvolutionCycle();
+    const latestRow = await this.database
+      .prepare(
+        `SELECT execution_id, execution_json, revision
+         FROM repository_executions
+         WHERE status = 'released'
+         ORDER BY updated_at DESC, execution_id DESC
+         LIMIT 1`,
+      )
+      .first<{
+        execution_id: string;
+        execution_json: string;
+        revision: number;
+      }>();
+    if (!latestRow) return defaultEvolutionCycle();
+    const latest = RepositoryMutationExecutionSchema.parse({
+      ...parseStoredValue(
+        RepositoryMutationExecutionSchema,
+        latestRow.execution_json,
+        'repository execution',
+        latestRow.execution_id,
+      ),
+      revision: latestRow.revision,
+    });
     return {
       studyId: baselineStudyId,
-      startedAt: retained.reduce(
-        (latest, execution) =>
-          !latest || (execution.completedAt ?? execution.updatedAt) > latest
-            ? (execution.completedAt ?? execution.updatedAt)
-            : latest,
-        null as string | null,
-      ),
-      genomeEvolutionCount: retained.length,
-      measuredCommit: retained[0]?.headSha ?? null,
-      appVersion:
-        retained[0]?.deploymentVerification?.expectedAppVersion ?? null,
-      deploymentVerifiedAt:
-        retained[0]?.deploymentVerification?.verifiedAt ?? null,
+      startedAt: latest.updatedAt,
+      genomeEvolutionCount: releasedCount,
+      measuredCommit: latest.headSha ?? null,
+      appVersion: latest.deploymentVerification?.expectedAppVersion ?? null,
+      deploymentVerifiedAt: latest.deploymentVerification?.verifiedAt ?? null,
     };
   }
 
@@ -2539,10 +2379,19 @@ export class D1TelemetryRepository implements TelemetryRepository {
     >,
   ) {
     const current = await this.getEvolutionCycle();
+    const countRow = await this.database
+      .prepare(
+        `SELECT COUNT(*) AS released_count
+         FROM repository_executions
+         WHERE status = 'released'`,
+      )
+      .first<{ released_count: number }>();
     const next: EvolutionCycle = {
       studyId: baselineStudyId,
       ...boundary,
-      genomeEvolutionCount: current.genomeEvolutionCount + 1,
+      genomeEvolutionCount: Number(
+        countRow?.released_count ?? current.genomeEvolutionCount,
+      ),
     };
     await this.database
       .prepare(
@@ -2589,12 +2438,14 @@ export class D1TelemetryRepository implements TelemetryRepository {
          ORDER BY connected_at DESC
          LIMIT 1`,
       )
-      .first<{ connection_json: string }>();
+      .first<{ connection_id: string; connection_json: string }>();
     if (!row) return null;
-    const parsed = TargetApplicationConnectionSchema.safeParse(
-      JSON.parse(row.connection_json),
+    return parseStoredValue(
+      TargetApplicationConnectionSchema,
+      row.connection_json,
+      'target connection',
+      row.connection_id,
     );
-    return parsed.success ? parsed.data : null;
   }
 
   async saveTargetConnection(connection: TargetApplicationConnection) {
@@ -2648,6 +2499,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
              (SELECT COUNT(*) FROM analysis_runs WHERE expires_at <= ?) +
              (SELECT COUNT(*) FROM evidence_analyses WHERE expires_at <= ?) +
              (SELECT COUNT(*) FROM codex_manifests WHERE expires_at <= ?) +
+             (SELECT COUNT(*) FROM codex_manifest_versions WHERE expires_at <= ?) +
              (SELECT COUNT(*) FROM outcome_validations WHERE expires_at <= ?) +
              (SELECT COUNT(*) FROM repository_executions
                 WHERE record_expires_at <= ?
@@ -2655,7 +2507,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
              (SELECT COUNT(*) FROM execution_callback_credentials WHERE expires_at <= ?)
              AS expired_record_count`,
         )
-        .bind(now, now, now, now, now, now, now, now, now)
+        .bind(now, now, now, now, now, now, now, now, now, now)
         .first<{ expired_record_count: number }>(),
       this.database
         .prepare(
@@ -2719,6 +2571,12 @@ export class D1TelemetryRepository implements TelemetryRepository {
         .bind(studyId),
       this.database
         .prepare(
+          `DELETE FROM codex_manifest_versions
+           WHERE study_id = ?`,
+        )
+        .bind(studyId),
+      this.database
+        .prepare(
           `DELETE FROM outcome_validations
            WHERE study_id = ? OR baseline_evidence_hash IN (
              SELECT evidence_hash FROM analysis_runs WHERE study_id = ?
@@ -2738,10 +2596,11 @@ export class D1TelemetryRepository implements TelemetryRepository {
       callbackArtifacts:
         (results[0]?.meta.changes ?? 0) + (results[1]?.meta.changes ?? 0),
       executions: results[2]?.meta.changes ?? 0,
-      manifests: results[3]?.meta.changes ?? 0,
-      validations: results[4]?.meta.changes ?? 0,
-      analyses: results[5]?.meta.changes ?? 0,
-      evidencePacks: results[6]?.meta.changes ?? 0,
+      manifests:
+        (results[3]?.meta.changes ?? 0) + (results[4]?.meta.changes ?? 0),
+      validations: results[5]?.meta.changes ?? 0,
+      analyses: results[6]?.meta.changes ?? 0,
+      evidencePacks: results[7]?.meta.changes ?? 0,
     });
   }
 
@@ -2817,9 +2676,12 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .all<{ execution_id: string; execution_json: string }>();
     let compactedExecutions = 0;
     const compactionStatements = compactable.results.map((row) => {
-      const execution = JSON.parse(
+      const execution = parseStoredValue(
+        RepositoryMutationExecutionSchema,
         row.execution_json,
-      ) as RepositoryMutationExecution;
+        'repository execution',
+        row.execution_id,
+      );
       if (executionHasLargeArtifacts(execution)) compactedExecutions += 1;
       return this.database
         .prepare(
@@ -2864,6 +2726,9 @@ export class D1TelemetryRepository implements TelemetryRepository {
         .prepare('DELETE FROM codex_manifests WHERE expires_at <= ?')
         .bind(now),
       this.database
+        .prepare('DELETE FROM codex_manifest_versions WHERE expires_at <= ?')
+        .bind(now),
+      this.database
         .prepare('DELETE FROM evidence_analyses WHERE expires_at <= ?')
         .bind(now),
       this.database
@@ -2886,12 +2751,13 @@ export class D1TelemetryRepository implements TelemetryRepository {
       callbackArtifacts:
         (results[0]?.meta.changes ?? 0) + (results[1]?.meta.changes ?? 0),
       executions: results[2]?.meta.changes ?? 0,
-      manifests: results[3]?.meta.changes ?? 0,
-      analyses: results[4]?.meta.changes ?? 0,
-      evidencePacks: results[5]?.meta.changes ?? 0,
-      validations: results[6]?.meta.changes ?? 0,
-      workspaces: results[7]?.meta.changes ?? 0,
-      telemetryEvents: results[8]?.meta.changes ?? 0,
+      manifests:
+        (results[3]?.meta.changes ?? 0) + (results[4]?.meta.changes ?? 0),
+      analyses: results[5]?.meta.changes ?? 0,
+      evidencePacks: results[6]?.meta.changes ?? 0,
+      validations: results[7]?.meta.changes ?? 0,
+      workspaces: results[8]?.meta.changes ?? 0,
+      telemetryEvents: results[9]?.meta.changes ?? 0,
     });
     const result: RetentionSweepResult = {
       status: 'completed',
@@ -2956,7 +2822,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async listOperationalAuditEvents(limit: number) {
     const result = await this.database
       .prepare(
-        `SELECT event_json
+        `SELECT event_id, event_json
          FROM operational_events
          WHERE kind = 'audit'
            AND datetime(occurred_at) >= datetime('now', '-30 days')
@@ -2964,9 +2830,14 @@ export class D1TelemetryRepository implements TelemetryRepository {
          LIMIT ?`,
       )
       .bind(limit)
-      .all<{ event_json: string }>();
-    return result.results.map(
-      (row) => JSON.parse(row.event_json) as OperationalEvent,
+      .all<{ event_id: string; event_json: string }>();
+    return result.results.map((row) =>
+      parseStoredValue(
+        OperationalEventSchema,
+        row.event_json,
+        'operational event',
+        row.event_id,
+      ),
     );
   }
 
@@ -3013,6 +2884,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       this.database.prepare('DELETE FROM analysis_runs'),
       this.database.prepare('DELETE FROM evidence_analyses'),
       this.database.prepare('DELETE FROM codex_manifests'),
+      this.database.prepare('DELETE FROM codex_manifest_versions'),
       this.database.prepare('DELETE FROM repository_executions'),
       this.database.prepare('DELETE FROM execution_callback_signatures'),
       this.database.prepare('DELETE FROM execution_callback_credentials'),

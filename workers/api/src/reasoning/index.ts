@@ -465,15 +465,9 @@ function normalizeCandidateScore(
     pack.quality.dimensions.weakestScore,
     Math.round(recurrence),
   );
-  const modelDimensions = [
-    candidate.scorecard.userImpact,
-    candidate.scorecard.feasibility,
-    candidate.scorecard.validationClarity,
-  ];
-  const scale = modelDimensions.every((score) => score <= 5) ? 20 : 1;
-  const userImpact = candidate.scorecard.userImpact * scale;
-  const feasibility = candidate.scorecard.feasibility * scale;
-  const validationClarity = candidate.scorecard.validationClarity * scale;
+  const userImpact = candidate.scorecard.userImpact;
+  const feasibility = candidate.scorecard.feasibility;
+  const validationClarity = candidate.scorecard.validationClarity;
   const total = Math.round(
     evidenceStrength * 0.35 +
       userImpact * 0.25 +
@@ -655,6 +649,20 @@ export async function analyseEvidence(
   }
 
   return EvidenceAnalysisSchema.parse({
+    provenance: {
+      ...(pack.provenance ?? {
+        evidenceClass: 'legacy' as const,
+        label: 'Unknown / legacy',
+        labExperimentId: null,
+        taskDefinitionId: null,
+        taskDefinitionHash: null,
+        evidencePackId: null,
+        evidenceHash: null,
+        runIds: [],
+      }),
+      evidencePackId: pack.evidenceId,
+      evidenceHash: pack.evidenceHash,
+    },
     analysisId: `analysis-${cacheKey.slice(0, 12)}`,
     evidenceId: pack.evidenceId,
     evidenceHash: pack.evidenceHash,
@@ -671,11 +679,6 @@ export async function analyseEvidence(
         : { cachedTokens: liveResult.cachedTokens }),
     },
     createdAt: options.createdAt ?? new Date().toISOString(),
-    provenance: {
-      ...pack.provenance,
-      evidencePackId: pack.evidenceId,
-      evidenceHash: pack.evidenceHash,
-    },
     ...(options.repositorySnapshot
       ? { repository: options.repositorySnapshot.context }
       : {}),
@@ -686,7 +689,16 @@ export async function analyseEvidence(
     selectedMutation: {
       ...validated.selectedMutation,
       provenance: {
-        ...pack.provenance,
+        ...(pack.provenance ?? {
+          evidenceClass: 'legacy' as const,
+          label: 'Unknown / legacy',
+          labExperimentId: null,
+          taskDefinitionId: null,
+          taskDefinitionHash: null,
+          evidencePackId: null,
+          evidenceHash: null,
+          runIds: [],
+        }),
         evidencePackId: pack.evidenceId,
         evidenceHash: pack.evidenceHash,
       },
@@ -694,7 +706,16 @@ export async function analyseEvidence(
     alternatives: validated.alternatives.map((mutation) => ({
       ...mutation,
       provenance: {
-        ...pack.provenance,
+        ...(pack.provenance ?? {
+          evidenceClass: 'legacy' as const,
+          label: 'Unknown / legacy',
+          labExperimentId: null,
+          taskDefinitionId: null,
+          taskDefinitionHash: null,
+          evidencePackId: null,
+          evidenceHash: null,
+          runIds: [],
+        }),
         evidencePackId: pack.evidenceId,
         evidenceHash: pack.evidenceHash,
       },
@@ -725,7 +746,7 @@ export async function buildCodexManifest(
           )
           .join('\n\n');
   const payload = {
-    provenance: analysis.provenance,
+    ...(analysis.provenance ? { provenance: analysis.provenance } : {}),
     analysisId: analysis.analysisId,
     mutationId: mutationIds[0]!,
     mutationIds,

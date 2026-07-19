@@ -65,16 +65,17 @@ The evidence inspector shows persisted events, sessions, anonymous participants,
 
 ### Darwin Lab
 
-Darwin Lab runs a bounded automated population of 1–20 inexpensive AI agents
-against the verified real ProjectFlow deployment in isolated Playwright browser
-contexts. Each agent receives a fresh
+Darwin Lab runs a bounded population of 8–20 AI browser workers against the
+real ProjectFlow application. Each worker receives a fresh
 browser context, an accessibility snapshot, a persona, and strict action and
 time budgets. The hidden task oracle is evaluated by the browser runner and is
 never included in the agent prompt.
 
-Agent traces, deterministic `L-EV-*` friction records, evidence hashes, GPT-5.6
+These are real target interactions and inspectable observations, not a
+simulation. Agent traces, deterministic `L-EV-*` friction records, evidence hashes, GPT-5.6
 population analysis, and operator selection live in a separate Lab section.
-They never enter measured human cohorts or measured fitness.
+They carry an immutable **Darwin Lab** provenance chip and never enter measured
+human cohorts or measured fitness.
 
 When a recurring Lab failure is worth retaining, the operator can promote it
 to a behavioural eval (`BE-###`). The eval preserves the goal, hidden oracle
@@ -95,7 +96,7 @@ Darwin and ProjectFlow are separate repositories and deployments. Darwin owns ob
 ```mermaid
 flowchart LR
   U[Measured ProjectFlow session] --> TC[Telemetry client]
-  LA[Darwin Lab browser agents] -->|automated Darwin Lab provenance| TC
+  LA[Darwin Lab browser workers] -->|automated Darwin Lab provenance| TC
   TC --> API[Cloudflare Worker API]
   API --> D1[(Cloudflare D1)]
   D1 --> EE[Deterministic evidence engine]
@@ -140,12 +141,12 @@ npm run simulate -- --seed=1859 --variant=baseline
 It produces exactly 10,000 deterministic **synthetic** events. Scale-replay
 events never enter measured evidence and are never presented as real users.
 
-Darwin Lab is a separate real-target automated observation path. Its browser
-events use a Lab-specific study/experiment/run identity, `source: automated`,
-and immutable **Darwin Lab** provenance. After validated raw ingestion, those
-records are eligible only for Lab evidence and automated fitness; they remain
-excluded from measured human cohorts, participant counts, evidence, and fitness.
-Only the seeded 10,000-event Scale replay is called a simulation.
+Darwin Lab is a separate real-target automation path. Its browser events use an
+experiment-scoped study ID, `source: automated`, and a signed provenance record
+that binds the task definition, experiment, and run IDs. After validated raw
+ingestion, those records are eligible only for Lab-specific `L-EV-*` detectors
+and remain excluded from measured human cohorts, evidence, and fitness. Only
+the explicitly labelled scale replay is simulated.
 
 Measured fitness is calculated only by the Worker after a released mutation has a distinct, compatible evolved evidence pack. Formula `1.0.0` weights task completion (30%), navigation efficiency (25%), error rate (15%), feature discovery (15%), and median duration (15%). Each cohort must cover all three fixed tasks with at least three terminal attempts, sessions, and anonymous participants. Darwin persists both evidence hashes, cohort identity, component scores, limitations, and the aggregate 0-100 scores; it emits no score when a gate fails and invalidates the comparison after a released rollback.
 
@@ -287,7 +288,7 @@ The full script, failure branches, and reset checklist are in the [Demo Runbook]
 
 ## Security status
 
-This is a public Build Week proof of life, locked to one configured ProjectFlow target. The control plane requires capability-scoped operator authorization, protected responses are non-cacheable, ProjectFlow submits HMAC-signed telemetry through a narrow same-origin gateway, repository callbacks are execution-scoped and replay-protected, and the simulator is authenticated and resource-bounded. It is **not ready to connect to a production repository or private customer telemetry** while retention, CSP, and CI hardening remain open.
+This is a public Build Week proof of life, locked to one configured ProjectFlow target. The control plane requires capability-scoped operator authorization, protected responses are non-cacheable, ProjectFlow submits HMAC-signed telemetry through a narrow same-origin gateway, repository callbacks are execution-scoped and replay-protected, retention is enforced, and the scale replay is authenticated and resource-bounded. It is intentionally a controlled, human-approved ProjectFlow MVP, not a general production autonomy platform or a system for private customer telemetry.
 
 Start with [Security and Privacy](docs/wiki/Security-and-Privacy.md) and the [open security issues](https://github.com/sjohnston1972/darwin/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity).
 

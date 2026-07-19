@@ -11,7 +11,7 @@ Measured-flow JSON contracts are defined in [`packages/shared/src/contracts.ts`]
 
 ## Access boundaries
 
-`GET /api/health` is deliberately public. `GET /api/auth/session` validates the current operator credential. Control-plane routes require `Authorization: Bearer <DARWIN_OPERATOR_TOKEN>` and enforce a capability such as observe, inspect evidence, reason, execute, release, reset, connect, or simulate.
+`GET /api/health` is deliberately public. `GET /api/auth/session` validates the current operator credential. Control-plane routes require `Authorization: Bearer <DARWIN_OPERATOR_TOKEN>` and enforce a capability such as observe, inspect evidence, reason, execute, release, reset, delete data, connect, or simulate.
 
 ProjectFlow telemetry and participant-workspace routes require a signed target request derived from `PROJECTFLOW_INGESTION_SECRET`. Repository workflow routes require execution-scoped signatures derived from `DARWIN_CALLBACK_TOKEN`. Protected responses use `Cache-Control: no-store`.
 
@@ -69,7 +69,7 @@ The default events response contains only total event, session, participant, and
 | DELETE | `/api/studies/:studyId`                             | delete one study and its derived artifacts           |
 | DELETE | `/api/repository-executions/:executionId/artifacts` | delete one execution and callback material           |
 
-These routes require the `reset` capability. They return aggregate deletion counts and never return deleted content. See [Data retention and deletion](../RETENTION.md) for lifetimes and quota defaults.
+These routes require the `delete_data` capability. They return aggregate deletion counts and never return deleted content. See [Data retention and deletion](../RETENTION.md) for lifetimes and quota defaults.
 
 The initial `/events/raw` response returns the most recent bounded window and an opaque `cursor`. Reuse that cursor to receive only later events. `hasMore: true` means another immediate delta is available; an empty delta retains the same cursor. Cursors combine receive time and event ID so events received in the same millisecond are not dropped.
 
@@ -91,7 +91,6 @@ The evidence endpoint builds deterministic measured evidence before GPT is avail
 | POST   | `/api/repository-executions/:executionId/fitness`             | calculate/persist fitness      |
 | POST   | `/api/repository-executions/:executionId/rollback`            | dispatch rollback workflow     |
 | POST   | `/api/repository-executions/:executionId/rollback/release`    | merge reviewed rollback PR     |
-| POST   | `/api/repository-executions/:executionId/recovery/force-fail` | force-fail a workflow stranded for 15 minutes   |
 
 Manifest selection accepts one or more supported mutation IDs:
 
@@ -110,36 +109,29 @@ Fitness calculation requires a released execution, its archived baseline evidenc
 ## Behavioural CI
 
 Behavioural evals are retained, outcome-based acceptance contracts created from
-recurring synthetic Lab failures. They preserve the goal, oracle boundary,
+recurring automated Lab failures. They preserve the goal, oracle boundary,
 thresholds, seed, target snapshot, and supporting evidence IDs for future
 Codex validation.
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| GET | `/api/behavioural-evals` | list retained behavioural acceptance tests |
-| POST | `/api/lab/experiments/:experimentId/promote-eval` | promote completed synthetic evidence into an eval |
+| Method | Route                                             | Purpose                                            |
+| ------ | ------------------------------------------------- | -------------------------------------------------- |
+| GET    | `/api/behavioural-evals`                          | list retained behavioural acceptance tests         |
+| POST   | `/api/lab/experiments/:experimentId/promote-eval` | promote completed Darwin Lab evidence into an eval |
 
 ## Darwin Lab
 
-Darwin Lab accepts only configured ProjectFlow local, test, preview, or
-production origins and requires the exact verified application version. Its
-automated agents interact with the real target in isolated Playwright contexts;
-this is observation, not simulation. All records carry immutable `darwin_lab`
-provenance and are excluded from measured human cohorts and human fitness.
+Darwin Lab accepts only configured local, test, preview, or staging target
+origins. All experiment records and evidence have Darwin Lab provenance and are
+excluded from measured study cohorts and fitness.
 
 | Method | Route                                                    | Purpose                                         |
 | ------ | -------------------------------------------------------- | ----------------------------------------------- |
 | GET    | `/api/lab/experiments`                                   | list Lab experiments and current runs           |
 | POST   | `/api/lab/experiments`                                   | create one bounded ProjectFlow experiment       |
 | GET    | `/api/lab/experiments/:experimentId`                     | inspect population, replay, evidence, and state |
-| PUT    | `/api/lab/experiments/:experimentId`                     | edit a versioned task while it remains a draft  |
-| POST   | `/api/lab/experiments/:experimentId/duplicate`           | duplicate an immutable task into a new draft    |
-| POST   | `/api/lab/experiments/:experimentId/cancel`              | cancel queued or active bounded work             |
-| POST   | `/api/lab/experiments/:experimentId/retry`               | create an auditable retry experiment             |
-| POST   | `/api/lab/experiments/:experimentId/archive`             | archive terminal Lab work                        |
 | POST   | `/api/lab/experiments/:experimentId/start`               | queue a draft experiment for a browser runner   |
 | POST   | `/api/lab/experiments/:experimentId/claim`               | claim queued work for one runner                |
-| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated real-target agent run        |
+| POST   | `/api/lab/experiments/:experimentId/runs`                | start one isolated automated browser run        |
 | POST   | `/api/lab/experiments/:experimentId/runs/:runId/actions` | append one bounded semantic action              |
 | POST   | `/api/lab/experiments/:experimentId/runs/:runId/finish`  | close a run and finalize population evidence    |
 | POST   | `/api/lab/agent-decision`                                | ask the cheap model for one UI action           |
@@ -149,10 +141,9 @@ provenance and are excluded from measured human cohorts and human fitness.
 The agent-decision endpoint receives an accessibility snapshot, current URL,
 persona, compact action history, and remaining budget. It never receives the
 hidden answer oracle and returns no chain-of-thought. Typed values are used by
-the runner but only their length is persisted. A selected Lab mutation can
-produce the normal immutable Codex manifest. Diff, repository checks, PR review,
-preview, and release remain separate controlled stages, and every downstream
-artifact retains the **Darwin Lab** chip.
+the runner but only their length is persisted. A mutation selection does not
+create a diff or release: Codex execution, repository checks, PR review, and
+release remain separate controlled stages.
 
 ## Repository workflow callbacks
 

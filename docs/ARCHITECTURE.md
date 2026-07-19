@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
   PF[ProjectFlow measured deployment] --> TC[Telemetry client]
+  LAB[Darwin Lab browser population] -->|real target actions| PF
   TC --> API[Cloudflare Worker]
   UI[Darwin control room] --> API
   API <--> D1[(D1 evidence and execution state)]
@@ -53,6 +54,15 @@ browser action
 
 Synthetic scale replay uses a separate API and evidence class. It never enters measured cohorts or measured fitness.
 
+Darwin Lab is a distinct automated-observation path. A versioned task definition
+is hashed before execution; isolated Playwright contexts act on the verified
+ProjectFlow deployment, and signed semantic events are stored with the
+experiment, task hash, run, session, attempt, app version, and `darwin_lab`
+provenance. Deterministic `L-EV-*` evidence can enter the same human-approved
+manifest and repository workflow, but it never contributes to human participant
+counts or measured human fitness. Provenance is included in evidence and
+manifest hashes and persists through the pull request, Genome, and rollback.
+
 ## Trust boundaries
 
 The browser can request analysis, select a candidate bundle, and request controlled actions, but it never receives GitHub, OpenAI, ingestion, or callback credentials. Operator routes require capability-scoped bearer authorization. ProjectFlow ingestion/workspace routes require target HMAC authentication. Repository workflow callbacks use execution-scoped signed credentials with replay protection.
@@ -61,7 +71,11 @@ Codex runs in a read-only-content job. A separate write job owned by ProjectFlow
 
 ## Persistence
 
-D1 stores measured telemetry, anonymous participant workspaces, evidence packs, GPT analyses, manifests, target connections, repository executions, evolution-cycle state, and retained provenance. In-memory implementations support local development and unit tests.
+D1 stores measured telemetry, anonymous participant workspaces, evidence packs,
+GPT analyses, manifests, target connections, repository executions,
+evolution-cycle state, retained provenance, Lab task/experiment state,
+append-only Lab runs/actions, and Lab evidence/analysis/selection artifacts.
+In-memory implementations support local development and unit tests.
 
 Mutation execution states:
 

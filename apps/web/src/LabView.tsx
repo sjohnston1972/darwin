@@ -3,8 +3,8 @@ import {
   LabExperimentSchema,
   LabExperimentsResponseSchema,
   RepositoryMutationExecutionSchema,
-  type LabAgentRun,
   type BehaviouralEval,
+  type LabAgentRun,
   type LabExperiment,
   type LabPersona,
   type RepositoryMutationExecution,
@@ -40,6 +40,7 @@ const terminalExperimentStatuses = new Set([
   'cancelled',
   'archived',
 ]);
+const terminalExecutionStatuses = new Set(['released', 'rejected', 'failed']);
 
 const statusLabel: Record<LabExperiment['status'], string> = {
   draft: 'Draft',
@@ -175,6 +176,56 @@ export function DarwinLabView({
     }
   }, [selected, selectedRunId]);
 
+  const selectedExecutionId = selected?.selection?.executionId ?? null;
+  useEffect(() => {
+    if (!selectedExecutionId) {
+      setExecution(null);
+      return;
+    }
+    let active = true;
+    const loadExecution = async () => {
+      try {
+        const response = await apiFetch(
+          `${apiBaseUrl}/api/repository-executions/${encodeURIComponent(selectedExecutionId)}`,
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            (payload as { message?: string }).message ??
+              'Darwin Lab execution could not be loaded.',
+          );
+        }
+        if (active) {
+          setExecution(RepositoryMutationExecutionSchema.parse(payload));
+        }
+      } catch (reason) {
+        if (active) {
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : 'Darwin Lab execution could not be loaded.',
+          );
+        }
+      }
+    };
+    void loadExecution();
+    const terminal =
+      execution?.executionId === selectedExecutionId &&
+      terminalExecutionStatuses.has(execution.status);
+    const interval = terminal
+      ? null
+      : window.setInterval(() => void loadExecution(), 3_000);
+    return () => {
+      active = false;
+      if (interval !== null) window.clearInterval(interval);
+    };
+  }, [
+    apiBaseUrl,
+    execution?.executionId,
+    execution?.status,
+    selectedExecutionId,
+  ]);
+
   const mutateExperiment = async (
     action: string,
     path: string,
@@ -304,7 +355,7 @@ export function DarwinLabView({
         />
         <div className="relative z-10 max-w-3xl">
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
-            <FlaskConical size={14} /> Synthetic telemetry laboratory
+            <FlaskConical size={14} /> Automated usability laboratory
           </p>
           <h1
             id="lab-title"
@@ -316,9 +367,9 @@ export function DarwinLabView({
             Evolve software before real users arrive.
           </p>
           <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base lab-copy">
-            A bounded population of inexpensive AI agents operates the real
-            ProjectFlow interface in isolated browsers. Their traces stay
-            synthetic, reproducible, and separate from measured human evidence.
+            Assign a bounded population a real usability task. Each agent
+            operates the verified ProjectFlow deployment in an isolated browser
+            and returns inspectable automated observations.
           </p>
         </div>
         <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
@@ -326,7 +377,7 @@ export function DarwinLabView({
             <span>
               <ShieldCheck size={15} /> Evidence boundary
             </span>
-            <strong>SYNTHETIC ONLY</strong>
+            <strong>DARWIN LAB</strong>
             <small>Never included in human cohorts or measured fitness.</small>
           </div>
         </div>
@@ -1078,7 +1129,7 @@ export function DarwinLabView({
           <div className="lab-evidence-summary">
             <span>{execution.status.replaceAll('_', ' ')}</span>
             <span>{execution.branch}</span>
-            <span>manifest {execution.manifestHash?.slice(0, 12)}</span>
+            <span>manifest {execution.manifestId.slice(0, 20)}</span>
           </div>
           {execution.pullRequestUrl && (
             <a

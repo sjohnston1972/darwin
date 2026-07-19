@@ -48,6 +48,13 @@ export class EvidenceVersionMismatchError extends Error {
   }
 }
 
+export class EvidenceBoundaryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EvidenceBoundaryError';
+  }
+}
+
 interface EvidenceDeploymentBoundary {
   appVersion: string | null;
   measuredCommit: string | null;
@@ -55,8 +62,6 @@ interface EvidenceDeploymentBoundary {
 }
 
 const terminalTypes = new Set(['task_completed', 'task_failed']);
-
-export class EvidenceBoundaryError extends Error {}
 
 export async function buildEvidencePack(
   studyId: string,
@@ -73,6 +78,7 @@ export async function buildEvidencePack(
         : left.receivedAt.localeCompare(right.receivedAt),
     );
   const appVersions = [...new Set(events.map((event) => event.appVersion))];
+  const evidenceClasses = new Set(events.map((event) => classForEvent(event)));
   if (
     appVersions.length > 1 ||
     (deploymentBoundary?.appVersion &&
@@ -80,13 +86,38 @@ export async function buildEvidencePack(
   ) {
     throw new EvidenceVersionMismatchError(appVersions);
   }
+  if (evidenceClasses.size > 1) {
+    throw new EvidenceBoundaryError(
+      'Evidence packs cannot mix measured, automated, and synthetic records.',
+    );
+  }
   const taskAttempts = reconstructAttempts(events, generatedAt);
   const candidates = detectFriction(events, taskAttempts);
   const frictionSignals = await Promise.all(
-    candidates.map((candidate) => signalFromCandidate(candidate)),
+    candidates.slice(0, 999).map((candidate) => signalFromCandidate(candidate)),
   );
   const tasks = summarizeTasks(taskAttempts);
   const evidenceClass = evidenceClassFor(events);
+  const provenance = {
+    evidenceClass:
+      evidenceClass === 'measured'
+        ? ('human_study' as const)
+        : evidenceClass === 'automated'
+          ? ('automated_study' as const)
+          : ('scale_replay' as const),
+    label:
+      evidenceClass === 'measured'
+        ? 'Human study'
+        : evidenceClass === 'automated'
+          ? 'Automated browser study'
+          : 'Scale replay',
+    labExperimentId: null,
+    taskDefinitionId: null,
+    taskDefinitionHash: null,
+    evidencePackId: null,
+    evidenceHash: null,
+    runIds: [],
+  };
   const quality = assessEvidence(events, taskAttempts, generatedAt);
   const journeys = buildJourneys(events);
   const appVersion = appVersions[0] ?? 'unknown';
@@ -546,17 +577,14 @@ async function signalFromCandidate(
     ...(candidate.taskId ? { taskId: candidate.taskId } : {}),
     summary: candidate.summary,
     affectedAttemptIds: [...new Set(candidate.attempts)].sort(),
-    supportingEventIds: uniqueEvents.map((event) => event.eventId),
+    supportingEventIds: uniqueEvents.map((event) => event.eventId).slice(0, 50),
     trace: representativeEvents(uniqueEvents, 12).map(traceEvent),
     support: {
-      events: supportingEventIds.length,
+      events: uniqueEvents.length,
       attempts: new Set(candidate.attempts).size,
-      sessions:
-        candidate.supportingSessionIds?.size ??
-        new Set(uniqueEvents.map((event) => event.sessionId)).size,
-      participants:
-        candidate.supportingParticipantIds?.size ??
-        new Set(uniqueEvents.map((event) => event.participantId)).size,
+      sessions: new Set(uniqueEvents.map((event) => event.sessionId)).size,
+      participants: new Set(uniqueEvents.map((event) => event.participantId))
+        .size,
     },
   };
 }

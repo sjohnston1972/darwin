@@ -93,7 +93,7 @@ export const apiRouteContract = [
     path: '/api/retention/sweep',
     group: 'Retention and deletion',
     access: 'operator',
-    capability: 'reset',
+    capability: 'delete_data',
     purpose: 'Run the bounded retention and compaction sweep.',
   },
   {
@@ -101,7 +101,7 @@ export const apiRouteContract = [
     path: '/api/studies/:studyId/participants/:participantId',
     group: 'Retention and deletion',
     access: 'operator',
-    capability: 'reset',
+    capability: 'delete_data',
     purpose: 'Delete one participant and invalidate derived evidence.',
   },
   {
@@ -109,7 +109,7 @@ export const apiRouteContract = [
     path: '/api/studies/:studyId',
     group: 'Retention and deletion',
     access: 'operator',
-    capability: 'reset',
+    capability: 'delete_data',
     purpose: 'Delete one study and its derived artifacts.',
   },
   {
@@ -117,7 +117,7 @@ export const apiRouteContract = [
     path: '/api/repository-executions/:executionId/artifacts',
     group: 'Retention and deletion',
     access: 'operator',
-    capability: 'reset',
+    capability: 'delete_data',
     purpose: 'Delete one execution artifact bundle and callback material.',
   },
   {
@@ -157,8 +157,17 @@ export const apiRouteContract = [
     path: '/api/demo/reset',
     group: 'Target connection',
     access: 'operator',
-    capability: 'reset',
+    capability: 'delete_data',
     purpose: 'Clear Darwin demo state and dispatch target restoration.',
+  },
+  {
+    method: 'POST',
+    path: '/api/study-sessions',
+    group: 'Telemetry and workspaces',
+    access: 'target',
+    capability: null,
+    purpose:
+      'Issue a short-lived study session bound to signed ProjectFlow context.',
   },
   {
     method: 'POST',
@@ -281,6 +290,14 @@ export const apiRouteContract = [
     purpose: 'Poll the real repository execution state.',
   },
   {
+    method: 'POST',
+    path: '/api/repository-executions/:executionId/recovery/force-fail',
+    group: 'Manifest and execution',
+    access: 'operator',
+    capability: 'execute',
+    purpose: 'Force-fail a stranded execution after its recovery window.',
+  },
+  {
     method: 'GET',
     path: '/api/repository-executions/:executionId/fitness',
     group: 'Manifest and execution',
@@ -366,7 +383,7 @@ export const apiRouteContract = [
     group: 'Darwin Lab',
     access: 'operator',
     capability: 'inspect_evidence',
-    purpose: 'List bounded synthetic user-population experiments.',
+    purpose: 'List bounded automated task populations against ProjectFlow.',
   },
   {
     method: 'POST',
@@ -374,7 +391,7 @@ export const apiRouteContract = [
     group: 'Darwin Lab',
     access: 'operator',
     capability: 'simulate',
-    purpose: 'Create a bounded synthetic ProjectFlow experiment.',
+    purpose: 'Create a configurable real-target Darwin Lab task.',
   },
   {
     method: 'GET',
@@ -382,7 +399,63 @@ export const apiRouteContract = [
     group: 'Darwin Lab',
     access: 'operator',
     capability: 'inspect_evidence',
-    purpose: 'Inspect one synthetic population, evidence pack, and analysis.',
+    purpose: 'Inspect one automated population, evidence pack, and analysis.',
+  },
+  {
+    method: 'PUT',
+    path: '/api/lab/experiments/:experimentId',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Edit a draft task before any target interaction begins.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/duplicate',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Duplicate a task into a new immutable draft identity.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/cancel',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Cancel a draft, queued, or running population.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/retry',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Retry failed work under a new experiment identity.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/force-fail',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Force-fail a stranded population while preserving its runs.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/archive',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'simulate',
+    purpose: 'Archive terminal Lab work without deleting its provenance.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/rebuild-evidence',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'execute',
+    purpose: 'Retry deterministic evidence after a recorded derivation error.',
   },
   {
     method: 'POST',
@@ -398,7 +471,7 @@ export const apiRouteContract = [
     group: 'Darwin Lab',
     access: 'operator',
     capability: 'simulate',
-    purpose: 'Claim queued synthetic work for one runner.',
+    purpose: 'Claim queued real-target work for one runner.',
   },
   {
     method: 'POST',
@@ -406,7 +479,7 @@ export const apiRouteContract = [
     group: 'Darwin Lab',
     access: 'operator',
     capability: 'simulate',
-    purpose: 'Start one isolated low-cost synthetic agent run.',
+    purpose: 'Start one isolated automated browser run.',
   },
   {
     method: 'POST',
@@ -438,7 +511,7 @@ export const apiRouteContract = [
     group: 'Darwin Lab',
     access: 'operator',
     capability: 'reason',
-    purpose: 'Run one GPT population analysis over synthetic evidence.',
+    purpose: 'Run one GPT population analysis over Darwin Lab evidence.',
   },
   {
     method: 'POST',
@@ -447,7 +520,7 @@ export const apiRouteContract = [
     access: 'operator',
     capability: 'execute',
     purpose:
-      'Promote synthetic failure evidence into a retained behavioural eval.',
+      'Promote an automated Lab failure into a retained behavioural eval.',
   },
   {
     method: 'POST',
@@ -464,7 +537,16 @@ export const apiRouteContract = [
     group: 'Darwin Lab',
     access: 'operator',
     capability: 'execute',
-    purpose: 'Record the human-approved synthetic implementation brief.',
+    purpose: 'Record the human-approved Darwin Lab implementation brief.',
+  },
+  {
+    method: 'POST',
+    path: '/api/lab/experiments/:experimentId/codex-manifest',
+    group: 'Darwin Lab',
+    access: 'operator',
+    capability: 'execute',
+    purpose:
+      'Prepare an immutable ProjectFlow manifest carrying Darwin Lab provenance.',
   },
   {
     method: 'POST',

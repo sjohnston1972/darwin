@@ -796,13 +796,6 @@ const installApi = (
       }
       if (
         url.endsWith(
-          '/api/repository-executions/execution-measured-test/manifest',
-        )
-      ) {
-        return response(manifest);
-      }
-      if (
-        url.endsWith(
           '/api/repository-executions/execution-measured-test/rollback/release',
         )
       ) {
@@ -1053,9 +1046,11 @@ describe('Darwin control room', () => {
         name: 'Software that evolves.',
       }),
     ).toBeVisible();
-    expect(screen.getByText(/Darwin observes real behavior/)).toBeVisible();
     expect(screen.getByText('Darwin Lab · automated')).toBeVisible();
     expect(screen.getByText('Scale replay · simulated')).toBeVisible();
+    expect(
+      document.querySelector('img[src*="darwin-dna-wireframe"]'),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: /Open measured study/ }),
     ).toHaveAttribute('href', expect.stringContaining('study=true'));
@@ -1624,7 +1619,13 @@ describe('Darwin control room', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/api/demo/reset'),
-        { method: 'POST' },
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            confirmation: 'RESET DARWIN DEMO',
+            exportAcknowledged: true,
+          }),
+        }),
       ),
     );
     await waitFor(() =>

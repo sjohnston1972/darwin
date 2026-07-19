@@ -115,7 +115,9 @@ try {
 
   Invoke-RestMethod `
     -Uri 'http://127.0.0.1:8787/api/demo/reset' `
-    -Method Post | Out-Null
+    -Method Post `
+    -ContentType 'application/json' `
+    -Body '{"confirmation":"RESET DARWIN DEMO","exportAcknowledged":true}' | Out-Null
   $createBody = @{
     name = 'Browser smoke population'
     targetUrl = 'http://127.0.0.1:5174/'
