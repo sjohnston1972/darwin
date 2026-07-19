@@ -20,6 +20,7 @@ import {
   StudySessionResponseSchema,
   StudySessionIssueResponseSchema,
   StudyTelemetrySummarySchema,
+  StoredEvidenceAnalysisSchema,
   StoredEvidencePackSchema,
   TargetApplicationConnectionSchema,
   TelemetryReceiptSchema,
@@ -2605,6 +2606,28 @@ describe('Darwin API', () => {
     await getTelemetryRepository().saveEvidence(
       historicalEvidence as unknown as ReturnType<
         typeof EvidencePackSchema.parse
+      >,
+    );
+    const historicalAnalysis = StoredEvidenceAnalysisSchema.parse({
+      ...first,
+      evidenceAssessment: {
+        ...first.evidenceAssessment,
+        quality: {
+          strength: first.evidenceAssessment.quality.strength,
+          score: first.evidenceAssessment.quality.score,
+          eventCount: first.evidenceAssessment.quality.eventCount,
+          sessionCount: first.evidenceAssessment.quality.sessionCount,
+          participantCount: first.evidenceAssessment.quality.participantCount,
+          completedAttemptCount:
+            first.evidenceAssessment.quality.completedAttemptCount,
+          limitations: first.evidenceAssessment.quality.limitations,
+        },
+      },
+    });
+    await getTelemetryRepository().saveEvidenceAnalysis(
+      historicalEvidence.study.studyId,
+      historicalAnalysis as unknown as ReturnType<
+        typeof EvidenceAnalysisSchema.parse
       >,
     );
 

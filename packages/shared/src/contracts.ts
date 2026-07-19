@@ -876,6 +876,13 @@ export const TargetApplicationConnectionSchema = z.object({
   checks: z.array(TargetConnectionCheckSchema).length(4),
 });
 
+const EvidenceAssessmentSchema = z.object({
+  summary: z.string().min(1),
+  quality: EvidenceQualitySchema,
+  pressureClusters: z.array(EvidencePressureClusterSchema).min(1).max(8),
+  selectionRationale: z.string().min(1),
+});
+
 export const EvidenceAnalysisSchema = z.object({
   provenance: DarwinProvenanceSchema.optional(),
   analysisId: StudyIdentifierSchema,
@@ -895,12 +902,7 @@ export const EvidenceAnalysisSchema = z.object({
     .optional(),
   createdAt: z.string().datetime(),
   repository: RepositoryContextSchema.optional(),
-  evidenceAssessment: z.object({
-    summary: z.string().min(1),
-    quality: EvidenceQualitySchema,
-    pressureClusters: z.array(EvidencePressureClusterSchema).min(1).max(8),
-    selectionRationale: z.string().min(1),
-  }),
+  evidenceAssessment: EvidenceAssessmentSchema,
   selectedMutation: EvidenceMutationCandidateSchema,
   alternatives: z.array(EvidenceMutationCandidateSchema).min(2).max(5),
   unsupportedIdeasRejected: z.array(
@@ -910,6 +912,17 @@ export const EvidenceAnalysisSchema = z.object({
     }),
   ),
 });
+
+export const HistoricalEvidenceAnalysisSchema = EvidenceAnalysisSchema.extend({
+  evidenceAssessment: EvidenceAssessmentSchema.extend({
+    quality: HistoricalEvidenceQualitySchema,
+  }),
+});
+
+export const StoredEvidenceAnalysisSchema = z.union([
+  EvidenceAnalysisSchema,
+  HistoricalEvidenceAnalysisSchema,
+]);
 
 export const CodexImplementationManifestSchema = z.object({
   provenance: DarwinProvenanceSchema.optional(),
@@ -1311,7 +1324,7 @@ export const GenomeExecutionDetailResponseSchema = z.object({
 export const ObservationArchiveSchema = z.object({
   archiveId: StudyIdentifierSchema,
   evidence: StoredEvidencePackSchema,
-  analysis: EvidenceAnalysisSchema,
+  analysis: StoredEvidenceAnalysisSchema,
   execution: RepositoryMutationExecutionSchema.pick({
     provenance: true,
     executionId: true,
@@ -1536,6 +1549,9 @@ export type EvidenceMutationCandidate = z.infer<
   typeof EvidenceMutationCandidateSchema
 >;
 export type EvidenceAnalysis = z.infer<typeof EvidenceAnalysisSchema>;
+export type StoredEvidenceAnalysis = z.infer<
+  typeof StoredEvidenceAnalysisSchema
+>;
 export type RepositoryContext = z.infer<typeof RepositoryContextSchema>;
 export type TargetConnectionRequest = z.infer<
   typeof TargetConnectionRequestSchema
