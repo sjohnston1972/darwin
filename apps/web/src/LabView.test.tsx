@@ -79,14 +79,10 @@ describe('Darwin Lab view', () => {
     );
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Darwin Lab' }),
-    ).toBeVisible();
+      screen.queryByRole('heading', { level: 1, name: 'Darwin Lab' }),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByText('Evolve software before real users arrive.'),
-    ).toBeVisible();
-    expect(screen.getByText('DARWIN LAB')).toBeVisible();
-    expect(
-      screen.getByText(/Never included in human cohorts or measured fitness/),
+      screen.getByRole('heading', { name: 'Define a real task' }),
     ).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Lab task' }));

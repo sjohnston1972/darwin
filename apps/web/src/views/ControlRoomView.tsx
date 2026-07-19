@@ -30,15 +30,15 @@ export function ControlRoomView({
   return (
     <>
       <section className="hero-band" aria-labelledby="page-title">
-        <div className="hero-selection-visual" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
+        <img
+          className="hero-dna-visual"
+          src="/assets/darwin-dna-wireframe.webp"
+          alt=""
+          aria-hidden="true"
+        />
         <div className="relative z-10 max-w-3xl">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
-            <Activity size={15} /> Darwin · Control room
+            <Activity size={15} /> Control room
             <InfoTip text="Darwin's operator view: observe behavior, ask the configured analyzer for one mutation, approve it, validate it, and retain or reject it." />
           </div>
           <h1
@@ -51,11 +51,6 @@ export function ControlRoomView({
             Darwin observes real behavior, identifies selection pressure, and
             proposes a controlled mutation.
           </p>
-          <div className="hero-evidence-classes" aria-label="Evidence classes">
-            <span>Human study · measured</span>
-            <span>Darwin Lab · automated</span>
-            <span>Scale replay · simulated</span>
-          </div>
           <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base">
             {targetConnected
               ? 'ProjectFlow is connected. Its genome is ready for observation, measurement, and controlled selection.'

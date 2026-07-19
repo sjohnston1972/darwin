@@ -346,43 +346,6 @@ export function DarwinLabView({
 
   return (
     <div className="lab-workspace">
-      <section className="hero-band lab-hero" aria-labelledby="lab-title">
-        <img
-          className="hero-dna-visual lab-trace-visual"
-          src="/assets/darwin-behavioural-trace-wireframe.png"
-          alt=""
-          aria-hidden="true"
-        />
-        <div className="relative z-10 max-w-3xl">
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
-            <FlaskConical size={14} /> Automated usability laboratory
-          </p>
-          <h1
-            id="lab-title"
-            className="mt-5 text-4xl font-semibold sm:text-5xl lg:text-[56px] lg:leading-[1.05]"
-          >
-            Darwin Lab
-          </h1>
-          <p className="mt-3 text-xl text-white sm:text-2xl lab-tagline">
-            Evolve software before real users arrive.
-          </p>
-          <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base lab-copy">
-            Assign a bounded population a real usability task. Each agent
-            operates the verified ProjectFlow deployment in an isolated browser
-            and returns inspectable automated observations.
-          </p>
-        </div>
-        <div className="hero-actions relative z-10 mt-8 flex flex-wrap items-center gap-4 lg:mt-0 lg:self-end">
-          <div className="lab-boundary-card">
-            <span>
-              <ShieldCheck size={15} /> Evidence boundary
-            </span>
-            <strong>DARWIN LAB</strong>
-            <small>Never included in human cohorts or measured fitness.</small>
-          </div>
-        </div>
-      </section>
-
       {error && (
         <div className="lab-error" role="alert">
           <AlertTriangle size={17} /> {error}
