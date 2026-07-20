@@ -1,0 +1,36 @@
+name: Darwin Lab runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment_id:
+        description: Lab experiment to execute
+        required: true
+        type: string
+
+concurrency:
+  group: darwin-lab-${{ inputs.experiment_id }}
+  cancel-in-progress: false
+
+jobs:
+  run-browser-population:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Execute real-target Darwin Lab population
+        env:
+          DARWIN_API_BASE_URL: https://darwin-api.stevie-johnston.workers.dev
+          DARWIN_OPERATOR_TOKEN: ${{ secrets.DARWIN_OPERATOR_TOKEN }}
+          DARWIN_LAB_EXPERIMENT_ID: ${{ inputs.experiment_id }}
+          DARWIN_LAB_RUNNER_ID: github-actions-${{ github.run_id }}
+          DARWIN_LAB_HEADLESS: 'true'
+        run: npm run lab:runner

@@ -46,6 +46,8 @@ interface LabHandlerEnvironment {
   PROJECTFLOW_BRANCH?: string;
   PROJECTFLOW_PRODUCTION_URL?: string;
   PROJECTFLOW_STUDY_URL?: string;
+  DARWIN_GITHUB_REPOSITORY?: string;
+  DARWIN_API_BASE_URL?: string;
 }
 
 interface LabOperatorIdentity {
@@ -68,6 +70,34 @@ const parseTimeout = (value?: string) => {
   return Number.isFinite(parsed)
     ? Math.min(Math.max(parsed, 1_000), 120_000)
     : 90_000;
+};
+
+const dispatchManagedRunner = async (
+  experimentId: string,
+  env: LabHandlerEnvironment,
+) => {
+  if (!env.GITHUB_TOKEN) return;
+  const repository = env.DARWIN_GITHUB_REPOSITORY ?? 'sjohnston1972/darwin';
+  const response = await fetch(
+    `https://api.github.com/repos/${repository}/actions/workflows/darwin-lab-runner.yml/dispatches`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        'User-Agent': 'darwin-lab',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        inputs: { experiment_id: experimentId },
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`managed_runner_dispatch_${response.status}`);
+  }
 };
 
 const isTerminal = (status: LabExperiment['runs'][number]['status']) =>
@@ -533,6 +563,13 @@ export async function handleLabRequest(
       experiment,
       updated,
     );
+    if (persisted) {
+      try {
+        await dispatchManagedRunner(updated.experimentId, env);
+      } catch {
+        // The local runner remains a supported fallback if GitHub dispatch is unavailable.
+      }
+    }
     return persisted
       ? json(persisted)
       : json(
