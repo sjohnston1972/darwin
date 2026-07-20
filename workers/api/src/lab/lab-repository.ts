@@ -232,7 +232,10 @@ export class D1LabRepository implements LabRepository {
           `INSERT INTO lab_selection_results (
             selection_id, experiment_id, mutation_id, selected_at, payload_json
           ) VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(selection_id) DO NOTHING`,
+          ON CONFLICT(selection_id) DO UPDATE SET
+            mutation_id = excluded.mutation_id,
+            selected_at = excluded.selected_at,
+            payload_json = excluded.payload_json`,
         )
         .bind(
           parsed.selection.selectionId,
@@ -316,7 +319,10 @@ export class D1LabRepository implements LabRepository {
           `INSERT INTO lab_selection_results (
             selection_id, experiment_id, mutation_id, selected_at, payload_json
           ) VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(selection_id) DO NOTHING`,
+          ON CONFLICT(selection_id) DO UPDATE SET
+            mutation_id = excluded.mutation_id,
+            selected_at = excluded.selected_at,
+            payload_json = excluded.payload_json`,
         )
         .bind(
           experiment.selection.selectionId,
@@ -488,6 +494,59 @@ export class D1LabRepository implements LabRepository {
       'Lab experiment',
       experimentId,
     );
+    const [evidenceRow, analysisRow, selectionRow] = await Promise.all([
+      this.database
+        .prepare(
+          `SELECT evidence_pack_id, payload_json FROM lab_evidence_records
+           WHERE experiment_id = ? ORDER BY generated_at DESC LIMIT 1`,
+        )
+        .bind(experimentId)
+        .first<{ evidence_pack_id: string; payload_json: string }>(),
+      this.database
+        .prepare(
+          `SELECT analysis_id, payload_json FROM lab_analyses
+           WHERE experiment_id = ? ORDER BY created_at DESC LIMIT 1`,
+        )
+        .bind(experimentId)
+        .first<{ analysis_id: string; payload_json: string }>(),
+      this.database
+        .prepare(
+          `SELECT selection_id, payload_json FROM lab_selection_results
+           WHERE experiment_id = ? ORDER BY selected_at DESC LIMIT 1`,
+        )
+        .bind(experimentId)
+        .first<{ selection_id: string; payload_json: string }>(),
+    ]);
+    const evidence =
+      projection.evidence ??
+      (evidenceRow
+        ? parseStoredLabValue(
+            LabExperimentSchema.shape.evidence.unwrap(),
+            evidenceRow.payload_json,
+            'Lab evidence',
+            evidenceRow.evidence_pack_id,
+          )
+        : null);
+    const analysis =
+      projection.analysis ??
+      (analysisRow
+        ? parseStoredLabValue(
+            LabExperimentSchema.shape.analysis.unwrap(),
+            analysisRow.payload_json,
+            'Lab analysis',
+            analysisRow.analysis_id,
+          )
+        : null);
+    const selection =
+      projection.selection ??
+      (selectionRow
+        ? parseStoredLabValue(
+            LabExperimentSchema.shape.selection.unwrap(),
+            selectionRow.payload_json,
+            'Lab selection',
+            selectionRow.selection_id,
+          )
+        : null);
     const runRows = await this.database
       .prepare(
         `SELECT run_id FROM lab_agent_runs
@@ -500,6 +559,9 @@ export class D1LabRepository implements LabRepository {
     );
     return LabExperimentSchema.parse({
       ...projection,
+      evidence,
+      analysis,
+      selection,
       runs: runs.filter((run): run is LabAgentRun => Boolean(run)),
     });
   }

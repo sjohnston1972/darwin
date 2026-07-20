@@ -165,6 +165,71 @@ describe('D1 Darwin Lab atomic persistence', () => {
     expect((await repository.getExperiment(experimentId))?.version).toBe(1);
   });
 
+  it('rehydrates a durable selection when the experiment projection regresses', async () => {
+    const selected = LabExperimentSchema.parse({
+      ...experiment,
+      status: 'analysed',
+      selection: {
+        provenance,
+        selectionId: 'lab-selection-atomic-test',
+        experimentId,
+        mutationId: 'PF-MUT-001',
+        selectedAt: now,
+        selectedBy: 'operator',
+        status: 'approved_for_controlled_implementation',
+        manifestId: null,
+        executionId: null,
+      },
+    });
+    await repository.saveExperiment(selected);
+    const regressed = LabExperimentSchema.parse({
+      ...selected,
+      status: 'awaiting_runner',
+      selection: null,
+      version: 5,
+    });
+    await database
+      .prepare(
+        `UPDATE lab_experiments
+         SET status = ?, version = ?, payload_json = ?
+         WHERE experiment_id = ?`,
+      )
+      .bind(
+        regressed.status,
+        regressed.version,
+        JSON.stringify({ ...regressed, runs: [] }),
+        experimentId,
+      )
+      .run();
+
+    const recovered = await repository.getExperiment(experimentId);
+    expect(recovered).toMatchObject({
+      status: 'awaiting_runner',
+      selection: {
+        selectionId: 'lab-selection-atomic-test',
+        mutationId: 'PF-MUT-001',
+      },
+    });
+
+    const linked = LabExperimentSchema.parse({
+      ...recovered!,
+      selection: {
+        ...recovered!.selection!,
+        manifestId: 'manifest-atomic-test',
+        executionId: 'execution-atomic-test',
+      },
+    });
+    expect(
+      await repository.compareAndSwapExperiment(recovered!, linked),
+    ).not.toBeNull();
+    expect(
+      (await repository.getExperiment(experimentId))?.selection,
+    ).toMatchObject({
+      manifestId: 'manifest-atomic-test',
+      executionId: 'execution-atomic-test',
+    });
+  });
+
   it('enforces unique population slots and idempotent action appends', async () => {
     const runOne = makeRun('lab-run-one', 1);
     const runTwo = makeRun('lab-run-two', 1);

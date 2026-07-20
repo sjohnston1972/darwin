@@ -346,9 +346,50 @@ describe('Darwin Lab API', () => {
     const evalPayload = (await evalsResponse.json()) as { evals: unknown[] };
     expect(evalPayload.evals).toHaveLength(1);
 
+    const dispatch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', dispatch);
+    const rerunResponse = await handleRequest(
+      request(
+        `/api/lab/experiments/${created.experimentId}/rerun-eval`,
+        'POST',
+      ),
+      { GITHUB_TOKEN: 'github-test-token' },
+    );
+    const rerun = LabExperimentSchema.parse(await rerunResponse.json());
+    expect(rerunResponse.status).toBe(201);
+    expect(rerun).toMatchObject({
+      status: 'awaiting_runner',
+      runs: [],
+      evidence: null,
+      analysis: null,
+      selection: null,
+      behaviouralEval: {
+        sourceExperimentId: created.experimentId,
+        status: 'active',
+      },
+    });
+    expect(rerun.experimentId).not.toBe(created.experimentId);
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(dispatch.mock.calls[0]?.[1]?.body))).toEqual({
+      ref: 'main',
+      inputs: { experiment_id: rerun.experimentId },
+    });
+
+    const preservedResponse = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}`),
+    );
+    const preserved = LabExperimentSchema.parse(await preservedResponse.json());
+    expect(preserved.status).toBe('completed');
+    expect(preserved.runs).toHaveLength(8);
+    expect(preserved.evidence?.evidencePackId).toBe(
+      promoted.evidence?.evidencePackId,
+    );
+
     const listResponse = await handleRequest(request('/api/lab/experiments'));
     expect(
       LabExperimentsResponseSchema.parse(await listResponse.json()).experiments,
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 });

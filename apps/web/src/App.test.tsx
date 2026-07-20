@@ -663,12 +663,123 @@ const measuredFitnessOutcome = {
   limitations: [],
 };
 
+const labExperiment = {
+  experimentId: 'lab-exp-handoff-test',
+  studyId: 'projectflow-darwin-lab-handoff-test',
+  name: 'Assigned work discovery',
+  targetUrl: repository.studyUrl,
+  targetAppVersion: '1.0.0',
+  task: {
+    taskDefinitionId: 'lab-task-handoff-test',
+    definitionVersion: 1,
+    definitionHash: '7'.repeat(64),
+    taskId: 'find-assigned-work',
+    name: 'Find assigned work',
+    instruction: 'Find and open the work assigned to you.',
+    successDescription: 'The assigned work route is reached.',
+    startRoute: '/study/dashboard',
+    successCriterion: { type: 'route_reached', route: '/study/my-work' },
+  },
+  populationSize: 8,
+  personaAllocation: [{ persona: 'novice', count: 8 }],
+  maxActions: 12,
+  maxDurationMs: 180_000,
+  seed: 1859,
+  status: 'analysed',
+  runnerId: 'github-actions-test',
+  createdAt: timestamp,
+  startedAt: timestamp,
+  completedAt: timestamp,
+  runs: [],
+  evidence: null,
+  analysis: {
+    provenance: {
+      evidenceClass: 'darwin_lab',
+      label: 'Darwin Lab',
+      labExperimentId: 'lab-exp-handoff-test',
+      taskDefinitionId: 'lab-task-handoff-test',
+      taskDefinitionHash: '7'.repeat(64),
+      evidencePackId: 'lab-pack-handoff-test',
+      evidenceHash: '8'.repeat(64),
+      runIds: [],
+    },
+    analysisId: 'lab-analysis-handoff-test',
+    experimentId: 'lab-exp-handoff-test',
+    evidencePackId: 'lab-pack-handoff-test',
+    evidenceHash: '8'.repeat(64),
+    model: 'gpt-5.6',
+    promptVersion: '1.0.0',
+    createdAt: timestamp,
+    summary: 'Assigned work discovery is the dominant selection pressure.',
+    selectedMutationId: 'PF-MUT-001',
+    mutations: [
+      {
+        provenance: {
+          evidenceClass: 'darwin_lab',
+          label: 'Darwin Lab',
+          labExperimentId: 'lab-exp-handoff-test',
+          taskDefinitionId: 'lab-task-handoff-test',
+          taskDefinitionHash: '7'.repeat(64),
+          evidencePackId: 'lab-pack-handoff-test',
+          evidenceHash: '8'.repeat(64),
+          runIds: [],
+        },
+        mutationId: 'PF-MUT-001',
+        title: 'Expose assigned work in primary navigation',
+        problem: 'Agents cannot find their assigned tasks from the dashboard.',
+        evidenceIds: ['L-EV-001'],
+        hypothesis: 'A direct destination will reduce failed discovery paths.',
+        implementationBrief: 'Add a bounded My Work navigation destination.',
+        tradeoffs: ['Adds one primary navigation item.'],
+        validationPlan: 'Rerun the immutable assigned-work behavioural eval.',
+        confidence: 0.91,
+      },
+    ],
+  },
+  selection: {
+    provenance: {
+      evidenceClass: 'darwin_lab',
+      label: 'Darwin Lab',
+      labExperimentId: 'lab-exp-handoff-test',
+      taskDefinitionId: 'lab-task-handoff-test',
+      taskDefinitionHash: '7'.repeat(64),
+      evidencePackId: 'lab-pack-handoff-test',
+      evidenceHash: '8'.repeat(64),
+      runIds: [],
+    },
+    selectionId: 'lab-selection-handoff-test',
+    experimentId: 'lab-exp-handoff-test',
+    mutationId: 'PF-MUT-001',
+    selectedAt: timestamp,
+    selectedBy: 'operator',
+    status: 'approved_for_controlled_implementation',
+    manifestId: null,
+    executionId: null,
+  },
+  behaviouralEval: null,
+  error: null,
+  evidenceError: null,
+  archivedAt: null,
+  version: 6,
+  provenance: {
+    evidenceClass: 'darwin_lab',
+    label: 'Darwin Lab',
+    labExperimentId: 'lab-exp-handoff-test',
+    taskDefinitionId: 'lab-task-handoff-test',
+    taskDefinitionHash: '7'.repeat(64),
+    evidencePackId: null,
+    evidenceHash: null,
+    runIds: [],
+  },
+} as const;
+
 const installApi = (
   latestAnalysis: unknown = null,
   initialConnection: unknown = null,
   initialGenomeExecutionsOrReset: Record<string, unknown>[] | unknown = [],
   remoteWorkflow?: RemoteWorkflow,
   latestEvidence: unknown = evidence,
+  labExperiments: unknown[] = [],
 ) => {
   const initialGenomeExecutions = Array.isArray(initialGenomeExecutionsOrReset)
     ? initialGenomeExecutionsOrReset
@@ -682,6 +793,9 @@ const installApi = (
   const fetchMock = vi.fn(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/lab/experiments')) {
+        return response({ experiments: labExperiments });
+      }
       if (url.includes('/events/raw?limit=200')) {
         if (remoteWorkflow?.failures?.has('events')) return response({}, 503);
         return response({
@@ -1324,6 +1438,26 @@ describe('Rosalind control room', () => {
         }),
       }),
     );
+  });
+
+  it('hydrates an approved Darwin Lab mutation into the Mutations workspace', async () => {
+    window.history.replaceState({}, '', '/?view=mutations');
+    installApi(null, null, [], undefined, evidence, [labExperiment]);
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Expose assigned work in primary navigation',
+      }),
+    ).toBeVisible();
+    expect(screen.getByText('Darwin Lab handoff')).toBeVisible();
+    expect(screen.getByText('L-EV-001')).toBeVisible();
+    expect(
+      screen.getByRole('button', {
+        name: 'Prepare and dispatch ProjectFlow mutation',
+      }),
+    ).toBeEnabled();
   });
 
   it('connects, verifies, and disconnects ProjectFlow from the target view', async () => {

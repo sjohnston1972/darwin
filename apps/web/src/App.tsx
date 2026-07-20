@@ -71,6 +71,10 @@ import {
   useLiveTelemetry,
   type LiveTelemetryState,
 } from './telemetry/useLiveTelemetry';
+import {
+  useLabMutationHandoff,
+  type LabMutationHandoff,
+} from './telemetry/useLabMutationHandoff';
 import { apiFetch, getOperatorToken, setOperatorToken } from './api';
 import { DarwinLabView } from './LabView';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -245,6 +249,10 @@ function DarwinDashboard({
     ),
     executionPollingEnabled: ['Mutations', 'Genome'].includes(activeView),
   });
+  const labMutationHandoff = useLabMutationHandoff(
+    apiBaseUrl,
+    activeView === 'Mutations',
+  );
   const resetBlocksStudy = Boolean(
     liveTelemetry.resetExecution?.status !== undefined &&
     liveTelemetry.resetExecution.status !== 'complete',
@@ -763,7 +771,34 @@ function DarwinDashboard({
           )}
 
           {activeView === 'Mutations' &&
-            (mutationArchived && liveTelemetry.execution ? (
+            (labMutationHandoff.handoff ? (
+              <>
+                <LabMutationHandoffWorkspace
+                  dispatching={labMutationHandoff.dispatching}
+                  error={labMutationHandoff.error}
+                  handoff={labMutationHandoff.handoff}
+                  onStart={() => void labMutationHandoff.startImplementation()}
+                />
+                {labMutationHandoff.handoff.execution && (
+                  <RepositoryExecutionWorkspace
+                    execution={labMutationHandoff.handoff.execution}
+                    manifest={labMutationHandoff.handoff.manifest}
+                    releasing={labMutationHandoff.releasing}
+                    retrying={labMutationHandoff.dispatching}
+                    rollingBack={labMutationHandoff.rollingBack}
+                    releasingRollback={labMutationHandoff.releasingRollback}
+                    onRelease={() => void labMutationHandoff.release()}
+                    onRollback={() => void labMutationHandoff.startRollback()}
+                    onReleaseRollback={() =>
+                      void labMutationHandoff.releaseRollback()
+                    }
+                    onRetry={() =>
+                      void labMutationHandoff.startImplementation()
+                    }
+                  />
+                )}
+              </>
+            ) : mutationArchived && liveTelemetry.execution ? (
               <MutationWorkspaceReset execution={liveTelemetry.execution} />
             ) : (
               <>
@@ -1676,6 +1711,73 @@ const buildSignalPressureGroups = (
         left.id.localeCompare(right.id),
     );
 };
+
+function LabMutationHandoffWorkspace({
+  dispatching,
+  error,
+  handoff,
+  onStart,
+}: {
+  dispatching: boolean;
+  error: string | null;
+  handoff: LabMutationHandoff;
+  onStart: () => void;
+}) {
+  const { experiment, execution, mutation } = handoff;
+  return (
+    <section className="surface-panel lab-mutation-handoff">
+      <div className="panel-heading">
+        <div>
+          <p className="section-label">Darwin Lab handoff</p>
+          <h2>{mutation.title}</h2>
+        </div>
+        <ProvenanceChip provenance={experiment.selection!.provenance} />
+      </div>
+      <p>{mutation.problem}</p>
+      <div className="lab-evidence-summary">
+        <span>{experiment.name}</span>
+        <span>{mutation.evidenceIds.join(' · ')}</span>
+        <span>{Math.round(mutation.confidence * 100)}% confidence</span>
+      </div>
+      <div className="mutation-causal-change">
+        <div>
+          <span>Hypothesis</span>
+          <p>{mutation.hypothesis}</p>
+        </div>
+        <div>
+          <span>Controlled implementation brief</span>
+          <p>{mutation.implementationBrief}</p>
+        </div>
+      </div>
+      {error && (
+        <div className="lab-error" role="alert">
+          <AlertTriangle size={16} /> {error}
+        </div>
+      )}
+      <div className="lab-dispatch-action">
+        <button
+          className="primary-action"
+          type="button"
+          disabled={dispatching || Boolean(execution)}
+          onClick={onStart}
+        >
+          {dispatching ? (
+            <CircleDashed className="is-spinning" size={16} />
+          ) : execution ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <Rocket size={16} />
+          )}
+          {dispatching
+            ? 'Dispatching controlled mutation'
+            : execution
+              ? `Repository execution ${execution.status.replaceAll('_', ' ')}`
+              : 'Prepare and dispatch ProjectFlow mutation'}
+        </button>
+      </div>
+    </section>
+  );
+}
 
 function LiveTelemetryPanel({
   telemetry,

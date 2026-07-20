@@ -1,5 +1,4 @@
 import {
-  CodexImplementationManifestSchema,
   LabExperimentSchema,
   LabExperimentsResponseSchema,
   RepositoryMutationExecutionSchema,
@@ -251,11 +250,11 @@ export function DarwinLabView({
               'Darwin Labs execution could not be loaded.',
           );
         }
-        if (active && reportError) {
+        if (active) {
           setExecution(RepositoryMutationExecutionSchema.parse(payload));
         }
       } catch (reason) {
-        if (active) {
+        if (active && reportError) {
           setError(
             reason instanceof Error
               ? reason.message
@@ -354,47 +353,6 @@ export function DarwinLabView({
       maxDurationMs: maxDurationSeconds * 1_000,
       seed,
     });
-  };
-
-  const dispatchImplementation = async () => {
-    if (!selected) return;
-    setWorking('implement');
-    setError(null);
-    try {
-      const manifestResponse = await apiFetch(
-        `${apiBaseUrl}/api/lab/experiments/${encodeURIComponent(selected.experimentId)}/codex-manifest`,
-        { method: 'POST' },
-      );
-      const manifestPayload = await manifestResponse.json();
-      if (!manifestResponse.ok) {
-        throw new Error(
-          (manifestPayload as { message?: string }).message ??
-            'Darwin Labs manifest preparation failed.',
-        );
-      }
-      const manifest = CodexImplementationManifestSchema.parse(manifestPayload);
-      const executionResponse = await apiFetch(
-        `${apiBaseUrl}/api/evidence-analyses/${encodeURIComponent(manifest.analysisId)}/codex-manifest/execution`,
-        { method: 'POST' },
-      );
-      const executionPayload = await executionResponse.json();
-      if (!executionResponse.ok) {
-        throw new Error(
-          (executionPayload as { message?: string }).message ??
-            'Controlled ProjectFlow execution could not be dispatched.',
-        );
-      }
-      setExecution(RepositoryMutationExecutionSchema.parse(executionPayload));
-      await loadExperiments();
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : 'Controlled implementation failed.',
-      );
-    } finally {
-      setWorking(null);
-    }
   };
 
   const runProgress = selected
@@ -1172,17 +1130,9 @@ export function DarwinLabView({
           </p>
           {selected.selection && !execution && (
             <div className="lab-dispatch-action">
-              <button
-                className="primary-action"
-                type="button"
-                disabled={working !== null}
-                onClick={() => void dispatchImplementation()}
-              >
-                <ShieldCheck size={16} />
-                {working === 'implement'
-                  ? 'Dispatching controlled mutation'
-                  : 'Prepare and dispatch ProjectFlow mutation'}
-              </button>
+              <a className="primary-action" href="/?view=mutations">
+                <ShieldCheck size={16} /> Continue in Mutations
+              </a>
               {error && (
                 <span className="lab-dispatch-error" role="alert">
                   <AlertTriangle size={15} /> {error}

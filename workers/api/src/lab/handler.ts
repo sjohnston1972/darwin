@@ -1318,11 +1318,11 @@ export async function handleLabRequest(
     /^\/api\/lab\/experiments\/([^/]+)\/rerun-eval$/,
   );
   if (request.method === 'POST' && rerunMatch) {
-    const experiment = await repository.getExperiment(
+    const source = await repository.getExperiment(
       decodeURIComponent(rerunMatch[1]!),
     );
-    if (!experiment) return missingExperiment(json);
-    if (!experiment.behaviouralEval) {
+    if (!source) return missingExperiment(json);
+    if (!source.behaviouralEval) {
       return json(
         {
           error: 'lab_state_conflict',
@@ -1331,10 +1331,28 @@ export async function handleLabRequest(
         { status: 409 },
       );
     }
-    const updated = LabExperimentSchema.parse({
-      ...experiment,
+    if (
+      ['awaiting_runner', 'running'].includes(source.status) &&
+      !source.analysis &&
+      !source.selection
+    ) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message: 'The behavioural eval is already running.',
+        },
+        { status: 409 },
+      );
+    }
+    const experimentId = `lab-exp-${crypto.randomUUID()}`;
+    const rerun = LabExperimentSchema.parse({
+      ...source,
+      experimentId,
+      studyId: `projectflow-darwin-lab-${experimentId.slice(-12)}`,
+      name: `${source.name} behavioural eval`.slice(0, 100),
       status: 'awaiting_runner',
       runnerId: null,
+      createdAt: new Date().toISOString(),
       startedAt: null,
       completedAt: null,
       runs: [],
@@ -1343,18 +1361,23 @@ export async function handleLabRequest(
       selection: null,
       error: null,
       evidenceError: null,
-      behaviouralEval: { ...experiment.behaviouralEval, status: 'active' },
+      archivedAt: null,
+      version: 0,
+      behaviouralEval: { ...source.behaviouralEval, status: 'active' },
+      provenance: labProvenance(experimentId, source.task),
     });
-    const persisted = await repository.compareAndSwapExperiment(
-      experiment,
-      updated,
-    );
-    return persisted
-      ? json(persisted)
-      : json(
-          { error: 'lab_state_conflict', message: 'Experiment changed.' },
-          { status: 409 },
-        );
+    await repository.saveExperiment(rerun);
+    try {
+      await dispatchManagedRunner(rerun.experimentId, env ?? {});
+    } catch (error) {
+      return errorResponse(
+        json,
+        error,
+        'The managed browser runner could not be dispatched. The immutable eval remains queued for a manual runner.',
+        502,
+      );
+    }
+    return json(rerun, { status: 201 });
   }
 
   return null;
