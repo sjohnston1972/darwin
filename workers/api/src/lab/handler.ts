@@ -565,7 +565,7 @@ export async function handleLabRequest(
     );
     if (persisted) {
       try {
-        await dispatchManagedRunner(updated.experimentId, env);
+        await dispatchManagedRunner(updated.experimentId, env ?? {});
       } catch {
         // The local runner remains a supported fallback if GitHub dispatch is unavailable.
       }
