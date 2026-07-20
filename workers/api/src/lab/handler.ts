@@ -76,7 +76,7 @@ const dispatchManagedRunner = async (
   experimentId: string,
   env: LabHandlerEnvironment,
 ) => {
-  if (!env.GITHUB_TOKEN) return;
+  if (!env.GITHUB_TOKEN) throw new Error('managed_runner_unavailable');
   const repository = env.DARWIN_GITHUB_REPOSITORY ?? 'sjohnston1972/darwin';
   const response = await fetch(
     `https://api.github.com/repos/${repository}/actions/workflows/darwin-lab-runner.yml/dispatches`,
@@ -526,8 +526,13 @@ export async function handleLabRequest(
       await repository.saveExperiment(retry);
       try {
         await dispatchManagedRunner(retry.experimentId, env ?? {});
-      } catch {
-        // The local runner remains a supported fallback if GitHub dispatch is unavailable.
+      } catch (error) {
+        return errorResponse(
+          json,
+          error,
+          'The managed browser runner could not be dispatched. The experiment remains queued for a manual runner.',
+          502,
+        );
       }
       return json(retry, { status: 201 });
     }
@@ -641,6 +646,21 @@ export async function handleLabRequest(
         { status: 409 },
       );
     }
+    if (
+      experiment.runs.length > 0 ||
+      experiment.evidence ||
+      experiment.analysis ||
+      experiment.selection
+    ) {
+      return json(
+        {
+          error: 'lab_state_conflict',
+          message:
+            'A previously executed experiment cannot be re-queued in place. Duplicate or retry it to preserve immutable evidence.',
+        },
+        { status: 409 },
+      );
+    }
     const updated = LabExperimentSchema.parse({
       ...experiment,
       status: 'awaiting_runner',
@@ -662,8 +682,13 @@ export async function handleLabRequest(
     if (persisted) {
       try {
         await dispatchManagedRunner(updated.experimentId, env ?? {});
-      } catch {
-        // The local runner remains a supported fallback if GitHub dispatch is unavailable.
+      } catch (error) {
+        return errorResponse(
+          json,
+          error,
+          'The managed browser runner could not be dispatched. The experiment remains queued for a manual runner.',
+          502,
+        );
       }
     }
     return persisted
