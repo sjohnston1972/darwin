@@ -34,6 +34,7 @@ import {
   handleWorkerRequest,
   resetSimulationStore,
   runRetentionMaintenance,
+  selectMeasurementBoundary,
   type Env,
 } from './index';
 import {
@@ -62,6 +63,32 @@ const studyEvent = {
   viewport: 'desktop',
   eventType: 'page_view',
 } as const;
+
+describe('measurement boundary selection', () => {
+  it('uses a later target connection instead of an older recovered cycle', () => {
+    expect(
+      selectMeasurementBoundary(
+        '2026-07-17T16:32:58.227Z',
+        '2026-07-18T16:55:06.634Z',
+      ),
+    ).toEqual({
+      startedAt: '2026-07-18T16:55:06.634Z',
+      source: 'target_connection',
+    });
+  });
+
+  it('keeps a later released cycle boundary after an older connection', () => {
+    expect(
+      selectMeasurementBoundary(
+        '2026-07-19T10:00:00.000Z',
+        '2026-07-18T16:55:06.634Z',
+      ),
+    ).toEqual({
+      startedAt: '2026-07-19T10:00:00.000Z',
+      source: 'evolution_cycle',
+    });
+  });
+});
 
 const candidate = (id: string, total: number, evidenceId = 'EV-001') => ({
   id,
@@ -1549,6 +1576,7 @@ describe('Darwin API', () => {
   it('rejects stale and mixed application versions before evidence generation', async () => {
     installOpenAIResponse(evidenceModelOutput);
     expect((await connectTargetApplication()).status).toBe(201);
+    await new Promise((resolve) => setTimeout(resolve, 2));
     const telemetryRequest = (events: unknown[]) =>
       ingestConnectedTelemetry(events, {
         PROJECTFLOW_ALLOWED_APP_VERSIONS: 'cccccccccccc',
@@ -1578,6 +1606,7 @@ describe('Darwin API', () => {
 
     await resetInMemoryTelemetry();
     expect((await connectTargetApplication()).status).toBe(201);
+    await new Promise((resolve) => setTimeout(resolve, 2));
     await telemetryRequest([
       {
         ...studyEvent,
@@ -1623,6 +1652,42 @@ describe('Darwin API', () => {
         ...studyEvent,
         eventId: '00000000-0000-4000-8000-000000000185',
         sessionId: 'session-api-current-version',
+        appVersion: repositorySha.slice(0, 12),
+      },
+    ]);
+
+    const generatedResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence',
+        { method: 'POST' },
+      ),
+    );
+    const generated = EvidencePackSchema.parse(await generatedResponse.json());
+
+    expect(generatedResponse.status).toBe(201);
+    expect(generated.study).toMatchObject({
+      appVersion: repositorySha.slice(0, 12),
+      measuredCommit: repositorySha,
+      deploymentVerifiedAt: null,
+      sourceEventCount: 1,
+    });
+  });
+
+  it('uses a later target connection instead of stale recovered cycle metadata', async () => {
+    installOpenAIResponse(evidenceModelOutput);
+    await getTelemetryRepository().advanceEvolutionCycle({
+      startedAt: '2026-07-17T16:32:58.227Z',
+      measuredCommit: '9a07863a8018008ec5c01cbb4094bb7929d8cc68',
+      appVersion: '9a07863a8018',
+      deploymentVerifiedAt: '2026-07-17T16:32:58.227Z',
+    });
+    expect((await connectTargetApplication()).status).toBe(201);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await ingestConnectedTelemetry([
+      {
+        ...studyEvent,
+        eventId: '00000000-0000-4000-8000-000000000186',
+        sessionId: 'session-api-reconnected-version',
         appVersion: repositorySha.slice(0, 12),
       },
     ]);
