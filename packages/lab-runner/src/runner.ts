@@ -176,6 +176,10 @@ const boundedError = (error: unknown, fallback: string) => {
   return message.slice(0, 500);
 };
 
+// A missing or stale accessibility target is an observation for the agent, not
+// a reason to spend Playwright's full 30-second default timeout on one action.
+const actionTimeoutMs = 5_000;
+
 const resolveTarget = async (page: Page, decision: LabAgentDecision) => {
   if (!decision.target) throw new Error('Action target is missing.');
   if (decision.target.semanticId) {
@@ -218,22 +222,24 @@ const executeDecision = async (
     }
     case 'click':
     case 'submit':
-      await locator!.click();
+      await locator!.click({ timeout: actionTimeoutMs });
       break;
     case 'hover':
-      await locator!.hover();
+      await locator!.hover({ timeout: actionTimeoutMs });
       break;
     case 'type':
-      await locator!.fill(decision.value ?? '');
+      await locator!.fill(decision.value ?? '', { timeout: actionTimeoutMs });
       break;
     case 'clear':
-      await locator!.fill('');
+      await locator!.fill('', { timeout: actionTimeoutMs });
       break;
     case 'key':
       await page.keyboard.press(decision.key ?? 'Enter');
       break;
     case 'select':
-      await locator!.selectOption(decision.value ?? '');
+      await locator!.selectOption(decision.value ?? '', {
+        timeout: actionTimeoutMs,
+      });
       break;
     case 'scroll':
       await page.mouse.wheel(0, 650);
