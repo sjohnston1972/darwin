@@ -84,6 +84,19 @@ describe('Darwin Lab view', () => {
     expect(
       screen.getByRole('heading', { name: 'Define a real task' }),
     ).toBeVisible();
+    const experimentForm = screen
+      .getByRole('button', { name: 'Create Lab task' })
+      .closest('form');
+    expect(experimentForm).not.toBeNull();
+    const parameterLabels = [...experimentForm!.querySelectorAll('label')];
+    expect(parameterLabels.length).toBeGreaterThanOrEqual(20);
+    parameterLabels.forEach((label) => {
+      expect(label).toHaveAttribute('data-explain');
+      expect(label.getAttribute('data-explain')?.length).toBeGreaterThan(20);
+    });
+    expect(
+      experimentForm!.querySelector('.lab-task-card > summary'),
+    ).toHaveAttribute('data-explain', expect.stringContaining('population'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Lab task' }));
 

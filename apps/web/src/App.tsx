@@ -136,16 +136,16 @@ const navItems = [
     icon: Radar,
   },
   {
-    label: 'Darwin Lab',
-    icon: Users,
-  },
-  {
     label: 'Mutations',
     icon: FlaskConical,
   },
   {
     label: 'Genome',
     icon: Dna,
+  },
+  {
+    label: 'Darwin Lab',
+    icon: Users,
   },
 ] as const;
 
