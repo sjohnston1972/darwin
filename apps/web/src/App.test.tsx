@@ -1010,7 +1010,7 @@ afterEach(() => {
   window.history.replaceState({}, '', '/');
 });
 
-describe('Darwin control room', () => {
+describe('Rosalind control room', () => {
   it('hydrates a deep-linked observation outside the first archive page', async () => {
     window.history.replaceState(
       {},
@@ -1055,6 +1055,13 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('link', { name: 'Target application' }),
     ).toHaveAttribute('href', '/?view=target');
+    const workspaceLinks = within(
+      screen.getByRole('navigation', { name: 'Primary navigation' }),
+    ).getAllByRole('link');
+    expect(workspaceLinks.at(-1)).toHaveAccessibleName('Darwin Labs');
+    expect(
+      document.body.textContent?.replaceAll('Darwin Labs', ''),
+    ).not.toMatch(/\bDarwin\b/);
     expect(screen.getByRole('link', { name: 'Control room' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -1150,7 +1157,13 @@ describe('Darwin control room', () => {
     const fetchMock = installApi();
     const { rerender } = render(<App />);
 
-    fireEvent.click(await screen.findByText('Evidence and mutation reasoning'));
+    const evidenceSummary = await screen.findByText(
+      'Evidence and mutation reasoning',
+    );
+    const evidenceDisclosure = evidenceSummary.closest('details');
+    expect(evidenceDisclosure).not.toHaveAttribute('open');
+    fireEvent.click(evidenceSummary);
+    expect(evidenceDisclosure).toHaveAttribute('open');
 
     const ask = await screen.findByRole('button', { name: 'Ask gpt-5.6' });
     expect(ask).toBeEnabled();

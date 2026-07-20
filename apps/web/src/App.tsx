@@ -1697,6 +1697,7 @@ function LiveTelemetryPanel({
   const [signalSessionFilter, setSignalSessionFilter] = useState('all');
   const [signalTaskFilter, setSignalTaskFilter] = useState('all');
   const [signalPage, setSignalPage] = useState(0);
+  const pendingSignalRevealPage = useRef<number | null>(null);
   const [implementationMutationIds, setImplementationMutationIds] = useState<
     string[]
   >([]);
@@ -1867,9 +1868,12 @@ function LiveTelemetryPanel({
     setSignalTargetFilter('all');
     setSignalSessionFilter('all');
     setSignalTaskFilter('all');
-    setSignalPage(
-      Math.max(0, Math.floor(rankedSignals.indexOf(signal) / signalPageSize)),
+    const revealPage = Math.max(
+      0,
+      Math.floor(rankedSignals.indexOf(signal) / signalPageSize),
     );
+    pendingSignalRevealPage.current = revealPage;
+    setSignalPage(revealPage);
     window.history.replaceState(
       {},
       '',
@@ -1899,6 +1903,11 @@ function LiveTelemetryPanel({
   }, [telemetry.analysis?.analysisId, telemetry.manifest]);
 
   useEffect(() => {
+    if (pendingSignalRevealPage.current !== null) {
+      setSignalPage(pendingSignalRevealPage.current);
+      pendingSignalRevealPage.current = null;
+      return;
+    }
     setSignalPage(0);
   }, [
     signalSeverityFilter,

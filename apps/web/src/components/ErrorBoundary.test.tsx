@@ -20,7 +20,7 @@ describe('control-room error boundary', () => {
 
     expect(
       screen.getByRole('heading', {
-        name: 'Darwin contained a control-room error',
+        name: 'Rosalind contained a control-room error',
       }),
     ).toBeInTheDocument();
     expect(

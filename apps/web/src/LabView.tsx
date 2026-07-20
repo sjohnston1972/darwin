@@ -23,7 +23,13 @@ import {
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 
 import { apiFetch } from './api';
 import { ProvenanceChip } from './components/ProvenanceChip';
@@ -112,6 +118,19 @@ const balancedPersonas = (populationSize: number): Record<LabPersona, number> =>
     ]),
   ) as Record<LabPersona, number>;
 
+const boundedInteger = (
+  value: string,
+  current: number,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+) => {
+  if (!value.trim()) return current;
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(maximum, Math.max(minimum, Math.trunc(parsed)))
+    : current;
+};
+
 export function DarwinLabView({
   apiBaseUrl,
   defaultTargetUrl,
@@ -146,14 +165,17 @@ export function DarwinLabView({
   const [maxActions, setMaxActions] = useState(12);
   const [maxDurationSeconds, setMaxDurationSeconds] = useState(180);
   const [seed, setSeed] = useState(1859);
+  const experimentLoadGeneration = useRef(0);
 
   const loadExperiments = useCallback(async () => {
+    const generation = ++experimentLoadGeneration.current;
     const response = await apiFetch(`${apiBaseUrl}/api/lab/experiments`);
     const payload = (await response.json()) as { message?: string };
     if (!response.ok) {
       throw new Error(payload.message ?? 'Darwin Labs could not be loaded.');
     }
     const parsed = LabExperimentsResponseSchema.parse(payload).experiments;
+    if (generation !== experimentLoadGeneration.current) return;
     setExperiments(parsed);
     setSelectedId((current) =>
       current &&
@@ -173,6 +195,9 @@ export function DarwinLabView({
         ),
       )
       .finally(() => setLoading(false));
+    return () => {
+      experimentLoadGeneration.current += 1;
+    };
   }, [loadExperiments]);
 
   const selected =
@@ -211,7 +236,10 @@ export function DarwinLabView({
       return;
     }
     let active = true;
-    const loadExecution = async () => {
+    setExecution((current) =>
+      current?.executionId === selectedExecutionId ? current : null,
+    );
+    const loadExecution = async (reportError: boolean) => {
       try {
         const response = await apiFetch(
           `${apiBaseUrl}/api/repository-executions/${encodeURIComponent(selectedExecutionId)}`,
@@ -223,7 +251,7 @@ export function DarwinLabView({
               'Darwin Labs execution could not be loaded.',
           );
         }
-        if (active) {
+        if (active && reportError) {
           setExecution(RepositoryMutationExecutionSchema.parse(payload));
         }
       } catch (reason) {
@@ -236,13 +264,13 @@ export function DarwinLabView({
         }
       }
     };
-    void loadExecution();
+    void loadExecution(true);
     const terminal =
       execution?.executionId === selectedExecutionId &&
       terminalExecutionStatuses.has(execution.status);
     const interval = terminal
       ? null
-      : window.setInterval(() => void loadExecution(), 3_000);
+      : window.setInterval(() => void loadExecution(false), 3_000);
     return () => {
       active = false;
       if (interval !== null) window.clearInterval(interval);
@@ -503,7 +531,12 @@ export function DarwinLabView({
                 max="20"
                 value={populationSize}
                 onChange={(event) => {
-                  const size = Number(event.target.value);
+                  const size = boundedInteger(
+                    event.target.value,
+                    populationSize,
+                    8,
+                    20,
+                  );
                   setPopulationSize(size);
                   setPersonaAllocation(balancedPersonas(size));
                 }}
@@ -533,7 +566,12 @@ export function DarwinLabView({
                       onChange={(event) =>
                         setPersonaAllocation((current) => ({
                           ...current,
-                          [persona]: Number(event.target.value),
+                          [persona]: boundedInteger(
+                            event.target.value,
+                            current[persona],
+                            0,
+                            populationSize,
+                          ),
                         }))
                       }
                     />
@@ -550,7 +588,9 @@ export function DarwinLabView({
                   max="30"
                   value={maxActions}
                   onChange={(event) =>
-                    setMaxActions(Number(event.target.value))
+                    setMaxActions(
+                      boundedInteger(event.target.value, maxActions, 4, 30),
+                    )
                   }
                 />
               </label>
@@ -562,7 +602,14 @@ export function DarwinLabView({
                   max="600"
                   value={maxDurationSeconds}
                   onChange={(event) =>
-                    setMaxDurationSeconds(Number(event.target.value))
+                    setMaxDurationSeconds(
+                      boundedInteger(
+                        event.target.value,
+                        maxDurationSeconds,
+                        30,
+                        600,
+                      ),
+                    )
                   }
                 />
               </label>
@@ -572,7 +619,9 @@ export function DarwinLabView({
                   type="number"
                   min="1"
                   value={seed}
-                  onChange={(event) => setSeed(Number(event.target.value))}
+                  onChange={(event) =>
+                    setSeed(boundedInteger(event.target.value, seed, 1))
+                  }
                 />
               </label>
             </div>

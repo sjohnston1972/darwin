@@ -11,6 +11,24 @@ describe('API route contract', () => {
     expect(keys.length).toBeGreaterThan(30);
   });
 
+  it('resolves every declared route and requires capabilities on operator routes', () => {
+    for (const route of apiRouteContract) {
+      const examplePath = route.path.replace(/:[^/]+/g, 'contract-test');
+      expect(
+        findApiRoute(route.method, examplePath),
+        `${route.method} ${route.path}`,
+      ).toBe(route);
+      if (route.access === 'operator') {
+        expect(
+          route.capability,
+          `${route.method} ${route.path}`,
+        ).not.toBeNull();
+      } else {
+        expect(route.capability, `${route.method} ${route.path}`).toBeNull();
+      }
+    }
+  });
+
   it('matches parameterized routes to their access boundary', () => {
     expect(
       findApiRoute(

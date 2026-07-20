@@ -291,6 +291,37 @@ describe('DarwinTelemetryClient', () => {
     client.destroy();
   });
 
+  it('beacons a page-hidden session once without starting a competing fetch', () => {
+    const sendBeacon = vi.fn(() => true);
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon });
+    const fetcher = vi.fn<typeof fetch>();
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-pagehide',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      batchSize: 20,
+      fetcher,
+    });
+    client.init();
+    client.taskStarted('find-work');
+
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(sendBeacon).toHaveBeenCalledOnce();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(client.snapshot().map((event) => event.eventType)).toEqual([
+      'session_started',
+      'page_view',
+      'task_started',
+      'task_failed',
+      'session_ended',
+    ]);
+    client.destroy();
+  });
+
   it('recovers acknowledged events after an offline retry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T09:00:00.000Z'));
@@ -363,6 +394,81 @@ describe('DarwinTelemetryClient', () => {
     client.destroy();
   });
 
+  it('terminally reconciles sequence-conflicting events from a receipt', async () => {
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-sequence-conflict',
+      endpoint: '/api/telemetry/events',
+      initialRoute: '/study',
+      batchSize: 20,
+      fetcher: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            accepted: 0,
+            rejected: 0,
+            duplicates: 0,
+            sequenceConflicts: 2,
+          }),
+          { status: 202, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    });
+    client.init();
+
+    await expect(client.flush()).resolves.toMatchObject({
+      status: 'delivered',
+      sequenceConflicts: 2,
+    });
+    expect(client.snapshot()).toHaveLength(0);
+    expect(client.health().consecutiveDeliveryFailures).toBe(0);
+    client.destroy();
+  });
+
+  it('continues a stable session sequence across client instances', () => {
+    const config = {
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-stable-session',
+      sessionId: 'session-stable-reload',
+      initialRoute: '/study',
+    };
+    const first = createTelemetryClient(config);
+    first.init();
+    expect(first.snapshot().map((event) => event.sequence)).toEqual([0, 1]);
+    first.destroy();
+
+    const second = createTelemetryClient(config);
+    second.init();
+    expect(
+      second
+        .snapshot()
+        .slice(-2)
+        .map((event) => event.sequence),
+    ).toEqual([3, 4]);
+    second.destroy();
+  });
+
+  it('creates unique valid event IDs without crypto.randomUUID', () => {
+    vi.stubGlobal('crypto', {});
+    vi.spyOn(Date, 'now').mockReturnValue(1_753_000_000_000);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const client = createTelemetryClient({
+      appVersion: '1.0.0',
+      studyId: 'projectflow-baseline-study',
+      participantId: 'participant-fallback-id',
+      initialRoute: '/study',
+    });
+    client.init();
+
+    const events = client.snapshot();
+    expect(new Set(events.map((event) => event.eventId)).size).toBe(2);
+    events.forEach((event) =>
+      expect(() => StudyTelemetryEventSchema.parse(event)).not.toThrow(),
+    );
+    client.destroy();
+  });
+
   it('honors Retry-After before retrying a rate-limited batch', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T09:00:00.000Z'));
@@ -410,10 +516,16 @@ describe('DarwinTelemetryClient', () => {
     client.destroy();
   });
 
-  it('falls back to memory when persistent outbox writes fail', () => {
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Quota exceeded', 'QuotaExceededError');
-    });
+  it('retries persistent outbox writes after a transient quota failure', () => {
+    const originalSetItem = Storage.prototype.setItem;
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementationOnce(() => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      })
+      .mockImplementation(function (this: Storage, key: string, value: string) {
+        return originalSetItem.call(this, key, value);
+      });
     const healthUpdates: Array<{ storageFailures: number }> = [];
     const client = createTelemetryClient({
       appVersion: '1.0.0',
@@ -427,6 +539,13 @@ describe('DarwinTelemetryClient', () => {
     expect(client.snapshot()).toHaveLength(2);
     expect(client.health().storageFailures).toBe(1);
     expect(healthUpdates.at(-1)?.storageFailures).toBe(1);
+    client.trackPageView('/study/projects');
+    expect(setItem.mock.calls.length).toBeGreaterThan(4);
+    expect(
+      localStorage.getItem(
+        'darwin:telemetry-outbox:projectflow-baseline-study:participant-quota',
+      ),
+    ).toContain('/study/projects');
     client.destroy();
   });
 

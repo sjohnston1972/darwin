@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  boundLabRunnerError,
   deriveFrictionLabels,
+  labActionTimeoutMs,
   labTargetUrl,
+  reconcileSessionEventIds,
   retryFinishOperation,
   seededPersonas,
 } from './runner';
@@ -28,6 +31,32 @@ const experiment = {
 } as LabExperiment;
 
 describe('Darwin Lab runner', () => {
+  it('bounds stale browser targets well below the experiment duration budget', () => {
+    expect(labActionTimeoutMs).toBe(5_000);
+    expect(labActionTimeoutMs).toBeLessThan(30_000);
+  });
+
+  it('keeps runner failures distinct and safe for the Lab record', () => {
+    expect(boundLabRunnerError(new Error('x'.repeat(700)), 'fallback')).toBe(
+      'x'.repeat(500),
+    );
+    expect(boundLabRunnerError('unknown failure', 'fallback')).toBe('fallback');
+  });
+
+  it('preserves the telemetry high-water mark across a transient read failure', () => {
+    const known = new Set(['event-1', 'event-2']);
+    const failed = reconcileSessionEventIds(known, null);
+    expect([...failed.knownEventIds]).toEqual(['event-1', 'event-2']);
+    expect(failed.newEventIds).toEqual([]);
+
+    const recovered = reconcileSessionEventIds(failed.knownEventIds, [
+      'event-1',
+      'event-2',
+      'event-3',
+    ]);
+    expect(recovered.newEventIds).toEqual(['event-3']);
+  });
+
   it('creates a deterministic allocated population and a provenance-bound target URL', () => {
     expect(seededPersonas(experiment)).toEqual(seededPersonas(experiment));
     expect(seededPersonas(experiment).sort()).toEqual([

@@ -12,7 +12,7 @@
   align-items: center;
   gap: 7px;
   color: var(--signal);
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
   font-weight: 700;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -64,7 +64,7 @@
   display: grid;
   gap: 8px;
   color: var(--mist);
-  font-size: calc(11px + 2pt);
+  font-size: 13.6667px;
 }
 
 .lab-form label > strong {
@@ -130,7 +130,7 @@
 
 .lab-task-card span {
   color: var(--signal);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -143,7 +143,7 @@
 
 .lab-task-card small {
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
 }
 
 .lab-form .primary-action {
@@ -159,7 +159,7 @@
   background: var(--carbon);
   border: 1px solid var(--line);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -213,12 +213,12 @@
 }
 
 .lab-experiment-tabs span {
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
 }
 
 .lab-experiment-tabs small {
   color: var(--mist);
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
 }
 
 .lab-metrics {
@@ -239,7 +239,7 @@
 
 .lab-metrics span {
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -280,13 +280,13 @@
 
 .lab-next-action strong,
 .lab-analysis-action strong {
-  font-size: calc(11px + 2pt);
+  font-size: 13.6667px;
 }
 
 .lab-next-action span,
 .lab-analysis-action span {
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
 }
 
 .lab-runner-command {
@@ -313,19 +313,19 @@
 
 .lab-runner-command strong {
   color: var(--white);
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
 }
 
 .lab-runner-command small {
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
 }
 
 .lab-runner-command code {
   padding: 10px;
   color: var(--signal);
   background: var(--carbon);
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
 }
 
 .lab-agent-grid {
@@ -401,7 +401,7 @@
 
 .lab-agent-grid strong {
   overflow: hidden;
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -409,7 +409,7 @@
 .lab-agent-grid small {
   overflow: hidden;
   color: var(--mist);
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -428,7 +428,7 @@
   background: var(--carbon);
   border: 1px solid var(--line);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
 }
 
 .lab-action-timeline {
@@ -448,7 +448,7 @@
 
 .lab-action-timeline > article > code {
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
 }
 
 .lab-action-outcome {
@@ -474,14 +474,14 @@
 
 .lab-action-timeline strong {
   display: block;
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
   text-transform: uppercase;
 }
 
 .lab-action-timeline p {
   margin-top: 4px;
   color: var(--mist);
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
 }
 
 .lab-action-timeline small {
@@ -489,12 +489,12 @@
   margin-top: 6px;
   color: var(--mist);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
 }
 
 .lab-evidence-panel > .panel-heading > code {
   color: var(--signal);
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
 }
 
 .lab-evidence-summary {
@@ -507,7 +507,7 @@
 
 .lab-evidence-summary span {
   padding: 9px 12px;
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
   line-height: 1.2;
 }
 
@@ -531,7 +531,7 @@
   display: block;
   margin-top: 25px;
   color: var(--signal);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
 }
 
 .lab-severity {
@@ -542,7 +542,7 @@
   color: var(--mist);
   background: var(--carbon);
   border: 1px solid var(--line);
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -561,7 +561,7 @@
 .lab-mutation-grid p {
   margin-top: 8px;
   color: var(--mist);
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
   line-height: 1.65;
 }
 
@@ -570,7 +570,7 @@
   margin-top: 13px;
   color: var(--mist);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
 }
 
 .lab-analysis-action {
@@ -603,14 +603,14 @@
 .lab-mutation-grid article > div code {
   overflow: hidden;
   color: var(--signal);
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .lab-mutation-grid article > div span {
   color: var(--mist);
-  font-size: calc(8px + 2pt);
+  font-size: 12px;
 }
 
 .lab-mutation-grid details {
@@ -624,14 +624,14 @@
   align-items: center;
   justify-content: space-between;
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
   cursor: pointer;
 }
 
 .lab-mutation-grid details strong {
   display: block;
   margin-top: 12px;
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -654,7 +654,7 @@
   align-items: center;
   gap: 7px;
   color: var(--amber);
-  font-size: calc(10px + 2pt);
+  font-size: 12.6667px;
 }
 
 .lab-mutation-disclosure > summary {
@@ -682,7 +682,7 @@
 
 .lab-mutation-disclosure > summary small {
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
 }
 
 .lab-mutation-disclosure > summary svg {
@@ -701,7 +701,7 @@
   gap: 12px;
   padding: 15px 22px;
   color: var(--mist);
-  font-size: calc(9px + 2pt);
+  font-size: 12px;
   line-height: 1.6;
   border-top: 1px solid var(--line);
 }
@@ -1130,7 +1130,7 @@ a:focus-visible {
   padding: 3px 7px;
   background: #181c1a;
   color: #aeb8b1;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1;
@@ -1230,7 +1230,7 @@ a:focus-visible {
   gap: 6px;
   color: inherit;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .demo-status {
@@ -1478,7 +1478,7 @@ a:focus-visible {
   white-space: nowrap;
   color: var(--mist);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .live-update-indicator span {
@@ -1878,7 +1878,7 @@ a:focus-visible {
 .signal-section-heading > span {
   color: #75878e;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -1911,7 +1911,7 @@ a:focus-visible {
 .pressure-rank {
   color: #52656c;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .top-pressure-grid .signal-severity {
@@ -1932,7 +1932,7 @@ a:focus-visible {
 .top-pressure-grid code {
   overflow: hidden;
   color: #83a096;
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1940,7 +1940,7 @@ a:focus-visible {
 .top-pressure-grid small {
   color: #718088;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .signal-severity {
@@ -1949,7 +1949,7 @@ a:focus-visible {
   border: 1px solid currentcolor;
   border-radius: 999px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1;
   text-transform: uppercase;
 }
@@ -2005,7 +2005,7 @@ a:focus-visible {
 }
 
 .pressure-group-title strong {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -2014,7 +2014,7 @@ a:focus-visible {
   overflow: hidden;
   color: #75868d;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2031,13 +2031,13 @@ a:focus-visible {
   padding: 7px 0;
   color: #a8b7bc;
   border-top: 1px solid rgb(126 144 151 / 9%);
-  font-size: 10px;
+  font-size: 12px;
   text-decoration: none;
 }
 
 .pressure-group-list a span,
 .pressure-group-list a small {
-  color: #71848a;
+  color: #788b92;
   font-family: var(--font-mono);
 }
 
@@ -2061,9 +2061,9 @@ a:focus-visible {
 }
 
 .signal-filters label > span {
-  color: #71848a;
+  color: #788b92;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -2075,7 +2075,7 @@ a:focus-visible {
   background: #0b1418;
   border: 1px solid #29373d;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .artifact-filter {
@@ -2084,10 +2084,10 @@ a:focus-visible {
   justify-content: flex-end;
   gap: 10px;
   padding: 12px 20px;
-  color: #71848a;
+  color: #788b92;
   border-top: 1px solid #243137;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2101,7 +2101,7 @@ a:focus-visible {
   border: 1px solid #29373d;
   border-radius: 4px;
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: normal;
   text-transform: none;
 }
@@ -2168,7 +2168,7 @@ a:focus-visible {
 .evidence-dimensions small {
   color: #7f8e94;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .evidence-dimensions dt {
@@ -3123,7 +3123,7 @@ a:focus-visible {
 .evidence-signal-title small,
 .signal-row-support {
   overflow: hidden;
-  color: #71848a;
+  color: #788b92;
   font-family: var(--font-mono);
   font-size: var(--type-caption);
   text-overflow: ellipsis;
@@ -3176,7 +3176,7 @@ a:focus-visible {
   margin-bottom: 5px;
   color: #667980;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -3205,12 +3205,12 @@ a:focus-visible {
   grid-template-columns: 26px 112px 120px minmax(170px, 1fr) 66px 66px;
   min-width: 620px;
   min-height: 32px;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .signal-raw-events > p {
   color: #718087;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .signal-pagination {
@@ -3219,9 +3219,9 @@ a:focus-visible {
   justify-content: space-between;
   gap: 12px;
   padding-top: 10px;
-  color: #71848a;
+  color: #788b92;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .signal-pagination > div {
@@ -3237,7 +3237,7 @@ a:focus-visible {
   background: #0c161a;
   border: 1px solid #2a383e;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -4290,7 +4290,7 @@ a:focus-visible {
 .fitness-outcome-heading > code,
 .fitness-cohort-line {
   color: var(--mist);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .fitness-component-grid {
@@ -4312,7 +4312,7 @@ a:focus-visible {
 
 .fitness-component-grid span {
   color: var(--mist);
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -4323,7 +4323,7 @@ a:focus-visible {
 
 .fitness-component-grid code {
   color: #68d4a4;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .fitness-limitations {
@@ -4332,7 +4332,7 @@ a:focus-visible {
   margin: 0;
   padding-left: 18px;
   color: var(--mist);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {
@@ -4789,7 +4789,7 @@ a:focus-visible {
   height: 27px;
   place-items: center;
   border: 1px solid #404741;
-  color: #737d77;
+  color: #87938c;
   font-family: var(--font-mono);
   font-size: var(--type-caption);
 }
@@ -5013,7 +5013,7 @@ a:focus-visible {
 
 .connection-empty-state p {
   max-width: 310px;
-  color: #707a74;
+  color: #849089;
   font-size: var(--type-supporting);
   line-height: 1.6;
 }
@@ -5022,8 +5022,8 @@ html[data-theme='light'] {
   --line: #d7e0e8;
   --mist: #5f6f7c;
   --white: #17212b;
-  --accent: #0284c7;
-  --signal: #0284c7;
+  --accent: #0369a1;
+  --signal: #0369a1;
   --amber: #b45309;
   --carbon: #f4f7fb;
   --surface: #fff;
@@ -5047,6 +5047,22 @@ html[data-theme='light'] .text-mist {
 
 html[data-theme='light'] .text-signal {
   color: #0369a1 !important;
+}
+
+html[data-theme='light'] .text-amber {
+  color: #9a3412 !important;
+}
+
+html[data-theme='light'] .live-update-indicator.is-stale span {
+  color: #9f2f24;
+}
+
+html[data-theme='light'] .artifact-filter,
+html[data-theme='light'] .signal-filters label > span,
+html[data-theme='light'] .pressure-group-list a span,
+html[data-theme='light'] .pressure-group-list a small,
+html[data-theme='light'] .signal-pagination {
+  color: #536574;
 }
 
 html[data-theme='light'] .bg-signal {
@@ -5125,6 +5141,17 @@ html[data-theme='light'] .connection-steps li > span,
 html[data-theme='light'] .connection-state,
 html[data-theme='light'] .connection-empty-state {
   border-color: #cbd8e2;
+}
+
+html[data-theme='light'] .connection-steps li > span,
+html[data-theme='light'] .connection-empty-state p {
+  color: #536574;
+}
+
+html[data-theme='light'] .connection-error {
+  border-color: #c2410c;
+  color: #9a3412;
+  background: #fff7ed;
 }
 
 html[data-theme='light'] .connection-steps small,

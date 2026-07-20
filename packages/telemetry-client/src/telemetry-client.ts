@@ -86,12 +86,37 @@ interface CursorState {
 }
 
 const storagePrefix = 'darwin:telemetry-outbox';
+const sequenceStoragePrefix = 'darwin:telemetry-sequence';
+let fallbackIdCounter = 0;
+
+const fallbackUuid = () => {
+  const bytes = new Uint8Array(16);
+  const browserCrypto = globalThis.crypto;
+  if (typeof browserCrypto?.getRandomValues === 'function') {
+    browserCrypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+    const view = new DataView(bytes.buffer);
+    const timestamp = Date.now();
+    view.setUint32(0, Math.floor(timestamp / 0x1_0000_0000));
+    view.setUint32(4, timestamp >>> 0);
+    view.setUint32(12, fallbackIdCounter++ >>> 0);
+  }
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const value = [...bytes]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+};
 
 const createId = (prefix?: string) => {
   const value =
-    typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : '00000000-0000-4000-8000-000000000001';
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : fallbackUuid();
   return prefix ? `${prefix}-${value}` : value;
 };
 
@@ -143,6 +168,7 @@ export class DarwinTelemetryClient {
     random: () => number;
   };
   private readonly outboxKey: string;
+  private readonly sequenceKey: string;
   private readonly fetcher: typeof fetch;
   private outbox: StudyTelemetryEvent[];
   private currentRoute: string;
@@ -158,9 +184,10 @@ export class DarwinTelemetryClient {
   private storageFailures = 0;
   private deliveryFailures = 0;
   private lastDeliveryError: string | null = null;
-  private persistentStorageAvailable = true;
   private startedAt = Date.now();
   private initialized = false;
+  private sessionEnded = false;
+  private readonly beaconedEventIds = new Set<string>();
   private readonly hovers = new Map<string, HoverState>();
   private readonly clickHistory = new Map<string, number[]>();
   private readonly rageSignalAt = new Map<string, number>();
@@ -176,10 +203,11 @@ export class DarwinTelemetryClient {
   private lastZoomScale = 1;
 
   constructor(config: TelemetryClientConfig) {
+    const sessionId = config.sessionId ?? createId('session');
     this.config = {
       ...config,
       source: config.source ?? 'real_user',
-      sessionId: config.sessionId ?? createId('session'),
+      sessionId,
       flushIntervalMs: config.flushIntervalMs ?? 5_000,
       batchSize: Math.min(50, Math.max(1, config.batchSize ?? 20)),
       maxOutboxSize: Math.min(5_000, Math.max(2, config.maxOutboxSize ?? 500)),
@@ -195,12 +223,20 @@ export class DarwinTelemetryClient {
       config.initialRoute ?? window.location.pathname,
     );
     this.outboxKey = `${storagePrefix}:${config.studyId}:${config.participantId}`;
+    this.sequenceKey = `${sequenceStoragePrefix}:${config.studyId}:${config.participantId}:${sessionId}`;
     this.outbox = this.readOutbox();
+    this.sequence = Math.max(
+      this.readSequence(),
+      ...this.outbox
+        .filter((event) => event.sessionId === sessionId)
+        .map((event) => event.sequence + 1),
+    );
   }
 
   init() {
     if (this.initialized) return;
     this.initialized = true;
+    this.sessionEnded = false;
     this.startedAt = Date.now();
     this.basePixelRatio = window.devicePixelRatio || 1;
     this.baseViewportScale = window.visualViewport?.scale || 1;
@@ -320,7 +356,7 @@ export class DarwinTelemetryClient {
     return attempt.id;
   }
 
-  taskCompleted(outcome: TerminalOutcome) {
+  taskCompleted(outcome: TerminalOutcome, flush = true) {
     if (!this.activeAttempt) return null;
     const attempt = this.activeAttempt;
     const durationMs = Math.max(0, Date.now() - attempt.startedAt);
@@ -344,7 +380,7 @@ export class DarwinTelemetryClient {
       });
     }
 
-    if (this.config.endpoint) {
+    if (flush && this.config.endpoint) {
       void this.flush().catch(() => undefined);
     }
 
@@ -433,7 +469,10 @@ export class DarwinTelemetryClient {
 
       const receipt = TelemetryReceiptSchema.parse(await response.json());
       if (
-        receipt.accepted + receipt.rejected + receipt.duplicates !==
+        receipt.accepted +
+          receipt.rejected +
+          receipt.duplicates +
+          receipt.sequenceConflicts !==
         events.length
       ) {
         return this.scheduleRetry(
@@ -825,7 +864,7 @@ export class DarwinTelemetryClient {
   };
 
   private readonly capturePageHide = () => {
-    this.endSession();
+    this.endSession(false);
     this.flushWithBeacon();
   };
 
@@ -847,8 +886,12 @@ export class DarwinTelemetryClient {
     });
   };
 
-  private endSession() {
-    if (this.activeAttempt) this.taskCompleted('abandoned');
+  private endSession(flushActiveAttempt = true) {
+    if (this.sessionEnded) return;
+    this.sessionEnded = true;
+    if (this.activeAttempt) {
+      this.taskCompleted('abandoned', flushActiveAttempt);
+    }
     this.enqueue({
       eventType: 'session_ended',
       durationMs: Math.max(0, Date.now() - this.startedAt),
@@ -864,9 +907,15 @@ export class DarwinTelemetryClient {
       offset < this.outbox.length;
       offset += this.config.batchSize
     ) {
-      const events = this.outbox.slice(offset, offset + this.config.batchSize);
-      const body = JSON.stringify(TelemetryBatchSchema.parse({ events }));
+      const events = this.outbox
+        .slice(offset, offset + this.config.batchSize)
+        .filter((event) => !this.beaconedEventIds.has(event.eventId));
+      if (!events.length) continue;
+      const batch = TelemetryBatchSchema.safeParse({ events });
+      if (!batch.success) continue;
+      const body = JSON.stringify(batch.data);
       if (!navigator.sendBeacon(this.config.endpoint, body)) break;
+      events.forEach((event) => this.beaconedEventIds.add(event.eventId));
     }
   }
 
@@ -875,6 +924,7 @@ export class DarwinTelemetryClient {
     this.outbox = this.outbox.filter(
       (event) => !deliveredIds.has(event.eventId),
     );
+    deliveredIds.forEach((eventId) => this.beaconedEventIds.delete(eventId));
   }
 
   private attemptFields() {
@@ -1040,13 +1090,15 @@ export class DarwinTelemetryClient {
       appVersion: this.config.appVersion,
       source: this.config.source,
       occurredAt: new Date().toISOString(),
-      sequence: this.sequence++,
+      sequence: this.sequence,
       route: this.currentRoute,
       viewport: getViewportClass(),
       ...(this.config.provenance ? { provenance: this.config.provenance } : {}),
       ...event,
     };
     const parsed = StudyTelemetryEventSchema.parse(candidate);
+    this.sequence += 1;
+    this.persistSequence();
     this.outbox.push(parsed);
     if (this.outbox.length > this.config.maxOutboxSize) {
       const overflow = this.outbox.length - this.config.maxOutboxSize;
@@ -1076,18 +1128,36 @@ export class DarwinTelemetryClient {
         return parsed.success ? [parsed.data] : [];
       });
     } catch {
-      this.persistentStorageAvailable = false;
       this.storageFailures += 1;
       return [];
     }
   }
 
   private persistOutbox() {
-    if (!this.persistentStorageAvailable) return;
     try {
       localStorage.setItem(this.outboxKey, JSON.stringify(this.outbox));
     } catch {
-      this.persistentStorageAvailable = false;
+      this.storageFailures += 1;
+      this.notifyHealth();
+    }
+  }
+
+  private readSequence() {
+    try {
+      const stored = localStorage.getItem(this.sequenceKey);
+      if (stored === null) return 0;
+      const value = Number(stored);
+      return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+    } catch {
+      this.storageFailures += 1;
+      return 0;
+    }
+  }
+
+  private persistSequence() {
+    try {
+      localStorage.setItem(this.sequenceKey, String(this.sequence));
+    } catch {
       this.storageFailures += 1;
       this.notifyHealth();
     }

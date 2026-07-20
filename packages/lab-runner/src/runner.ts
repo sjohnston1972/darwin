@@ -171,14 +171,14 @@ const semanticId = async (locator: Locator) =>
     )
     .catch(() => null);
 
-const boundedError = (error: unknown, fallback: string) => {
+export const boundLabRunnerError = (error: unknown, fallback: string) => {
   const message = error instanceof Error ? error.message : fallback;
   return message.slice(0, 500);
 };
 
 // A missing or stale accessibility target is an observation for the agent, not
 // a reason to spend Playwright's full 30-second default timeout on one action.
-const actionTimeoutMs = 5_000;
+export const labActionTimeoutMs = 5_000;
 
 const resolveTarget = async (page: Page, decision: LabAgentDecision) => {
   if (!decision.target) throw new Error('Action target is missing.');
@@ -222,23 +222,25 @@ const executeDecision = async (
     }
     case 'click':
     case 'submit':
-      await locator!.click({ timeout: actionTimeoutMs });
+      await locator!.click({ timeout: labActionTimeoutMs });
       break;
     case 'hover':
-      await locator!.hover({ timeout: actionTimeoutMs });
+      await locator!.hover({ timeout: labActionTimeoutMs });
       break;
     case 'type':
-      await locator!.fill(decision.value ?? '', { timeout: actionTimeoutMs });
+      await locator!.fill(decision.value ?? '', {
+        timeout: labActionTimeoutMs,
+      });
       break;
     case 'clear':
-      await locator!.fill('', { timeout: actionTimeoutMs });
+      await locator!.fill('', { timeout: labActionTimeoutMs });
       break;
     case 'key':
       await page.keyboard.press(decision.key ?? 'Enter');
       break;
     case 'select':
       await locator!.selectOption(decision.value ?? '', {
-        timeout: actionTimeoutMs,
+        timeout: labActionTimeoutMs,
       });
       break;
     case 'scroll':
@@ -269,7 +271,7 @@ const getSnapshot = async (page: Page) => {
 const listSessionEventIds = async (
   experiment: LabExperiment,
   sessionId: string,
-) => {
+): Promise<string[] | null> => {
   try {
     const response = StudySessionResponseSchema.parse(
       await apiRequest(
@@ -278,8 +280,21 @@ const listSessionEventIds = async (
     );
     return response.events.map((event) => event.eventId);
   } catch {
-    return [];
+    return null;
   }
+};
+
+export const reconcileSessionEventIds = (
+  knownEventIds: ReadonlySet<string>,
+  currentEventIds: string[] | null,
+) => {
+  if (currentEventIds === null) {
+    return { knownEventIds: new Set(knownEventIds), newEventIds: [] };
+  }
+  return {
+    knownEventIds: new Set(currentEventIds),
+    newEventIds: currentEventIds.filter((id) => !knownEventIds.has(id)),
+  };
 };
 
 export const deriveFrictionLabels = (
@@ -331,6 +346,7 @@ const runAgent = async (
   let terminalError: string | null = null;
   let finishFailure: Error | null = null;
   const actions: LabAgentActionRecord[] = [];
+  let knownEventIds = new Set<string>();
 
   await apiRequest(
     `/api/lab/experiments/${encodeURIComponent(experiment.experimentId)}/runs`,
@@ -367,8 +383,8 @@ const runAgent = async (
       state: 'attached',
       timeout: 15_000,
     });
-    let knownEventIds = new Set(
-      await listSessionEventIds(experiment, sessionId),
+    knownEventIds = new Set(
+      (await listSessionEventIds(experiment, sessionId)) ?? [],
     );
 
     for (let ordinal = 1; ordinal <= experiment.maxActions; ordinal += 1) {
@@ -417,16 +433,18 @@ const runAgent = async (
         );
         await page.waitForTimeout(350);
       } catch (error) {
-        actionError = boundedError(error, 'Action failed.');
+        actionError = boundLabRunnerError(error, 'Action failed.');
       }
       const after = await getSnapshot(page);
       const afterUrl = page.url();
       await page.waitForTimeout(800);
       const currentEventIds = await listSessionEventIds(experiment, sessionId);
-      const newEventIds = currentEventIds.filter(
-        (id) => !knownEventIds.has(id),
+      const reconciliation = reconcileSessionEventIds(
+        knownEventIds,
+        currentEventIds,
       );
-      knownEventIds = new Set(currentEventIds);
+      const newEventIds = reconciliation.newEventIds;
+      knownEventIds = reconciliation.knownEventIds;
       const outcome = actionError
         ? 'error'
         : beforeUrl !== afterUrl || before.snapshot !== after.snapshot
@@ -481,11 +499,14 @@ const runAgent = async (
       }
     }
   } catch (error) {
-    terminalError = boundedError(error, 'Lab run failed.');
+    terminalError = boundLabRunnerError(error, 'Lab run failed.');
     terminalStatus = 'blocked';
   } finally {
     await page.waitForTimeout(1_100).catch(() => undefined);
-    const telemetryEventIds = await listSessionEventIds(experiment, sessionId);
+    const telemetryEventIds = (await listSessionEventIds(
+      experiment,
+      sessionId,
+    )) ?? [...knownEventIds];
     const finishPayload = {
       status: terminalStatus,
       finishedAt: new Date().toISOString(),

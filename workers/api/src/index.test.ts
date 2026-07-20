@@ -1165,10 +1165,12 @@ describe('Darwin API', () => {
 
   it('returns a structured 404 for unknown routes', async () => {
     const response = await handleRequest(
-      new Request('http://localhost/api/missing'),
+      new Request('https://darwin-api.example/api/missing'),
+      { DARWIN_OPERATOR_TOKEN: 'operator-test-token' },
     );
 
     expect(response.status).toBe(404);
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     await expect(response.json()).resolves.toMatchObject({
       error: 'not_found',
     });

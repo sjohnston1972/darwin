@@ -350,18 +350,13 @@ const jsonResponse = (
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
   Object.entries(corsHeaders).forEach(([name, value]) =>
     headers.set(name, value),
   );
 
   return new Response(JSON.stringify(body), { ...init, headers });
 };
-
-const requiredOperatorCapability = (
-  method: string,
-  pathname: string,
-): OperatorCapability =>
-  findApiRoute(method, pathname)?.capability ?? 'observe';
 
 const auditOperatorAuthorization = ({
   request,
@@ -793,6 +788,14 @@ export const handleRequest = async (
     );
   }
 
+  const routeDefinition = findApiRoute(request.method, pathname);
+  if (!routeDefinition) {
+    return json(
+      { error: 'not_found', message: 'The requested route was not found.' },
+      { status: 404 },
+    );
+  }
+
   if (request.method === 'GET' && pathname === '/api/auth/session') {
     const authorization = await authorizeOperator(request, env, 'observe');
     auditOperatorAuthorization({
@@ -830,13 +833,22 @@ export const handleRequest = async (
   }
 
   let operatorIdentity: OperatorIdentity | null = null;
-  const routeAccess = findApiRoute(request.method, pathname)?.access;
+  const routeAccess = routeDefinition.access;
   if (
     routeAccess !== 'public' &&
     routeAccess !== 'target' &&
     routeAccess !== 'callback'
   ) {
-    const capability = requiredOperatorCapability(request.method, pathname);
+    const capability = routeDefinition.capability;
+    if (!capability) {
+      return json(
+        {
+          error: 'route_contract_invalid',
+          message: 'The route is missing its required capability boundary.',
+        },
+        { status: 500 },
+      );
+    }
     const authorization = await authorizeOperator(request, env, capability);
     if (!authorization.ok) {
       auditOperatorAuthorization({

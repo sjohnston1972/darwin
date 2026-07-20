@@ -61,7 +61,11 @@ const targetConnection = {
 };
 
 const workspaces = [
-  { name: 'control-room', path: '/', heading: 'Darwin' },
+  {
+    name: 'control-room',
+    path: '/',
+    heading: 'Rosalind — Helping your software adapt.',
+  },
   {
     name: 'target-application',
     path: '/?view=target',
@@ -79,6 +83,11 @@ const workspaces = [
     heading: 'System status',
   },
   { name: 'genome', path: '/?view=genome', heading: 'Genome' },
+  {
+    name: 'darwin-labs',
+    path: '/?view=lab',
+    heading: 'Define a real task',
+  },
 ] as const;
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -141,6 +150,9 @@ const installApi = async (page: Page) => {
     }
     if (path.endsWith('/api/target-connection')) {
       return json(route, targetConnection);
+    }
+    if (path.endsWith('/api/lab/experiments')) {
+      return json(route, { experiments: [] });
     }
     return json(route, { error: 'unexpected_visual_test_route', path }, 404);
   });

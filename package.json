@@ -1,9 +1,9 @@
 {
   "name": "darwin",
-  "version": "0.25.17",
+  "version": "0.25.18",
   "private": true,
   "type": "module",
-  "description": "Darwin - helping your software evolve.",
+  "description": "Rosalind — helping your software adapt.",
   "workspaces": [
     "packages/*",
     "workers/*",

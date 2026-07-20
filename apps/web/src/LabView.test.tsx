@@ -53,6 +53,42 @@ const draftExperiment = {
   },
 } as const;
 
+const runningExperiment = {
+  ...draftExperiment,
+  status: 'running',
+  runnerId: 'github-actions-123',
+  startedAt: timestamp,
+  runs: [
+    {
+      runId: 'lab-run-layout-test',
+      experimentId: draftExperiment.experimentId,
+      participantId: 'lab-agent-01',
+      sessionId: 'lab-session-layout-test',
+      persona: 'novice',
+      viewport: { class: 'desktop', width: 1440, height: 960 },
+      agentModel: 'gpt-5.6-luna',
+      status: 'running',
+      startedAt: timestamp,
+      finishedAt: null,
+      durationMs: null,
+      taskOutcome: 'open',
+      frictionLabels: [],
+      telemetryEventIds: [],
+      actions: [],
+      error: null,
+      populationOrdinal: 1,
+      studyId: draftExperiment.studyId,
+      taskDefinitionId: draftExperiment.task.taskDefinitionId,
+      taskDefinitionHash: draftExperiment.task.definitionHash,
+      appVersion: draftExperiment.targetAppVersion,
+      provenance: {
+        ...draftExperiment.provenance,
+        runIds: ['lab-run-layout-test'],
+      },
+    },
+  ],
+} as const;
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -97,6 +133,9 @@ describe('Darwin Lab view', () => {
     expect(
       experimentForm!.querySelector('.lab-task-card > summary'),
     ).toHaveAttribute('data-explain', expect.stringContaining('population'));
+    fireEvent.change(screen.getByLabelText('Action budget'), {
+      target: { value: '' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Lab task' }));
 
@@ -113,5 +152,48 @@ describe('Darwin Lab view', () => {
         expect.objectContaining({ method: 'POST' }),
       ),
     );
+    const createRequest = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === 'POST',
+    );
+    expect(JSON.parse(String(createRequest?.[1]?.body))).toMatchObject({
+      maxActions: 12,
+    });
+  });
+
+  it('renders the replay below a full-width population workspace', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ experiments: [runningExperiment] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+
+    const { container } = render(
+      <DarwinLabView
+        apiBaseUrl="http://localhost:8787"
+        defaultTargetUrl="http://localhost:5174/"
+        liveReasoningAvailable
+      />,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Novice · open' }),
+    ).toBeVisible();
+    const population = screen.getByLabelText('Darwin Labs agent population');
+    const populationWorkspace = container.querySelector(
+      '.lab-population-workspace',
+    );
+    const replay = screen.getByText('Run replay').closest('section');
+    expect(populationWorkspace).toContainElement(population);
+    expect(populationWorkspace?.children).toHaveLength(1);
+    expect(replay).not.toBeNull();
+    expect(
+      populationWorkspace!.compareDocumentPosition(replay!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

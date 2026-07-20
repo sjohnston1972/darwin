@@ -1,4 +1,5 @@
 import {
+  LabAgentRunSchema,
   LabExperimentSchema,
   LabExperimentsResponseSchema,
   TelemetryReceiptSchema,
@@ -6,7 +7,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { handleRequest } from '../index';
-import { resetInMemoryLab } from './lab-repository';
+import { getLabRepository, resetInMemoryLab } from './lab-repository';
 
 const request = (path: string, method = 'GET', body?: unknown) =>
   new Request(`http://localhost${path}`, {
@@ -59,6 +60,133 @@ describe('Darwin Lab API', () => {
       },
     );
     expect(lookalike.status).toBe(403);
+  });
+
+  it('keeps a queued experiment recoverable when managed dispatch fails', async () => {
+    const createdResponse = await handleRequest(
+      request('/api/lab/experiments', 'POST', {
+        name: 'Runner dispatch boundary',
+        targetUrl: 'http://localhost:5174/',
+        populationSize: 8,
+        maxActions: 12,
+        maxDurationMs: 180_000,
+        seed: 1859,
+      }),
+    );
+    const created = LabExperimentSchema.parse(await createdResponse.json());
+
+    const unavailable = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}/start`, 'POST'),
+    );
+    expect(unavailable.status).toBe(502);
+    await expect(unavailable.json()).resolves.toMatchObject({
+      error: 'lab_request_failed',
+      message: 'managed_runner_unavailable',
+    });
+
+    const queuedResponse = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}`),
+    );
+    expect(
+      LabExperimentSchema.parse(await queuedResponse.json()),
+    ).toMatchObject({
+      status: 'awaiting_runner',
+      runnerId: null,
+      runs: [],
+    });
+  });
+
+  it('refuses to requeue a draft that contains immutable run history', async () => {
+    const createdResponse = await handleRequest(
+      request('/api/lab/experiments', 'POST', {
+        name: 'Immutable run boundary',
+        targetUrl: 'http://localhost:5174/',
+        populationSize: 8,
+        maxActions: 12,
+        maxDurationMs: 180_000,
+        seed: 1859,
+      }),
+    );
+    const created = LabExperimentSchema.parse(await createdResponse.json());
+    const runId = 'lab-run-immutable-history';
+    const run = LabAgentRunSchema.parse({
+      runId,
+      experimentId: created.experimentId,
+      participantId: 'lab-agent-01',
+      sessionId: 'lab-session-immutable-history',
+      persona: 'novice',
+      viewport: { class: 'desktop', width: 1440, height: 960 },
+      agentModel: 'gpt-5.6-luna',
+      status: 'blocked',
+      startedAt: '2026-07-20T10:00:00.000Z',
+      finishedAt: '2026-07-20T10:01:00.000Z',
+      durationMs: 60_000,
+      taskOutcome: 'failed',
+      frictionLabels: [],
+      telemetryEventIds: [],
+      actions: [],
+      error: 'Historical observation',
+      populationOrdinal: 1,
+      studyId: created.studyId,
+      taskDefinitionId: created.task.taskDefinitionId,
+      taskDefinitionHash: created.task.definitionHash,
+      appVersion: created.targetAppVersion,
+      provenance: { ...created.provenance, runIds: [runId] },
+    });
+    await getLabRepository().saveExperiment({ ...created, runs: [run] });
+
+    const response = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}/start`, 'POST'),
+      { GITHUB_TOKEN: 'must-not-be-used' },
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'lab_state_conflict',
+      message: expect.stringContaining('cannot be re-queued in place'),
+    });
+  });
+
+  it('retries under a new identity and dispatches only that experiment', async () => {
+    const dispatch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', dispatch);
+    const createdResponse = await handleRequest(
+      request('/api/lab/experiments', 'POST', {
+        name: 'Retry identity boundary',
+        targetUrl: 'http://localhost:5174/',
+        populationSize: 8,
+        maxActions: 12,
+        maxDurationMs: 180_000,
+        seed: 1859,
+      }),
+    );
+    const created = LabExperimentSchema.parse(await createdResponse.json());
+    await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}/cancel`, 'POST'),
+    );
+
+    const retryResponse = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}/retry`, 'POST'),
+      {
+        GITHUB_TOKEN: 'github-test-token',
+      },
+    );
+    expect(retryResponse.status).toBe(201);
+    const retry = LabExperimentSchema.parse(await retryResponse.json());
+    expect(retry).toMatchObject({
+      status: 'awaiting_runner',
+      runs: [],
+      evidence: null,
+      analysis: null,
+      selection: null,
+    });
+    expect(retry.experimentId).not.toBe(created.experimentId);
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(dispatch.mock.calls[0]?.[1]?.body))).toEqual({
+      ref: 'main',
+      inputs: { experiment_id: retry.experimentId },
+    });
   });
 
   it('runs a bounded population into separately labelled evidence', async () => {
