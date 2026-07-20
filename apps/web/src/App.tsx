@@ -2137,7 +2137,26 @@ function LiveTelemetryPanel({
         </>
       )}
       {telemetry.evidence && (
-        <div className="evidence-pack">
+        <details
+          className={`evidence-pack evidence-disclosure ${isObservations ? 'is-observations' : ''}`}
+          open={isObservations ? true : undefined}
+        >
+          <summary className="evidence-disclosure-summary">
+            <span>
+              <strong>Evidence and mutation reasoning</strong>
+              <small>
+                {telemetry.evidence.quality.strength} evidence ·{' '}
+                {telemetry.evidence.quality.score}/100 quality ·{' '}
+                {telemetry.evidence.frictionSignals.length} signals
+              </small>
+            </span>
+            <span>
+              {telemetry.analysis
+                ? `${rankedImplementationCandidates.length} ranked mutations`
+                : 'Reasoning not yet run'}
+              <ChevronRight size={16} />
+            </span>
+          </summary>
           <div className="evidence-pack-header">
             <div>
               <span className="evidence-class">
@@ -2842,7 +2861,7 @@ function LiveTelemetryPanel({
               )}
             </div>
           )}
-        </div>
+        </details>
       )}
       {!isObservations && !telemetry.evidence && (
         <div className="empty-evidence">

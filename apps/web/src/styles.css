@@ -336,19 +336,17 @@
 }
 
 .lab-population-workspace {
-  display: grid;
-  grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr);
   border-top: 1px solid var(--line);
 }
 
 .lab-population-workspace .lab-agent-grid {
   align-content: start;
-  border-right: 1px solid var(--line);
 }
 
 .lab-replay-embedded {
   min-width: 0;
   background: var(--surface);
+  border-top: 1px solid var(--line);
 }
 
 .lab-replay-embedded .panel-heading {
@@ -659,6 +657,42 @@
   font-size: calc(10px + 2pt);
 }
 
+.lab-mutation-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 22px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.lab-mutation-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.lab-mutation-disclosure > summary > span {
+  display: grid;
+  gap: 5px;
+}
+
+.lab-mutation-disclosure > summary strong {
+  font-size: calc(12px + 2pt);
+}
+
+.lab-mutation-disclosure > summary small {
+  color: var(--mist);
+  font-size: calc(9px + 2pt);
+}
+
+.lab-mutation-disclosure > summary svg {
+  transition: transform 150ms ease;
+}
+
+.lab-mutation-disclosure[open] > summary svg {
+  transform: rotate(90deg);
+}
+
 .lab-release-boundary {
   display: flex;
   flex-wrap: wrap;
@@ -685,15 +719,6 @@
   .lab-signal-grid,
   .lab-mutation-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .lab-population-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .lab-population-workspace .lab-agent-grid {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -1711,6 +1736,49 @@ a:focus-visible {
 .evidence-pack {
   border-top: 1px solid var(--line);
   background: rgb(7 15 18 / 48%);
+}
+
+.evidence-disclosure-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.evidence-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+
+.evidence-disclosure-summary > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.evidence-disclosure-summary strong {
+  font-size: var(--type-supporting);
+}
+
+.evidence-disclosure-summary small,
+.evidence-disclosure-summary > span:last-child {
+  color: var(--mist);
+  font-family: var(--font-mono);
+  font-size: var(--type-caption);
+}
+
+.evidence-disclosure-summary svg {
+  transition: transform 150ms ease;
+}
+
+.evidence-disclosure[open] > .evidence-disclosure-summary svg {
+  transform: rotate(90deg);
+}
+
+.evidence-disclosure.is-observations > .evidence-disclosure-summary {
+  display: none;
 }
 
 .evidence-pack-header {

@@ -1150,6 +1150,8 @@ describe('Darwin control room', () => {
     const fetchMock = installApi();
     const { rerender } = render(<App />);
 
+    fireEvent.click(await screen.findByText('Evidence and mutation reasoning'));
+
     const ask = await screen.findByRole('button', { name: 'Ask gpt-5.6' });
     expect(ask).toBeEnabled();
     fireEvent.click(ask);
@@ -1430,7 +1432,7 @@ describe('Darwin control room', () => {
     render(<App />);
 
     expect(
-      await screen.findByText('Evidence pack evidence-measured-test'),
+      await screen.findByText('Evidence and mutation reasoning'),
     ).toBeVisible();
     expect(
       screen.queryByText('Reveal capacity context'),
@@ -1449,6 +1451,7 @@ describe('Darwin control room', () => {
     installApi(null, null, [], remoteWorkflow);
     render(<App />);
 
+    fireEvent.click(await screen.findByText('Evidence and mutation reasoning'));
     expect(
       await screen.findByText('Evidence pack evidence-measured-test'),
     ).toBeVisible();

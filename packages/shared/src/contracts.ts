@@ -637,7 +637,7 @@ export const EvidenceQualitySchema = z.object({
 
 export const EvidenceSignalIdentifierSchema = z
   .string()
-  .regex(/^EV-(?:\d{3}|[a-f0-9]{12})$/);
+  .regex(/^(?:EV-(?:\d{3}|[a-f0-9]{12})|L-EV-\d{3})$/);
 
 export const EvidenceSignalSchema = z.object({
   evidenceId: EvidenceSignalIdentifierSchema,

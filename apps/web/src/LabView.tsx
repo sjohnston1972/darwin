@@ -789,7 +789,6 @@ export function DarwinLabView({
                   onSelectRun={setSelectedRunId}
                   selectedRunId={selectedRun?.runId ?? null}
                 />
-                {selectedRun && <RunReplay embedded run={selectedRun} />}
               </div>
               <div className="lab-release-boundary">
                 <button
@@ -866,6 +865,7 @@ export function DarwinLabView({
                   </button>
                 )}
               </div>
+              {selectedRun && <RunReplay embedded run={selectedRun} />}
               {selected.evidenceError && (
                 <div className="lab-error" role="status">
                   <AlertTriangle size={16} /> Runs are durable, but evidence
@@ -1044,7 +1044,17 @@ export function DarwinLabView({
       )}
 
       {selected?.analysis && (
-        <section className="surface-panel lab-mutation-panel">
+        <details className="surface-panel lab-mutation-panel lab-mutation-disclosure">
+          <summary>
+            <span>
+              <strong>Darwin Labs mutation portfolio</strong>
+              <small>
+                {selected.analysis.mutations.length} evidence-citing candidates
+                {selected.selection ? ' · 1 approved' : ' · awaiting approval'}
+              </small>
+            </span>
+            <ChevronRight size={16} />
+          </summary>
           <div className="panel-heading">
             <div>
               <p className="section-label">Mutation portfolio</p>
@@ -1131,7 +1141,7 @@ export function DarwinLabView({
               )}
             </div>
           )}
-        </section>
+        </details>
       )}
 
       {execution && (
