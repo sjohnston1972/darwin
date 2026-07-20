@@ -783,11 +783,14 @@ export function DarwinLabView({
                 </div>
               )}
 
-              <AgentPopulation
-                experiment={selected}
-                onSelectRun={setSelectedRunId}
-                selectedRunId={selectedRun?.runId ?? null}
-              />
+              <div className="lab-population-workspace">
+                <AgentPopulation
+                  experiment={selected}
+                  onSelectRun={setSelectedRunId}
+                  selectedRunId={selectedRun?.runId ?? null}
+                />
+                {selectedRun && <RunReplay embedded run={selectedRun} />}
+              </div>
               <div className="lab-release-boundary">
                 <button
                   className="secondary-action"
@@ -887,8 +890,6 @@ export function DarwinLabView({
           )}
         </section>
       </div>
-
-      {selectedRun && <RunReplay run={selectedRun} />}
 
       {selected?.evidence && (
         <section className="surface-panel lab-evidence-panel">
@@ -1238,9 +1239,17 @@ function AgentPopulation({
   );
 }
 
-function RunReplay({ run }: { run: LabAgentRun }) {
+function RunReplay({
+  run,
+  embedded = false,
+}: {
+  run: LabAgentRun;
+  embedded?: boolean;
+}) {
   return (
-    <section className="surface-panel lab-replay-panel">
+    <section
+      className={`${embedded ? 'lab-replay-embedded' : 'surface-panel'} lab-replay-panel`}
+    >
       <div className="panel-heading">
         <div>
           <p className="section-label">Run replay</p>
