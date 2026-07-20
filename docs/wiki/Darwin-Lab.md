@@ -48,7 +48,9 @@ unavailable.
 `DARWIN_LAB_ALLOWED_ORIGINS` is an explicit allowlist. Production targets are
 not enabled by default. Darwin Lab must only run against local development,
 dedicated test environments, disposable previews, or explicitly approved
-staging systems.
+staging systems. Darwin's deployed hackathon environment treats the isolated
+`darwin-projectflow.pages.dev` demo as an explicitly approved Lab target. This
+does not permit any other remote or production origin.
 
 The runner supports only validated, user-facing browser actions. A separate
 oracle scores submitted answers as success, partial success, incorrect,
