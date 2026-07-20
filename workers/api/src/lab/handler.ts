@@ -524,6 +524,11 @@ export async function handleLabRequest(
         provenance: labProvenance(experimentId, experiment.task),
       });
       await repository.saveExperiment(retry);
+      try {
+        await dispatchManagedRunner(retry.experimentId, env ?? {});
+      } catch {
+        // The local runner remains a supported fallback if GitHub dispatch is unavailable.
+      }
       return json(retry, { status: 201 });
     }
     const allowed =

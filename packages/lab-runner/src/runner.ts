@@ -171,7 +171,12 @@ const semanticId = async (locator: Locator) =>
     )
     .catch(() => null);
 
-const resolveTarget = (page: Page, decision: LabAgentDecision) => {
+const boundedError = (error: unknown, fallback: string) => {
+  const message = error instanceof Error ? error.message : fallback;
+  return message.slice(0, 500);
+};
+
+const resolveTarget = async (page: Page, decision: LabAgentDecision) => {
   if (!decision.target) throw new Error('Action target is missing.');
   if (decision.target.semanticId) {
     return page.locator(
@@ -180,9 +185,14 @@ const resolveTarget = (page: Page, decision: LabAgentDecision) => {
   }
   if (!decision.target.role)
     throw new Error('Accessible target role is missing.');
-  return page.getByRole(
+  const exact = page.getByRole(
     decision.target.role as Parameters<Page['getByRole']>[0],
     decision.target.name ? { name: decision.target.name, exact: true } : {},
+  );
+  if (!decision.target.name || (await exact.count()) > 0) return exact;
+  return page.getByRole(
+    decision.target.role as Parameters<Page['getByRole']>[0],
+    { name: decision.target.name, exact: false },
   );
 };
 
@@ -192,7 +202,7 @@ const executeDecision = async (
   targetOrigin: string,
 ) => {
   let locator: Locator | null = null;
-  if (decision.target) locator = resolveTarget(page, decision).first();
+  if (decision.target) locator = (await resolveTarget(page, decision)).first();
   switch (decision.action) {
     case 'navigate': {
       if (!decision.destination)
@@ -401,7 +411,7 @@ const runAgent = async (
         );
         await page.waitForTimeout(350);
       } catch (error) {
-        actionError = error instanceof Error ? error.message : 'Action failed.';
+        actionError = boundedError(error, 'Action failed.');
       }
       const after = await getSnapshot(page);
       const afterUrl = page.url();
@@ -465,7 +475,7 @@ const runAgent = async (
       }
     }
   } catch (error) {
-    terminalError = error instanceof Error ? error.message : 'Lab run failed.';
+    terminalError = boundedError(error, 'Lab run failed.');
     terminalStatus = 'blocked';
   } finally {
     await page.waitForTimeout(1_100).catch(() => undefined);
