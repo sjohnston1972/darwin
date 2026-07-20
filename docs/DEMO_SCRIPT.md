@@ -2,7 +2,7 @@
 
 ## Prepare
 
-1. Open the Darwin control room in light mode.
+1. Open the Rosalind control room in light mode.
 2. Click **Reset evolution demo** and follow the visible queued, running,
    validating, and deploying states.
 3. Wait for **Baseline deployment verified**, then confirm the counters are
@@ -25,7 +25,7 @@
 4. Select one or more mutation candidates. Explain score, confidence,
    alternatives, validation plan and tradeoffs.
 
-## Darwin Lab alternative
+## Darwin Labs alternative
 
 If presenting the configurable real-target observation thesis, use Darwin Lab:
 

@@ -270,7 +270,7 @@ export function DarwinLabView({
       });
       const payload = (await response.json()) as { message?: string };
       if (!response.ok) {
-        throw new Error(payload.message ?? 'Darwin Lab request failed.');
+        throw new Error(payload.message ?? 'Darwin Labs request failed.');
       }
       const experiment = LabExperimentSchema.parse(payload);
       setExperiments((current) => [
@@ -283,7 +283,9 @@ export function DarwinLabView({
       return experiment;
     } catch (reason) {
       setError(
-        reason instanceof Error ? reason.message : 'Darwin Lab request failed.',
+        reason instanceof Error
+          ? reason.message
+          : 'Darwin Labs request failed.',
       );
       return null;
     } finally {
@@ -339,7 +341,7 @@ export function DarwinLabView({
       if (!manifestResponse.ok) {
         throw new Error(
           (manifestPayload as { message?: string }).message ??
-            'Darwin Lab manifest preparation failed.',
+            'Darwin Labs manifest preparation failed.',
         );
       }
       const manifest = CodexImplementationManifestSchema.parse(manifestPayload);
@@ -773,8 +775,7 @@ export function DarwinLabView({
                     <span>
                       <strong>Browser runner requested</strong>
                       <small>
-                        Run from the Darwin repository; it claims the oldest
-                        queued experiment.
+                        Rosalind will claim the oldest queued experiment.
                       </small>
                     </span>
                   </div>

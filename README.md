@@ -1,4 +1,4 @@
-# Darwin
+# Rosalind
 
 <p align="center">
   <img src="apps/web/public/assets/darwin-growth-mark.png" alt="Darwin growth mark" width="168" />
@@ -7,12 +7,12 @@
 <h3 align="center">Helping your software evolve.</h3>
 
 <p align="center">
-  Darwin turns privacy-conscious product telemetry into a human-approved,
+  Rosalind turns privacy-conscious product telemetry into a human-approved,
   repository-backed software mutation with real validation, release, and rollback evidence.
 </p>
 
 <p align="center">
-  <a href="https://darwin-control-room.pages.dev"><strong>Open Darwin</strong></a>
+  <a href="https://darwin-control-room.pages.dev"><strong>Open Rosalind</strong></a>
   &nbsp;|&nbsp;
   <a href="https://darwin-projectflow.pages.dev/?study=true"><strong>Open measured ProjectFlow study</strong></a>
   &nbsp;|&nbsp;
@@ -63,7 +63,7 @@ The evidence inspector shows persisted events, sessions, anonymous participants,
 
 [![Live observations](docs/assets/screenshots/observations.png)](https://darwin-control-room.pages.dev/?view=observations)
 
-### Darwin Lab
+### Darwin Labs
 
 Darwin Lab runs a bounded population of 8–20 AI browser workers against the
 real ProjectFlow application. Each worker receives a fresh
@@ -220,7 +220,7 @@ DARWIN_LAB_ALLOWED_ORIGINS=http://localhost:5174,http://127.0.0.1:5174
 
 The GitHub token requires the ProjectFlow permissions needed to dispatch Actions, read source, manage pull requests, and merge an approved change. Install `DARWIN_CALLBACK_TOKEN` as the matching ProjectFlow Actions secret. Install `PROJECTFLOW_INGESTION_SECRET` in both the Darwin Worker and ProjectFlow Pages project. Access tokens are entered into Darwin's unlock view and retained only in browser session storage. The optional viewer token receives aggregate telemetry and connection status only; raw traces, evidence, repository artifacts, and mutation controls require the operator's evidence-inspector or stronger capabilities.
 
-### Run Darwin Lab locally
+### Run Darwin Labs locally
 
 Start Darwin and ProjectFlow, open **Darwin Lab**, create an experiment, and
 queue the population. In a second Darwin shell run:
