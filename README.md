@@ -233,8 +233,10 @@ The runner claims the oldest queued experiment. Set
 `DARWIN_LAB_EXPERIMENT_ID` to claim a specific experiment,
 `DARWIN_LAB_HEADLESS=false` to watch the browsers, and
 `DARWIN_OPERATOR_TOKEN` when the API is protected. Lab targets must be listed in
-`DARWIN_LAB_ALLOWED_ORIGINS`; production ProjectFlow is intentionally excluded
-by default.
+`DARWIN_LAB_ALLOWED_ORIGINS`. The local example excludes remote targets by
+default. The deployed hackathon environment explicitly allows only its
+dedicated ProjectFlow demo origin in addition to localhost; arbitrary
+production origins remain rejected.
 
 ## Quality checks
 

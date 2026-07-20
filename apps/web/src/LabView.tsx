@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleDashed,
+  CircleHelp,
   FlaskConical,
   Play,
   ShieldCheck,
@@ -74,6 +75,33 @@ const labPersonas = [
   'impatient',
   'search_first',
 ] as const satisfies readonly LabPersona[];
+
+const personaHelp: Record<LabPersona, string> = {
+  novice:
+    'Agents with little product familiarity; useful for exposing unclear labels and hidden navigation.',
+  experienced_pm:
+    'Project-management experts who expect efficient planning and coordination workflows.',
+  executive:
+    'Outcome-focused agents who scan for concise status, risk, and reporting information.',
+  keyboard_first:
+    'Agents that prefer keyboard-accessible controls and predictable focus movement.',
+  mobile: 'Agents running in an isolated 390 × 844 touch-oriented viewport.',
+  cautious:
+    'Agents that inspect context before acting and expose ambiguous or risky controls.',
+  impatient:
+    'Agents that seek the shortest obvious route and surface unnecessary interaction cost.',
+  search_first:
+    'Agents that try search-led discovery before browsing the information architecture.',
+};
+
+function ParameterCaption({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="lab-parameter-caption">
+      {children}
+      <CircleHelp size={13} aria-hidden="true" />
+    </span>
+  );
+}
 
 const balancedPersonas = (populationSize: number): Record<LabPersona, number> =>
   Object.fromEntries(
@@ -365,52 +393,54 @@ export function DarwinLabView({
             className="lab-form"
             onSubmit={(event) => void createExperiment(event)}
           >
-            <label>
-              Experiment name
+            <label data-explain="An operator-facing label for this immutable task definition and its resulting population evidence.">
+              <ParameterCaption>Experiment name</ParameterCaption>
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
-            <label>
-              Test or preview target
+            <label data-explain="The real ProjectFlow deployment the browser population will operate. Its exact origin must be explicitly allowlisted.">
+              <ParameterCaption>Test or preview target</ParameterCaption>
               <input
                 type="url"
                 value={targetUrl}
                 onChange={(event) => setTargetUrl(event.target.value)}
               />
             </label>
-            <label>
-              Exact application version
+            <label data-explain="The version attached to every run and telemetry event in this experiment. Mixed versions are rejected from one evidence pack.">
+              <ParameterCaption>Exact application version</ParameterCaption>
               <input
                 value={targetAppVersion}
                 onChange={(event) => setTargetAppVersion(event.target.value)}
               />
             </label>
-            <label>
-              Task name
+            <label data-explain="A concise task label. Darwin derives the stable task ID used to group runs and evidence from this value.">
+              <ParameterCaption>Task name</ParameterCaption>
               <input
                 value={taskName}
                 onChange={(event) => setTaskName(event.target.value)}
               />
             </label>
-            <label>
-              Participant-facing instruction
+            <label data-explain="The goal shown to every agent. Do not include the hidden answer, expected click path, private data, or implementation detail.">
+              <ParameterCaption>
+                Participant-facing instruction
+              </ParameterCaption>
               <textarea
                 value={instruction}
                 onChange={(event) => setInstruction(event.target.value)}
               />
             </label>
             <div className="lab-form-grid">
-              <label>
-                Start route
+              <label data-explain="The route loaded in a fresh isolated browser context before each agent begins the task.">
+                <ParameterCaption>Start route</ParameterCaption>
                 <input
                   value={startRoute}
                   onChange={(event) => setStartRoute(event.target.value)}
                 />
               </label>
-              <label>
-                Success criterion
+              <label data-explain="The hidden deterministic oracle used to score completion without telling agents how to solve the task.">
+                <ParameterCaption>Success criterion</ParameterCaption>
                 <select
                   value={successType}
                   onChange={(event) =>
@@ -428,12 +458,22 @@ export function DarwinLabView({
                 </select>
               </label>
             </div>
-            <label>
-              {successType === 'route_reached'
-                ? 'Success route'
-                : successType === 'semantic_marker'
-                  ? 'Semantic marker ID'
-                  : 'Workflow ID'}
+            <label
+              data-explain={
+                successType === 'route_reached'
+                  ? 'The exact pathname that deterministically marks this task as complete.'
+                  : successType === 'semantic_marker'
+                    ? 'A stable data-darwin-id whose presence deterministically marks the task as complete.'
+                    : 'A stable workflow identifier whose success outcome deterministically marks the task as complete.'
+              }
+            >
+              <ParameterCaption>
+                {successType === 'route_reached'
+                  ? 'Success route'
+                  : successType === 'semantic_marker'
+                    ? 'Semantic marker ID'
+                    : 'Workflow ID'}
+              </ParameterCaption>
               <input
                 value={
                   successType === 'route_reached'
@@ -451,8 +491,10 @@ export function DarwinLabView({
                 }
               />
             </label>
-            <label>
-              Population <strong>{populationSize} agents</strong>
+            <label data-explain="The number of independent isolated browser agents. Larger populations improve coverage but increase model calls and runtime.">
+              <ParameterCaption>
+                Population <strong>{populationSize} agents</strong>
+              </ParameterCaption>
               <input
                 type="range"
                 min="8"
@@ -466,18 +508,21 @@ export function DarwinLabView({
               />
             </label>
             <details className="lab-task-card">
-              <summary>
-                Persona allocation ·{' '}
-                {Object.values(personaAllocation).reduce(
-                  (total, count) => total + count,
-                  0,
-                )}
-                /{populationSize}
+              <summary data-explain="How the population is distributed across behavioural strategies. Allocated agents must total the selected population size.">
+                <span className="lab-parameter-caption">
+                  Persona allocation ·{' '}
+                  {Object.values(personaAllocation).reduce(
+                    (total, count) => total + count,
+                    0,
+                  )}
+                  /{populationSize}
+                  <CircleHelp size={13} aria-hidden="true" />
+                </span>
               </summary>
               <div className="lab-form-grid">
                 {labPersonas.map((persona) => (
-                  <label key={persona}>
-                    {personaLabel(persona)}
+                  <label key={persona} data-explain={personaHelp[persona]}>
+                    <ParameterCaption>{personaLabel(persona)}</ParameterCaption>
                     <input
                       type="number"
                       min="0"
@@ -495,8 +540,8 @@ export function DarwinLabView({
               </div>
             </details>
             <div className="lab-form-grid">
-              <label>
-                Action budget
+              <label data-explain="Maximum browser actions per agent. Reaching this bound without satisfying the oracle stops the run safely.">
+                <ParameterCaption>Action budget</ParameterCaption>
                 <input
                   type="number"
                   min="4"
@@ -507,8 +552,8 @@ export function DarwinLabView({
                   }
                 />
               </label>
-              <label>
-                Duration budget (seconds)
+              <label data-explain="Maximum wall-clock time per agent. The runner stops work at this bound even when actions remain.">
+                <ParameterCaption>Duration budget (seconds)</ParameterCaption>
                 <input
                   type="number"
                   min="30"
@@ -519,8 +564,8 @@ export function DarwinLabView({
                   }
                 />
               </label>
-              <label>
-                Seed
+              <label data-explain="The deterministic population seed retained with evidence so an equivalent experiment can be reproduced and compared.">
+                <ParameterCaption>Seed</ParameterCaption>
                 <input
                   type="number"
                   min="1"

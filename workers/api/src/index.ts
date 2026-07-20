@@ -890,7 +890,10 @@ export const handleRequest = async (
   const activeRetentionPolicy = retentionPolicy(env);
   const currentCycleStart = async (studyId: string) => {
     const cycle = await telemetryRepository.getEvolutionCycle();
-    return cycle.studyId === studyId ? cycle.startedAt : null;
+    if (cycle.studyId !== studyId) return null;
+    if (cycle.startedAt) return cycle.startedAt;
+    const targetConnection = await telemetryRepository.getTargetConnection();
+    return targetConnection?.connectedAt ?? null;
   };
   const refreshVerifiedTargetSnapshot = async ({
     commitSha,
@@ -2083,7 +2086,6 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
-    const cycle = await telemetryRepository.getEvolutionCycle();
     const source = url.searchParams.get('source') ?? 'real_user';
     if (source !== 'real_user' && source !== 'automated') {
       return json(
@@ -2091,10 +2093,32 @@ export const handleRequest = async (
         { status: 400 },
       );
     }
+    const [cycle, targetConnection] = await Promise.all([
+      telemetryRepository.getEvolutionCycle(),
+      telemetryRepository.getTargetConnection(),
+    ]);
+    if (!targetConnection) {
+      return json(
+        {
+          error: 'target_connection_required',
+          message:
+            'Connect and verify the ProjectFlow repository before generating evidence.',
+        },
+        { status: 409 },
+      );
+    }
+    const initialConnectionBoundary =
+      cycle.studyId === studyId && !cycle.startedAt
+        ? targetConnection.connectedAt
+        : null;
+    const measurementStartedAt =
+      cycle.studyId === studyId
+        ? (cycle.startedAt ?? initialConnectionBoundary)
+        : null;
     const events = await telemetryRepository.listEvents(
       studyId,
       10_000,
-      cycle.studyId === studyId ? cycle.startedAt : null,
+      measurementStartedAt,
       source,
     );
     if (!events.length) {
@@ -2102,17 +2126,6 @@ export const handleRequest = async (
         {
           error: 'insufficient_evidence',
           message: 'At least one real telemetry event is required.',
-        },
-        { status: 409 },
-      );
-    }
-    const targetConnection = await telemetryRepository.getTargetConnection();
-    if (!targetConnection) {
-      return json(
-        {
-          error: 'target_connection_required',
-          message:
-            'Connect and verify the ProjectFlow repository before generating evidence.',
         },
         { status: 409 },
       );
@@ -2157,8 +2170,11 @@ export const handleRequest = async (
         undefined,
         cycle.studyId === studyId
           ? {
-              appVersion: cycle.appVersion,
-              measuredCommit: cycle.measuredCommit,
+              appVersion:
+                cycle.appVersion ??
+                targetConnection.repository.baseSha.slice(0, 12),
+              measuredCommit:
+                cycle.measuredCommit ?? targetConnection.repository.baseSha,
               deploymentVerifiedAt: cycle.deploymentVerifiedAt,
             }
           : undefined,

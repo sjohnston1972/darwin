@@ -22,19 +22,46 @@ beforeEach(async () => {
 });
 
 describe('Darwin Lab API', () => {
-  it('runs a bounded population into separately labelled evidence', async () => {
+  it('allows only explicitly configured remote target origins', async () => {
+    const body = {
+      name: 'Configured ProjectFlow target',
+      targetUrl: 'https://darwin-projectflow.pages.dev/',
+      populationSize: 8,
+      maxActions: 12,
+      maxDurationMs: 180_000,
+      seed: 1859,
+    };
     const forbidden = await handleRequest(
-      request('/api/lab/experiments', 'POST', {
-        name: 'Production attempt',
-        targetUrl: 'https://darwin-projectflow.pages.dev/',
-        populationSize: 8,
-        maxActions: 12,
-        maxDurationMs: 180_000,
-        seed: 1859,
-      }),
+      request('/api/lab/experiments', 'POST', body),
     );
     expect(forbidden.status).toBe(403);
 
+    const allowed = await handleRequest(
+      request('/api/lab/experiments', 'POST', body),
+      {
+        DARWIN_LAB_ALLOWED_ORIGINS:
+          'https://darwin-projectflow.pages.dev,http://localhost:5174',
+      },
+    );
+    expect(allowed.status).toBe(201);
+    expect(LabExperimentSchema.parse(await allowed.json()).targetUrl).toBe(
+      body.targetUrl,
+    );
+
+    const lookalike = await handleRequest(
+      request('/api/lab/experiments', 'POST', {
+        ...body,
+        targetUrl: 'https://darwin-projectflow.pages.dev.attacker.example/',
+      }),
+      {
+        DARWIN_LAB_ALLOWED_ORIGINS:
+          'https://darwin-projectflow.pages.dev,http://localhost:5174',
+      },
+    );
+    expect(lookalike.status).toBe(403);
+  });
+
+  it('runs a bounded population into separately labelled evidence', async () => {
     const createdResponse = await handleRequest(
       request('/api/lab/experiments', 'POST', {
         name: 'Apollo population',

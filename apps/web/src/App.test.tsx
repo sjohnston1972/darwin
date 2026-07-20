@@ -1090,6 +1090,18 @@ describe('Darwin control room', () => {
       name: 'Primary navigation',
     });
     expect(
+      within(navigation)
+        .getAllByRole('link')
+        .map((link) => link.textContent?.trim()),
+    ).toEqual([
+      'Control room',
+      'Target application',
+      'Observations',
+      'Mutations',
+      'Genome',
+      'Darwin Lab',
+    ]);
+    expect(
       within(navigation).getByRole('link', { name: 'Observations' }),
     ).toHaveAttribute('href', '/?view=observations');
     expect(

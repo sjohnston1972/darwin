@@ -1599,6 +1599,51 @@ describe('Darwin API', () => {
     });
   });
 
+  it('starts the initial evidence window when the target is connected', async () => {
+    installOpenAIResponse(evidenceModelOutput);
+    await handleRequest(
+      new Request('http://localhost/api/telemetry/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          events: [
+            {
+              ...studyEvent,
+              eventId: '00000000-0000-4000-8000-000000000184',
+              appVersion: 'cccccccccccc',
+            },
+          ],
+        }),
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect((await connectTargetApplication()).status).toBe(201);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await ingestConnectedTelemetry([
+      {
+        ...studyEvent,
+        eventId: '00000000-0000-4000-8000-000000000185',
+        sessionId: 'session-api-current-version',
+        appVersion: repositorySha.slice(0, 12),
+      },
+    ]);
+
+    const generatedResponse = await handleRequest(
+      new Request(
+        'http://localhost/api/studies/projectflow-baseline-study/evidence',
+        { method: 'POST' },
+      ),
+    );
+    const generated = EvidencePackSchema.parse(await generatedResponse.json());
+
+    expect(generatedResponse.status).toBe(201);
+    expect(generated.study).toMatchObject({
+      appVersion: repositorySha.slice(0, 12),
+      measuredCommit: repositorySha,
+      deploymentVerifiedAt: null,
+      sourceEventCount: 1,
+    });
+  });
+
   it('preserves state through reset workflow and deployment failures, then clears only after baseline verification', async () => {
     let deployedSha = 'a'.repeat(40);
     const fetcher = vi.fn(

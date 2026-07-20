@@ -72,6 +72,27 @@
   font-weight: 550;
 }
 
+.lab-parameter-caption {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  cursor: help;
+}
+
+.lab-parameter-caption svg {
+  flex: 0 0 auto;
+  color: var(--fog);
+}
+
+.lab-parameter-caption strong {
+  margin-left: auto;
+  color: var(--white);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 550;
+}
+
 .lab-form input:not([type='range']) {
   min-width: 0;
   height: 40px;
