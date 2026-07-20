@@ -22,7 +22,9 @@ test('@smoke opens the real measured target and receives semantic telemetry', as
   test.skip(testInfo.project.name !== 'desktop', 'one functional desktop path');
   await page.goto('/');
   await expect(
-    page.getByRole('heading', { name: 'Software that evolves.' }),
+    page.getByRole('heading', {
+      name: 'Rosalind — Helping your software adapt.',
+    }),
   ).toBeVisible();
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('link', { name: 'Open measured study' }).click();
@@ -81,6 +83,9 @@ test('@smoke completes the controlled evolution, archive, and rollback path', as
   );
 
   await page.goto('/?view=mutations');
+  await page
+    .getByText('Evidence and mutation reasoning', { exact: true })
+    .click();
   await page.getByRole('button', { name: 'Ask gpt-5.6' }).click();
   const preferredMutation = page.getByRole('checkbox', {
     name: 'Implement Direct My Work navigation',
