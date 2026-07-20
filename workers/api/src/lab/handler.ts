@@ -563,13 +563,6 @@ export async function handleLabRequest(
       experiment,
       updated,
     );
-    if (persisted) {
-      try {
-        await dispatchManagedRunner(updated.experimentId, env ?? {});
-      } catch {
-        // The local runner remains a supported fallback if GitHub dispatch is unavailable.
-      }
-    }
     return persisted
       ? json(persisted)
       : json(
@@ -661,6 +654,13 @@ export async function handleLabRequest(
       experiment,
       updated,
     );
+    if (persisted) {
+      try {
+        await dispatchManagedRunner(updated.experimentId, env ?? {});
+      } catch {
+        // The local runner remains a supported fallback if GitHub dispatch is unavailable.
+      }
+    }
     return persisted
       ? json(persisted)
       : json(
