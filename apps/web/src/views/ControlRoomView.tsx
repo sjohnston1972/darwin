@@ -39,16 +39,16 @@ export function ControlRoomView({
         <div className="relative z-10 max-w-3xl">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-signal">
             <Activity size={15} /> Control room
-            <InfoTip text="Darwin's operator view: observe behavior, ask the configured analyzer for one mutation, approve it, validate it, and retain or reject it." />
+            <InfoTip text="Rosalind's operator view: observe behavior, ask the configured analyzer for one mutation, approve it, validate it, and retain or reject it." />
           </div>
           <h1
             id="page-title"
             className="mt-5 text-4xl font-semibold sm:text-5xl lg:text-[56px] lg:leading-[1.05]"
           >
-            Software that evolves.
+            Rosalind — Helping your software adapt.
           </h1>
           <p className="mt-3 text-xl text-white sm:text-2xl">
-            Darwin observes real behavior, identifies selection pressure, and
+            Rosalind observes real behavior, identifies selection pressure, and
             proposes a controlled mutation.
           </p>
           <p className="mt-5 max-w-2xl text-sm leading-6 text-mist sm:text-base">
@@ -73,7 +73,7 @@ export function ControlRoomView({
               onClick={(event) => {
                 if (studyBlocked) event.preventDefault();
               }}
-              data-explain="Open the real ProjectFlow study. Every recommendation in the standard Darwin flow begins with measured interaction evidence from this application."
+              data-explain="Open the real ProjectFlow study. Every recommendation in the standard Rosalind flow begins with measured interaction evidence from this application."
             >
               <Radar size={17} />{' '}
               {studyBlocked ? 'Measured study locked' : 'Open measured study'}

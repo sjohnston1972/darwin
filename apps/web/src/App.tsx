@@ -144,7 +144,7 @@ const navItems = [
     icon: Dna,
   },
   {
-    label: 'Darwin Lab',
+    label: 'Darwin Labs',
     icon: Users,
   },
 ] as const;
@@ -155,7 +155,7 @@ const dashboardRoutes: Record<DashboardView, string> = {
   'Control room': '/',
   'Target application': '/?view=target',
   Observations: '/?view=observations',
-  'Darwin Lab': '/?view=lab',
+  'Darwin Labs': '/?view=lab',
   Mutations: '/?view=mutations',
   'System status': '/?view=status',
   Genome: '/?view=genome',
@@ -178,7 +178,7 @@ function getDashboardView(): DashboardView {
     case 'observations':
       return 'Observations';
     case 'lab':
-      return 'Darwin Lab';
+      return 'Darwin Labs';
     case 'mutations':
       return 'Mutations';
     case 'status':
@@ -441,7 +441,7 @@ function DarwinDashboard({
     },
     {
       label: 'Live reasoning',
-      help: 'The current measured evidence portfolio produced by the configured OpenAI model. Darwin never substitutes an invented recommendation.',
+      help: 'The current measured evidence portfolio produced by the configured OpenAI model. Rosalind never substitutes an invented recommendation.',
       value: liveTelemetry.analysis ? 'READY' : '--',
       meta: liveTelemetry.analysis
         ? `${liveTelemetry.analysis.alternatives.length + 1} mutations scored`
@@ -576,7 +576,7 @@ function DarwinDashboard({
             <div className="ml-auto flex items-center gap-2 border-l border-line pl-4 text-xs text-mist">
               <span
                 className="controlled-mode-status"
-                data-explain="Controlled mode verifies a bounded repository contract before Darwin can reason over source or execute a mutation."
+                data-explain="Controlled mode verifies a bounded repository contract before Rosalind can reason over source or execute a mutation."
                 tabIndex={0}
               >
                 <ShieldCheck size={15} className="text-signal" />
@@ -653,7 +653,7 @@ function DarwinDashboard({
                   ? 'Retry evolution reset'
                   : 'Reset evolution demo'
               }
-              data-explain="Dispatch the ProjectFlow baseline restore workflow. Darwin preserves current state until the workflow passes and production reports the restored commit."
+              data-explain="Dispatch the ProjectFlow baseline restore workflow. Rosalind preserves current state until the workflow passes and production reports the restored commit."
             >
               {liveTelemetry.resetting ? (
                 <CircleDashed className="is-spinning" size={15} />
@@ -752,7 +752,7 @@ function DarwinDashboard({
             </>
           )}
 
-          {activeView === 'Darwin Lab' && (
+          {activeView === 'Darwin Labs' && (
             <DarwinLabView
               apiBaseUrl={apiBaseUrl}
               defaultTargetUrl={`${projectFlowBaseUrl}/`}
@@ -899,7 +899,7 @@ function DarwinDashboard({
           <footer className="mt-8 flex flex-col gap-2 border-t border-line pt-5 text-xs text-mist sm:flex-row sm:items-center sm:justify-between">
             <p>ProjectFlow / controlled evolution environment</p>
             <p className="font-mono">
-              DARWIN CORE v{webBuildRelease}@{shortCommit(webBuildCommit)}
+              ROSALIND CORE v{webBuildRelease}@{shortCommit(webBuildCommit)}
             </p>
           </footer>
         </div>
@@ -987,11 +987,11 @@ function useTargetConnection() {
 }
 
 function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
-  if (activeView === 'Darwin Lab') return null;
+  if (activeView === 'Darwin Labs') return null;
   const content: Record<
     Exclude<
       DashboardView,
-      'Control room' | 'Target application' | 'Darwin Lab'
+      'Control room' | 'Target application' | 'Darwin Labs'
     >,
     { eyebrow: string; title: string; description: string }
   > = {
@@ -999,7 +999,7 @@ function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
       eyebrow: 'Measured behavior',
       title: 'Observations',
       description:
-        'Review the real ProjectFlow sessions, interaction signals, and evidence Darwin can cite.',
+        'Review the real ProjectFlow sessions, interaction signals, and evidence Rosalind can cite.',
     },
     Mutations: {
       eyebrow: 'Controlled selection',
@@ -1011,7 +1011,7 @@ function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
       eyebrow: 'Runtime and genome',
       title: 'System status',
       description:
-        'Inspect the live Darwin services and the immutable ProjectFlow source snapshot used for selection.',
+        'Inspect the live Rosalind services and the immutable ProjectFlow source snapshot used for selection.',
     },
     Genome: {
       eyebrow: 'Genome history',
@@ -1051,11 +1051,11 @@ function DashboardSidebar({
         <a
           className="flex items-center gap-3"
           href="/"
-          aria-label="Darwin control room"
+          aria-label="Rosalind control room"
         >
           <DarwinMark />
           <span className="text-[17px] font-semibold tracking-[0.16em]">
-            DARWIN
+            ROSALIND
           </span>
         </a>
         <button
@@ -1105,7 +1105,7 @@ function DashboardSidebar({
             aria-hidden="true"
           />
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">Darwin API</p>
+            <p className="truncate text-sm font-medium">Rosalind API</p>
             <p className="mt-0.5 text-xs capitalize text-mist">
               {health.version
                 ? `v${health.version} · ${shortCommit(health.commitSha ?? 'local')} · ${health.status}`
@@ -1160,9 +1160,9 @@ function TargetConnectionView({
           <div>
             <h1>Connect a target application</h1>
             <p>
-              Give Darwin a GitHub repository and measured deployment. Darwin
-              verifies the target contract before it observes telemetry, reasons
-              over source, or prepares a mutation.
+              Give Rosalind a GitHub repository and measured deployment.
+              Rosalind verifies the target contract before it observes
+              telemetry, reasons over source, or prepares a mutation.
             </p>
           </div>
         </div>
@@ -1283,7 +1283,7 @@ function TargetConnectionView({
             <small>
               {studyBlocked
                 ? 'Locked until the baseline reset deployment is verified'
-                : 'Darwin telemetry is enabled on this application view'}
+                : 'Rosalind telemetry is enabled on this application view'}
             </small>
           </label>
 
@@ -1304,7 +1304,7 @@ function TargetConnectionView({
                 className="primary-action"
                 type="submit"
                 disabled={saving || loading}
-                data-explain="Verify the live GitHub commit, Darwin target contract, bounded source paths, validation commands, and Cloudflare runtime before saving this connection."
+                data-explain="Verify the live GitHub commit, Rosalind target contract, bounded source paths, validation commands, and Cloudflare runtime before saving this connection."
               >
                 {saving ? (
                   <CircleDashed className="animate-spin" size={17} />
@@ -1374,8 +1374,8 @@ function TargetConnectionView({
               <Github size={28} />
               <strong>No repository is connected</strong>
               <p>
-                Darwin will show each verification result here before the target
-                becomes available to GPT and Codex.
+                Rosalind will show each verification result here before the
+                target becomes available to GPT and Codex.
               </p>
             </div>
           )}
@@ -1959,7 +1959,7 @@ function LiveTelemetryPanel({
             <button
               aria-label="Refresh live telemetry"
               className={`source-status source-${telemetry.status}`}
-              data-explain="Refresh events, evidence, GPT analysis, Codex manifest, current execution, Genome, and observation archives from Darwin's API. Partial failures name the affected subsystem."
+              data-explain="Refresh events, evidence, GPT analysis, Codex manifest, current execution, Genome, and observation archives from Rosalind's API. Partial failures name the affected subsystem."
               disabled={telemetry.refreshing}
               onClick={() => void telemetry.refresh()}
               type="button"
@@ -2937,7 +2937,7 @@ function MutationPortfolioRow({
           </div>
           <div
             className="portfolio-preference"
-            data-explain="Darwin preference is the composite portfolio score: 35% evidence strength, 25% user impact, 20% feasibility, and 20% validation clarity. It is a ranking, not a probability of success."
+            data-explain="Rosalind preference is the composite portfolio score: 35% evidence strength, 25% user impact, 20% feasibility, and 20% validation clarity. It is a ranking, not a probability of success."
             tabIndex={0}
           >
             <strong>{score}%</strong>
@@ -3244,7 +3244,7 @@ function ObservationArchivePanel({
         >
           <option value="all">All evidence classes</option>
           <option value="human_study">Human study</option>
-          <option value="darwin_lab">Darwin Lab</option>
+          <option value="darwin_lab">Darwin Labs</option>
           <option value="automated_study">Automated study</option>
           <option value="scale_replay">Scale replay</option>
           <option value="legacy">Unknown / legacy</option>
@@ -4122,7 +4122,7 @@ function RollbackWorkspace({
               : 'Prepare a reviewable inverse change'}
           </h3>
           <p className="mt-2 max-w-3xl text-xs leading-5 text-mist">
-            Darwin never rewrites the active application directly. A rollback
+            Rosalind never rewrites the active application directly. A rollback
             generates an exact Git revert of the retained commit, validates it,
             deploys a preview, and requires a separate release decision.
           </p>
@@ -4393,7 +4393,7 @@ function OperatorBoundary() {
             <div>
               <p className="section-label">Controlled environment</p>
               <h1 className="mt-2 text-2xl font-semibold">
-                Darwin operator access
+                Rosalind operator access
               </h1>
             </div>
           </div>
@@ -4427,7 +4427,7 @@ function OperatorBoundary() {
             ) : (
               <ShieldCheck size={17} />
             )}
-            {state === 'checking' ? 'Verifying access' : 'Unlock Darwin'}
+            {state === 'checking' ? 'Verifying access' : 'Unlock Rosalind'}
           </button>
         </form>
       </section>

@@ -14,7 +14,7 @@ const workspaces = [
     route: '/?view=observations',
     heading: 'Observations',
   },
-  { name: 'darwin-lab', route: '/?view=lab', heading: 'Darwin Lab' },
+  { name: 'darwin-lab', route: '/?view=lab', heading: 'Darwin Labs' },
   { name: 'mutations', route: '/?view=mutations', heading: 'Mutations' },
   { name: 'genome', route: '/?view=genome', heading: 'Genome' },
 ] as const;
@@ -78,7 +78,7 @@ test('keeps edge tooltips inside the viewport', async ({ page }) => {
 test('creates and queues a bounded Darwin Lab experiment', async ({ page }) => {
   await page.goto('/?view=lab');
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Darwin Lab' }),
+    page.getByRole('heading', { level: 1, name: 'Darwin Labs' }),
   ).toBeVisible();
   await expect(page.getByText('SYNTHETIC ONLY')).toBeVisible();
 

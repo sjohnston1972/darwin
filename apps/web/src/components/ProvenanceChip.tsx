@@ -19,7 +19,7 @@ export function ProvenanceChip({
     } satisfies DarwinProvenance);
   const label =
     resolved.evidenceClass === 'darwin_lab'
-      ? 'Darwin Lab'
+      ? 'Darwin Labs'
       : resolved.evidenceClass === 'human_study'
         ? 'Human study'
         : resolved.evidenceClass === 'scale_replay'
@@ -32,7 +32,7 @@ export function ProvenanceChip({
       className={`provenance-chip provenance-${resolved.evidenceClass}`}
       title={
         resolved.evidenceClass === 'darwin_lab'
-          ? `Darwin Lab · ${resolved.labExperimentId}`
+          ? `Darwin Labs · ${resolved.labExperimentId}`
           : label
       }
     >

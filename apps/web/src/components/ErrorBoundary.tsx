@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<
             <div>
               <p className="section-label">View isolated</p>
               <h1 className="mt-2 text-2xl font-semibold">
-                Darwin contained a control-room error
+                Rosalind contained a control-room error
               </h1>
             </div>
             <AlertTriangle className="text-amber" size={22} />

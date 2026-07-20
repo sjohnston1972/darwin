@@ -151,7 +151,7 @@ export function DarwinLabView({
     const response = await apiFetch(`${apiBaseUrl}/api/lab/experiments`);
     const payload = (await response.json()) as { message?: string };
     if (!response.ok) {
-      throw new Error(payload.message ?? 'Darwin Lab could not be loaded.');
+      throw new Error(payload.message ?? 'Darwin Labs could not be loaded.');
     }
     const parsed = LabExperimentsResponseSchema.parse(payload).experiments;
     setExperiments(parsed);
@@ -169,7 +169,7 @@ export function DarwinLabView({
         setError(
           reason instanceof Error
             ? reason.message
-            : 'Darwin Lab could not be loaded.',
+            : 'Darwin Labs could not be loaded.',
         ),
       )
       .finally(() => setLoading(false));
@@ -220,7 +220,7 @@ export function DarwinLabView({
         if (!response.ok) {
           throw new Error(
             (payload as { message?: string }).message ??
-              'Darwin Lab execution could not be loaded.',
+              'Darwin Labs execution could not be loaded.',
           );
         }
         if (active) {
@@ -231,7 +231,7 @@ export function DarwinLabView({
           setError(
             reason instanceof Error
               ? reason.message
-              : 'Darwin Lab execution could not be loaded.',
+              : 'Darwin Labs execution could not be loaded.',
           );
         }
       }
@@ -956,7 +956,7 @@ export function DarwinLabView({
                   <Sparkles size={16} />
                 )}
                 {liveReasoningAvailable
-                  ? 'Analyse Darwin Lab pressure'
+                  ? 'Analyse Darwin Labs pressure'
                   : 'Live model unavailable'}
               </button>
             </div>
@@ -1207,7 +1207,7 @@ function AgentPopulation({
     experiment.populationSize - experiment.runs.length,
   );
   return (
-    <div className="lab-agent-grid" aria-label="Darwin Lab agent population">
+    <div className="lab-agent-grid" aria-label="Darwin Labs agent population">
       {experiment.runs.map((run) => (
         <button
           type="button"

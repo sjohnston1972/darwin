@@ -14,6 +14,7 @@ import {
   type CodexImplementationManifest,
   type DemoResetExecution,
   type EvidenceAnalysis,
+  type StoredEvidenceAnalysis,
   type EvidencePack,
   type EvolutionCycle,
   type FitnessOutcome,
@@ -27,7 +28,6 @@ import {
   type RetentionSweepResult,
   type StoredTelemetryEvent,
   type StudyTelemetryEvent,
-  type StoredEvidenceAnalysis,
   type StoredEvidencePack,
   type TargetApplicationConnection,
 } from '@darwin/shared';
@@ -186,7 +186,9 @@ export interface TelemetryRepository {
     cacheKey: string,
   ): Promise<EvidenceAnalysis | null>;
   getEvidenceAnalysis(analysisId: string): Promise<EvidenceAnalysis | null>;
-  getLatestEvidenceAnalysis(studyId: string): Promise<EvidenceAnalysis | null>;
+  getLatestEvidenceAnalysis(
+    studyId: string,
+  ): Promise<StoredEvidenceAnalysis | null>;
   saveCodexManifest(manifest: CodexImplementationManifest): Promise<void>;
   getCodexManifest(
     analysisId: string,
@@ -1690,7 +1692,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       .first<{ analysis_json: string }>();
     return row
       ? parseStoredValue(
-          EvidenceAnalysisSchema,
+          StoredEvidenceAnalysisSchema,
           row.analysis_json,
           'evidence analysis',
           studyId,

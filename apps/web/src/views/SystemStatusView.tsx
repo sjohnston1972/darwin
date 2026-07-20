@@ -306,7 +306,7 @@ export function SystemStatusView({
                 : health.status
             }
             ready={health.status === 'online'}
-            help="The deployed Darwin Worker release and exact commit from /api/health."
+            help="The deployed Rosalind Worker release and exact commit from /api/health."
           />
           <StatusRow
             icon={Code2}

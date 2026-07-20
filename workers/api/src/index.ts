@@ -6,6 +6,7 @@ import {
   DemoResetRequestSchema,
   DemoResetResponseSchema,
   EvidenceAnalysisSchema,
+  StoredEvidenceAnalysisSchema,
   EvidencePackSchema,
   FitnessOutcomeSchema,
   GenomeExecutionDetailResponseSchema,
@@ -2466,7 +2467,7 @@ export const handleRequest = async (
         { status: 404 },
       );
     }
-    return json(EvidenceAnalysisSchema.parse(analysis));
+    return json(StoredEvidenceAnalysisSchema.parse(analysis));
   }
 
   const codexManifestMatch = pathname.match(

@@ -56,7 +56,7 @@ export function GenomeHistoryView({
         >
           <option value="all">All evidence classes</option>
           <option value="human_study">Human study</option>
-          <option value="darwin_lab">Darwin Lab</option>
+          <option value="darwin_lab">Darwin Labs</option>
           <option value="automated_study">Automated study</option>
           <option value="scale_replay">Scale replay</option>
           <option value="legacy">Unknown / legacy</option>

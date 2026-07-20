@@ -27,7 +27,9 @@ describe('extracted dashboard views', () => {
     );
 
     expect(
-      screen.getByRole('heading', { name: 'Software that evolves.' }),
+      screen.getByRole('heading', {
+        name: 'Rosalind — Helping your software adapt.',
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Open measured study' }),

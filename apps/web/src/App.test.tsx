@@ -1043,7 +1043,7 @@ describe('Darwin control room', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'Software that evolves.',
+        name: 'Rosalind — Helping your software adapt.',
       }),
     ).toBeVisible();
     expect(
@@ -1099,7 +1099,7 @@ describe('Darwin control room', () => {
       'Observations',
       'Mutations',
       'Genome',
-      'Darwin Lab',
+      'Darwin Labs',
     ]);
     expect(
       within(navigation).getByRole('link', { name: 'Observations' }),
@@ -1328,7 +1328,7 @@ describe('Darwin control room', () => {
       'href',
       '/',
     );
-    expect(screen.getByText('Darwin API')).toBeVisible();
+    expect(screen.getByText('Rosalind API')).toBeVisible();
     expect(await screen.findByText('No repository is connected')).toBeVisible();
     expect(screen.getByLabelText('GitHub repository')).toHaveValue(
       'sjohnston1972/projectflow',
