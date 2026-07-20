@@ -162,9 +162,9 @@ if (
 
 for (const [label, url, title, connectSource] of [
   [
-    'Darwin control room',
+    'Rosalind control room',
     controlRoomUrl,
-    '<title>Darwin',
+    '<title>Rosalind',
     "connect-src 'self' https://darwin-api.stevie-johnston.workers.dev",
   ],
   ['ProjectFlow', projectFlowUrl, '<title>ProjectFlow', "connect-src 'self'"],
