@@ -7,6 +7,7 @@ import {
   labTargetUrl,
   reconcileSessionEventIds,
   retryFinishOperation,
+  sanitiseLabObservedUrl,
   seededPersonas,
 } from './runner';
 import type { LabAgentActionRecord, LabExperiment } from '@darwin/shared';
@@ -41,6 +42,31 @@ describe('Darwin Lab runner', () => {
       'x'.repeat(500),
     );
     expect(boundLabRunnerError('unknown failure', 'fallback')).toBe('fallback');
+  });
+
+  it('records only bounded target routes when the browser URL contains study credentials', () => {
+    const rawUrl = `https://projectflow.example/tasks?studyToken=${'secret'.repeat(120)}#private-state`;
+
+    const observed = sanitiseLabObservedUrl(
+      rawUrl,
+      'https://projectflow.example',
+    );
+
+    expect(observed).toBe('https://projectflow.example/tasks');
+    expect(observed).not.toContain('secret');
+    expect(observed.length).toBeLessThanOrEqual(512);
+    expect(
+      sanitiseLabObservedUrl(
+        `https://projectflow.example/${'route'.repeat(120)}`,
+        'https://projectflow.example',
+      ),
+    ).toBe('https://projectflow.example/');
+    expect(
+      sanitiseLabObservedUrl(
+        'https://untrusted.example/leak?token=secret',
+        'https://projectflow.example',
+      ),
+    ).toBe('https://projectflow.example/');
   });
 
   it('preserves the telemetry high-water mark across a transient read failure', () => {

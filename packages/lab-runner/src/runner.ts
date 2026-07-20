@@ -1,4 +1,5 @@
 import {
+  LabAgentActionRecordSchema,
   LabAgentDecisionResponseSchema,
   LabAgentRunSchema,
   LabExperimentSchema,
@@ -174,6 +175,21 @@ const semanticId = async (locator: Locator) =>
 export const boundLabRunnerError = (error: unknown, fallback: string) => {
   const message = error instanceof Error ? error.message : fallback;
   return message.slice(0, 500);
+};
+
+export const sanitiseLabObservedUrl = (
+  rawUrl: string,
+  targetOrigin: string,
+) => {
+  const expectedOrigin = new URL(targetOrigin).origin;
+  const observed = new URL(rawUrl, expectedOrigin);
+  if (observed.origin !== expectedOrigin) {
+    return new URL('/', expectedOrigin).toString();
+  }
+  const safeUrl = new URL(observed.pathname, expectedOrigin).toString();
+  return safeUrl.length <= 512
+    ? safeUrl
+    : new URL('/', expectedOrigin).toString();
 };
 
 // A missing or stale accessibility target is an observation for the agent, not
@@ -376,6 +392,7 @@ const runAgent = async (
   });
   const page = await context.newPage();
   const targetUrl = labTargetUrl(experiment, runId, participantId, sessionId);
+  const targetOrigin = new URL(experiment.targetUrl).origin;
 
   try {
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
@@ -394,7 +411,7 @@ const runAgent = async (
         terminalStatus = 'succeeded';
         break;
       }
-      const beforeUrl = page.url();
+      const beforeUrl = sanitiseLabObservedUrl(page.url(), targetOrigin);
       const before = await getSnapshot(page);
       const response = LabAgentDecisionResponseSchema.parse(
         await apiRequest('/api/lab/agent-decision', {
@@ -426,17 +443,13 @@ const runAgent = async (
       let targetId: string | null =
         response.decision.target?.semanticId ?? null;
       try {
-        targetId = await executeDecision(
-          page,
-          response.decision,
-          new URL(experiment.targetUrl).origin,
-        );
+        targetId = await executeDecision(page, response.decision, targetOrigin);
         await page.waitForTimeout(350);
       } catch (error) {
         actionError = boundLabRunnerError(error, 'Action failed.');
       }
       const after = await getSnapshot(page);
-      const afterUrl = page.url();
+      const afterUrl = sanitiseLabObservedUrl(page.url(), targetOrigin);
       await page.waitForTimeout(800);
       const currentEventIds = await listSessionEventIds(experiment, sessionId);
       const reconciliation = reconcileSessionEventIds(
@@ -450,7 +463,7 @@ const runAgent = async (
         : beforeUrl !== afterUrl || before.snapshot !== after.snapshot
           ? 'changed'
           : 'unchanged';
-      const action = {
+      const action = LabAgentActionRecordSchema.parse({
         actionId: `lab-action-${crypto.randomUUID()}`,
         ordinal,
         occurredAt: new Date(actionStarted).toISOString(),
@@ -474,7 +487,7 @@ const runAgent = async (
           ...experiment.provenance,
           runIds: [runId],
         },
-      } satisfies LabAgentActionRecord;
+      });
       actions.push(action);
       await apiRequest(
         `/api/lab/experiments/${encodeURIComponent(experiment.experimentId)}/runs/${encodeURIComponent(runId)}/actions`,
