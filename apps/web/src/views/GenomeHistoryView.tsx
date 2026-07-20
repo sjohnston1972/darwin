@@ -46,6 +46,10 @@ export function GenomeHistoryView({
         </div>
         <Dna size={19} className="text-mist" />
       </div>
+      <p className="mt-3 text-sm text-mist">
+        Only mutations released after human review enter the retained genome.
+        Active candidates remain in Mutations until release.
+      </p>
       <label className="artifact-filter">
         <span>Evidence class</span>
         <select

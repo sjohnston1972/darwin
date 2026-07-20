@@ -81,6 +81,16 @@ describe('archive pagination', () => {
         repository.saveRepositoryExecution(makeExecution(index), null),
       ),
     );
+    const activeCandidate = RepositoryMutationExecutionSchema.parse({
+      ...makeExecution(99),
+      executionId: 'execution-active-candidate',
+      manifestId: 'manifest-active-candidate',
+      analysisId: 'analysis-active-candidate',
+      status: 'codex_running',
+      updatedAt: '2026-07-19T09:00:00.000Z',
+      completedAt: null,
+    });
+    await repository.saveRepositoryExecution(activeCandidate, null);
 
     const firstResponse = await handleRequest(
       new Request('http://localhost/api/genome?limit=10'),
@@ -92,6 +102,16 @@ describe('archive pagination', () => {
     expect(firstBody.length).toBeLessThan(20_000);
     expect(firstBody).not.toContain('@@ -1 +1 @@');
     expect(first.executions[0]?.executionId).toBe('execution-cycle-30');
+    expect(
+      first.executions.some(
+        (execution) => execution.executionId === activeCandidate.executionId,
+      ),
+    ).toBe(false);
+
+    const activeDetailResponse = await handleRequest(
+      new Request(`http://localhost/api/genome/${activeCandidate.executionId}`),
+    );
+    expect(activeDetailResponse.status).toBe(404);
 
     const secondResponse = await handleRequest(
       new Request(

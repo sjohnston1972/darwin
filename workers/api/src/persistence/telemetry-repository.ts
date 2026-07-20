@@ -212,6 +212,7 @@ export interface TelemetryRepository {
   listRepositoryExecutions(): Promise<RepositoryMutationExecution[]>;
   listRepositoryExecutionPage(
     options: CursorPageOptions,
+    statuses?: ReadonlyArray<RepositoryMutationExecution['status']>,
   ): Promise<RepositoryExecutionPage>;
   getObservationArchive(
     executionId: string,
@@ -704,8 +705,17 @@ export class InMemoryTelemetryRepository implements TelemetryRepository {
     );
   }
 
-  async listRepositoryExecutionPage(options: CursorPageOptions) {
-    return paginateExecutions(await this.listRepositoryExecutions(), options);
+  async listRepositoryExecutionPage(
+    options: CursorPageOptions,
+    statuses?: ReadonlyArray<RepositoryMutationExecution['status']>,
+  ) {
+    const executions = await this.listRepositoryExecutions();
+    return paginateExecutions(
+      statuses?.length
+        ? executions.filter((execution) => statuses.includes(execution.status))
+        : executions,
+      options,
+    );
   }
 
   async getObservationArchive(executionId: string) {
@@ -1930,26 +1940,30 @@ export class D1TelemetryRepository implements TelemetryRepository {
     );
   }
 
-  async listRepositoryExecutionPage(options: CursorPageOptions) {
+  async listRepositoryExecutionPage(
+    options: CursorPageOptions,
+    statuses?: ReadonlyArray<RepositoryMutationExecution['status']>,
+  ) {
     const cursor = decodeExecutionCursor(options.cursor);
-    const cursorClause = cursor
-      ? `WHERE updated_at < ? OR (updated_at = ? AND execution_id < ?)`
-      : '';
+    const clauses: string[] = [];
+    const bindings: Array<string | number> = [];
+    if (statuses?.length) {
+      clauses.push(`status IN (${statuses.map(() => '?').join(', ')})`);
+      bindings.push(...statuses);
+    }
+    if (cursor) {
+      clauses.push('(updated_at < ? OR (updated_at = ? AND execution_id < ?))');
+      bindings.push(cursor.updatedAt, cursor.updatedAt, cursor.executionId);
+    }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const statement = this.database.prepare(
       `SELECT execution_id, execution_json
        FROM repository_executions
-       ${cursorClause}
+       ${whereClause}
        ORDER BY updated_at DESC, execution_id DESC
        LIMIT ?`,
     );
-    const bound = cursor
-      ? statement.bind(
-          cursor.updatedAt,
-          cursor.updatedAt,
-          cursor.executionId,
-          options.limit + 1,
-        )
-      : statement.bind(options.limit + 1);
+    const bound = statement.bind(...bindings, options.limit + 1);
     const result = await bound.all<{
       execution_id: string;
       execution_json: string;

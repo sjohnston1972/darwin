@@ -1256,8 +1256,10 @@ export const handleRequest = async (
   if (request.method === 'GET' && pathname === '/api/genome') {
     try {
       const options = archivePageOptions(url);
-      const page =
-        await telemetryRepository.listRepositoryExecutionPage(options);
+      const page = await telemetryRepository.listRepositoryExecutionPage(
+        options,
+        ['released'],
+      );
       return json(
         GenomeHistoryResponseSchema.parse({
           evolutionCycle: await telemetryRepository.getEvolutionCycle(),
@@ -1319,7 +1321,7 @@ export const handleRequest = async (
     const execution = await telemetryRepository.getRepositoryExecution(
       decodeURIComponent(genomeDetailMatch[1]!),
     );
-    return execution
+    return execution?.status === 'released'
       ? json(
           GenomeExecutionDetailResponseSchema.parse({
             execution,
