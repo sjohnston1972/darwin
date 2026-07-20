@@ -16,6 +16,7 @@
   font-weight: 700;
   letter-spacing: 0.11em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .lab-error {
@@ -515,7 +516,7 @@
 .lab-signal-grid,
 .lab-mutation-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 1px;
   background: var(--line);
 }
@@ -595,14 +596,18 @@
 
 .lab-mutation-grid article > div:first-child {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
 .lab-mutation-grid article > div code {
+  overflow: hidden;
   color: var(--signal);
   font-size: calc(8px + 2pt);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lab-mutation-grid article > div span {
@@ -636,6 +641,22 @@
   width: 100%;
   justify-content: center;
   margin-top: 18px;
+}
+
+.lab-dispatch-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 0 22px 22px;
+}
+
+.lab-dispatch-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--amber);
+  font-size: calc(10px + 2pt);
 }
 
 .lab-release-boundary {
@@ -1089,6 +1110,7 @@ a:focus-visible {
   letter-spacing: 0.08em;
   line-height: 1;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .provenance-chip.provenance-darwin_lab {

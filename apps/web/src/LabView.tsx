@@ -1112,17 +1112,24 @@ export function DarwinLabView({
             stages.
           </p>
           {selected.selection && !execution && (
-            <button
-              className="primary-action"
-              type="button"
-              disabled={working !== null}
-              onClick={() => void dispatchImplementation()}
-            >
-              <ShieldCheck size={16} />
-              {working === 'implement'
-                ? 'Dispatching controlled mutation'
-                : 'Prepare and dispatch ProjectFlow mutation'}
-            </button>
+            <div className="lab-dispatch-action">
+              <button
+                className="primary-action"
+                type="button"
+                disabled={working !== null}
+                onClick={() => void dispatchImplementation()}
+              >
+                <ShieldCheck size={16} />
+                {working === 'implement'
+                  ? 'Dispatching controlled mutation'
+                  : 'Prepare and dispatch ProjectFlow mutation'}
+              </button>
+              {error && (
+                <span className="lab-dispatch-error" role="alert">
+                  <AlertTriangle size={15} /> {error}
+                </span>
+              )}
+            </div>
           )}
         </section>
       )}

@@ -239,7 +239,7 @@ export async function captureRepositorySnapshot(
       commitJson = JSON.parse(
         await readBoundedResponse(
           commitResponse,
-          16 * 1024,
+          128 * 1024,
           'GitHub commit response',
         ),
       );
