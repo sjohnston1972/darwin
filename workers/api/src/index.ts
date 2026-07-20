@@ -503,6 +503,29 @@ const targetProvenanceAllowed = (
   );
 };
 
+export const selectMeasurementBoundary = (
+  cycleStartedAt: string | null | undefined,
+  targetConnectedAt: string | null | undefined,
+) => {
+  if (
+    targetConnectedAt &&
+    (!cycleStartedAt ||
+      Date.parse(targetConnectedAt) > Date.parse(cycleStartedAt))
+  ) {
+    return {
+      startedAt: targetConnectedAt,
+      source: 'target_connection' as const,
+    };
+  }
+  if (cycleStartedAt) {
+    return {
+      startedAt: cycleStartedAt,
+      source: 'evolution_cycle' as const,
+    };
+  }
+  return { startedAt: null, source: null };
+};
+
 const isAllowedTargetVersion = (
   appVersion: string,
   env: Partial<Env> | undefined,
@@ -891,9 +914,11 @@ export const handleRequest = async (
   const currentCycleStart = async (studyId: string) => {
     const cycle = await telemetryRepository.getEvolutionCycle();
     if (cycle.studyId !== studyId) return null;
-    if (cycle.startedAt) return cycle.startedAt;
     const targetConnection = await telemetryRepository.getTargetConnection();
-    return targetConnection?.connectedAt ?? null;
+    return selectMeasurementBoundary(
+      cycle.startedAt,
+      targetConnection?.connectedAt,
+    ).startedAt;
   };
   const refreshVerifiedTargetSnapshot = async ({
     commitSha,
@@ -2107,18 +2132,17 @@ export const handleRequest = async (
         { status: 409 },
       );
     }
-    const initialConnectionBoundary =
-      cycle.studyId === studyId && !cycle.startedAt
-        ? targetConnection.connectedAt
-        : null;
-    const measurementStartedAt =
+    const measurementBoundary =
       cycle.studyId === studyId
-        ? (cycle.startedAt ?? initialConnectionBoundary)
-        : null;
+        ? selectMeasurementBoundary(
+            cycle.startedAt,
+            targetConnection.connectedAt,
+          )
+        : { startedAt: null, source: null };
     const events = await telemetryRepository.listEvents(
       studyId,
       10_000,
-      measurementStartedAt,
+      measurementBoundary.startedAt,
       source,
     );
     if (!events.length) {
@@ -2169,14 +2193,20 @@ export const handleRequest = async (
         targetConnection.applicationMap,
         undefined,
         cycle.studyId === studyId
-          ? {
-              appVersion:
-                cycle.appVersion ??
-                targetConnection.repository.baseSha.slice(0, 12),
-              measuredCommit:
-                cycle.measuredCommit ?? targetConnection.repository.baseSha,
-              deploymentVerifiedAt: cycle.deploymentVerifiedAt,
-            }
+          ? measurementBoundary.source === 'evolution_cycle'
+            ? {
+                appVersion:
+                  cycle.appVersion ??
+                  targetConnection.repository.baseSha.slice(0, 12),
+                measuredCommit:
+                  cycle.measuredCommit ?? targetConnection.repository.baseSha,
+                deploymentVerifiedAt: cycle.deploymentVerifiedAt,
+              }
+            : {
+                appVersion: targetConnection.repository.baseSha.slice(0, 12),
+                measuredCommit: targetConnection.repository.baseSha,
+                deploymentVerifiedAt: null,
+              }
           : undefined,
       );
       await telemetryRepository.saveEvidence(pack);
