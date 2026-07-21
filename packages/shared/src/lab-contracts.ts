@@ -98,6 +98,9 @@ export const LabSuccessCriterionSchema = z.discriminatedUnion('type', [
       outcome: z.literal('success'),
     })
     .strict(),
+  // A free-text goal has no verifiable oracle. The agent itself declares
+  // completion (a `submit` decision); friction evidence is the real output.
+  z.object({ type: z.literal('best_effort') }).strict(),
 ]);
 
 export const LabTaskInputSchema = z
@@ -173,6 +176,42 @@ export const isSupportedProjectFlowLabTask = (input: LabTaskInput) =>
         JSON.stringify(input.successCriterion),
   );
 
+// A task is executable if it is one of the verified ProjectFlow presets OR a
+// free-text goal the agents attempt on a best-effort basis (agent-declared
+// completion). Both produce the same friction evidence for the Mutations page.
+export const isExecutableLabTask = (input: LabTaskInput) =>
+  isSupportedProjectFlowLabTask(input) ||
+  input.successCriterion.type === 'best_effort';
+
+const FREEFORM_TASK_MAX = 300;
+
+const slugFromGoal = (goal: string) =>
+  goal
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'goal';
+
+// Build an executable Lab task from a plain-English goal. The agents start at
+// the application root and decide for themselves when the goal is met.
+export const freeformLabTask = (
+  goal: string,
+): z.input<typeof LabTaskInputSchema> => {
+  const trimmed = goal.trim().slice(0, FREEFORM_TASK_MAX);
+  return {
+    taskId: `freeform-${slugFromGoal(trimmed)}`,
+    name: trimmed.slice(0, 120),
+    instruction: trimmed,
+    startRoute: '/',
+    successCriterion: { type: 'best_effort' },
+    successDescription:
+      `Agents attempt this goal and report when they believe it is done: ${trimmed}`.slice(
+        0,
+        FREEFORM_TASK_MAX,
+      ),
+  };
+};
+
 export const LabTaskSchema = LabTaskInputSchema.extend({
   taskDefinitionId: LabIdentifierSchema,
   definitionVersion: z.literal(1),
@@ -188,10 +227,13 @@ export const LabPersonaAllocationSchema = z
 
 export const LabExperimentCreateRequestSchema = z
   .object({
-    name: z.string().trim().min(1).max(100).default('Apollo discovery study'),
-    targetUrl: z.string().url().max(512),
+    // A plain-English goal is all the UI needs to send; the server builds the
+    // executable task, chooses the configured target, and defaults the rest.
+    goal: z.string().trim().min(1).max(300).optional(),
+    name: z.string().trim().min(1).max(100).optional(),
+    targetUrl: z.string().url().max(512).optional(),
     targetAppVersion: z.string().min(1).max(32).default('baseline'),
-    task: LabTaskInputSchema.default(PROJECTFLOW_LAB_TASKS[0]),
+    task: LabTaskInputSchema.optional(),
     populationSize: z.number().int().min(8).max(20).default(8),
     personaAllocation: z.array(LabPersonaAllocationSchema).max(8).default([]),
     maxActions: z.number().int().min(4).max(30).default(12),

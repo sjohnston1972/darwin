@@ -75,23 +75,22 @@ test('keeps edge tooltips inside the viewport', async ({ page }) => {
   expect(box!.y + box!.height).toBeLessThanOrEqual(688);
 });
 
-test('creates and queues a bounded Darwin Lab experiment', async ({ page }) => {
+test('sends a free-text goal to a Darwin Lab population', async ({ page }) => {
   await page.goto('/?view=lab');
   await expect(
     page.getByRole('heading', { level: 1, name: 'Darwin Labs' }),
   ).toBeVisible();
-  await expect(page.getByText('SYNTHETIC ONLY')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Create bounded experiment' }).click();
+  const goal = 'Find the task assigned to me and open it';
+  await page
+    .getByPlaceholder(/Find the task assigned to me/i)
+    .fill(goal);
+  await page.getByRole('button', { name: /Send agents/ }).click();
+
+  // Create + start happen from one action; the latest-run panel shows the goal.
   await expect(
-    page.getByRole('heading', {
-      level: 2,
-      name: 'Apollo discovery study',
-    }),
+    page.getByRole('heading', { level: 2, name: goal }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Queue population' }).click();
-  await expect(page.getByText('Browser runner requested')).toBeVisible();
-  await expect(page.getByText('npm run lab:runner')).toBeVisible();
 });
 
 test('supports keyboard navigation between workspaces', async ({ page }) => {

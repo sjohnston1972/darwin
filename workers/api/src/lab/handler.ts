@@ -14,7 +14,10 @@ import {
   LabMutationSelectionRequestSchema,
   LabRunnerClaimRequestSchema,
   LabSelectionSchema,
-  isSupportedProjectFlowLabTask,
+  LabTaskInputSchema,
+  PROJECTFLOW_LAB_TASKS,
+  freeformLabTask,
+  isExecutableLabTask,
   type LabExperiment,
   type LabTaskInput,
 } from '@darwin/shared';
@@ -104,8 +107,17 @@ const dispatchManagedRunner = async (
 const isTerminal = (status: LabExperiment['runs'][number]['status']) =>
   ['succeeded', 'failed', 'abandoned', 'blocked'].includes(status);
 
-const allowedTargetOrigins = (env?: LabHandlerEnvironment) =>
-  new Set(
+const originOf = (value?: string) => {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const allowedTargetOrigins = (env?: LabHandlerEnvironment) => {
+  const origins = new Set(
     (
       env?.DARWIN_LAB_ALLOWED_ORIGINS ??
       'http://localhost:5174,http://127.0.0.1:5174'
@@ -114,11 +126,26 @@ const allowedTargetOrigins = (env?: LabHandlerEnvironment) =>
       .map((value) => value.trim())
       .filter(Boolean),
   );
+  // The configured ProjectFlow deployment is always a valid Lab target so the
+  // operator never has to hand-maintain the allowlist to run against it.
+  const studyOrigin = originOf(env?.PROJECTFLOW_STUDY_URL);
+  const productionOrigin = originOf(env?.PROJECTFLOW_PRODUCTION_URL);
+  if (studyOrigin) origins.add(studyOrigin);
+  if (productionOrigin) origins.add(productionOrigin);
+  return origins;
+};
 
 const targetAllowed = (targetUrl: string, env?: LabHandlerEnvironment) => {
   const target = new URL(targetUrl);
   return allowedTargetOrigins(env).has(target.origin);
 };
+
+// The target the UI runs against when it only sends a goal. The runner rebuilds
+// the exact per-run URL, so this just needs an allowlisted origin.
+const defaultLabTarget = (env?: LabHandlerEnvironment) =>
+  env?.PROJECTFLOW_STUDY_URL ??
+  env?.PROJECTFLOW_PRODUCTION_URL ??
+  'http://localhost:5174/';
 
 const unsupportedTask = (json: JsonResponder) =>
   json(
@@ -278,10 +305,14 @@ export async function handleLabRequest(
       const input = LabExperimentCreateRequestSchema.parse(
         await parseBody(request),
       );
-      if (!isSupportedProjectFlowLabTask(input.task)) {
+      const taskInput: LabTaskInput = input.goal
+        ? LabTaskInputSchema.parse(freeformLabTask(input.goal))
+        : (input.task ?? LabTaskInputSchema.parse(PROJECTFLOW_LAB_TASKS[0]));
+      if (!isExecutableLabTask(taskInput)) {
         return unsupportedTask(json);
       }
-      if (!targetAllowed(input.targetUrl, env)) {
+      const targetUrl = input.targetUrl ?? defaultLabTarget(env);
+      if (!targetAllowed(targetUrl, env)) {
         return json(
           {
             error: 'lab_target_forbidden',
@@ -292,7 +323,7 @@ export async function handleLabRequest(
         );
       }
       const experimentId = `lab-exp-${crypto.randomUUID()}`;
-      const task = await createTaskDefinition(input.task);
+      const task = await createTaskDefinition(taskInput);
       const personaAllocation = input.personaAllocation.length
         ? input.personaAllocation
         : defaultPersonaAllocation(input.populationSize);
@@ -311,8 +342,8 @@ export async function handleLabRequest(
       const experiment = LabExperimentSchema.parse({
         experimentId,
         studyId: `projectflow-darwin-lab-${experimentId.slice(-12)}`,
-        name: input.name,
-        targetUrl: input.targetUrl,
+        name: input.name ?? task.name,
+        targetUrl,
         targetAppVersion: input.targetAppVersion,
         task,
         populationSize: input.populationSize,
@@ -405,7 +436,7 @@ export async function handleLabRequest(
       const input = LabExperimentUpdateRequestSchema.parse(
         await parseBody(request),
       );
-      if (input.task && !isSupportedProjectFlowLabTask(input.task)) {
+      if (input.task && !isExecutableLabTask(input.task)) {
         return unsupportedTask(json);
       }
       const targetUrl = input.targetUrl ?? experiment.targetUrl;
@@ -519,7 +550,7 @@ export async function handleLabRequest(
           { status: 409 },
         );
       }
-      if (!isSupportedProjectFlowLabTask(experiment.task)) {
+      if (!isExecutableLabTask(experiment.task)) {
         return unsupportedTask(json);
       }
       const experimentId = `lab-exp-${crypto.randomUUID()}`;
@@ -666,7 +697,7 @@ export async function handleLabRequest(
         { status: 409 },
       );
     }
-    if (!isSupportedProjectFlowLabTask(experiment.task)) {
+    if (!isExecutableLabTask(experiment.task)) {
       return unsupportedTask(json);
     }
     if (
@@ -1371,7 +1402,7 @@ export async function handleLabRequest(
         { status: 409 },
       );
     }
-    if (!isSupportedProjectFlowLabTask(source.task)) {
+    if (!isExecutableLabTask(source.task)) {
       return unsupportedTask(json);
     }
     if (

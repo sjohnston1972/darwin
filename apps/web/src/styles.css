@@ -4,7 +4,155 @@
 
 .lab-workspace {
   display: grid;
-  gap: 30px;
+  gap: 24px;
+  max-width: 900px;
+}
+
+.lab-page-heading h1 {
+  margin-top: 6px;
+  font-size: calc(24px + 4pt);
+  font-weight: 640;
+  letter-spacing: -0.01em;
+}
+
+.lab-composer,
+.lab-run-panel {
+  padding: 23px;
+}
+
+.lab-composer-lede {
+  margin: 4px 0 18px;
+  max-width: 62ch;
+  color: var(--mist);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.lab-composer-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.lab-goal-input {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 62px;
+  padding: 13px 15px;
+  color: var(--white);
+  background: var(--carbon);
+  border: 1px solid var(--line);
+  outline: none;
+  resize: vertical;
+  font-size: calc(14px + 1pt);
+  line-height: 1.5;
+}
+
+.lab-goal-input:focus {
+  border-color: rgb(112 231 167 / 52%);
+  box-shadow: 0 0 0 3px rgb(112 231 167 / 7%);
+}
+
+.lab-goal-input:disabled {
+  opacity: 0.55;
+}
+
+.lab-composer-form .primary-action {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.lab-composer-hint {
+  margin-top: 12px;
+  color: var(--fog);
+  font-size: 13px;
+}
+
+.lab-goal-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.lab-goal-examples button {
+  padding: 7px 12px;
+  color: var(--mist);
+  background: rgb(112 231 167 / 4%);
+  border: 1px solid var(--line);
+  font-size: 12.6667px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.lab-goal-examples button:hover:not(:disabled) {
+  color: var(--white);
+  border-color: rgb(112 231 167 / 40%);
+}
+
+.lab-goal-examples button:disabled {
+  opacity: 0.5;
+}
+
+.lab-mutations {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.lab-mutation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.lab-mutation-list article {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  background: var(--carbon);
+  border: 1px solid var(--line);
+}
+
+.lab-mutation-list article.is-selected {
+  border-color: rgb(112 231 167 / 45%);
+  background: rgb(112 231 167 / 5%);
+}
+
+.lab-mutation-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lab-mutation-head h3 {
+  font-size: calc(15px + 1pt);
+  font-weight: 600;
+}
+
+.lab-mutation-head span {
+  flex: 0 0 auto;
+  color: var(--signal);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.lab-mutation-list article p {
+  color: var(--mist);
+  font-size: 13.6667px;
+  line-height: 1.5;
+}
+
+.lab-mutation-list article button {
+  justify-self: start;
+  gap: 7px;
+}
+
+.lab-continue {
+  justify-self: start;
+  gap: 8px;
 }
 
 .lab-model-badge {

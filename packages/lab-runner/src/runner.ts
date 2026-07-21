@@ -144,6 +144,11 @@ export const labTargetUrl = (
 
 const taskSucceeded = async (page: Page, experiment: LabExperiment) => {
   const criterion = experiment.task.successCriterion;
+  if (criterion.type === 'best_effort') {
+    // A free-text goal has no page-observable oracle; completion is declared by
+    // the agent's own `submit` decision, handled in the action loop.
+    return false;
+  }
   if (criterion.type === 'route_reached') {
     return new URL(page.url()).pathname === criterion.route;
   }
@@ -501,6 +506,16 @@ const runAgent = async (
       if (response.decision.action === 'abandon') {
         taskOutcome = 'abandoned';
         terminalStatus = 'abandoned';
+        break;
+      }
+      if (
+        response.decision.action === 'submit' &&
+        experiment.task.successCriterion.type === 'best_effort'
+      ) {
+        // Agent-declared completion for a free-text goal. There is no verifiable
+        // oracle, so the agent's judgement is the terminal signal.
+        taskOutcome = 'success';
+        terminalStatus = 'succeeded';
         break;
       }
       if (actionError && ordinal >= 3) {

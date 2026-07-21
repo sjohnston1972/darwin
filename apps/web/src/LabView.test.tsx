@@ -5,23 +5,24 @@ import { DarwinLabView } from './LabView';
 
 const timestamp = '2026-07-18T10:00:00.000Z';
 const taskHash = 'a'.repeat(64);
+const goalText = 'Find the task assigned to me and open it';
+
 const draftExperiment = {
   experimentId: 'lab-exp-ui-test',
   studyId: 'projectflow-darwin-lab-ui-test',
-  name: 'Apollo discovery study',
+  name: goalText,
   targetUrl: 'http://localhost:5174/',
-  targetAppVersion: '1.0.0',
+  targetAppVersion: 'baseline',
   task: {
     taskDefinitionId: 'lab-task-ui-test',
     definitionVersion: 1,
     definitionHash: taskHash,
-    taskId: 'find-apollo-assignees',
-    name: 'Find Project Apollo assignees',
-    instruction: 'Find everyone assigned to Project Apollo.',
-    successDescription:
-      'The agent identifies the complete Project Apollo assignment set.',
-    startRoute: '/study/dashboard',
-    successCriterion: { type: 'route_reached', route: '/study/my-work' },
+    taskId: 'freeform-find-the-task-assigned-to-me-and-open-it',
+    name: goalText,
+    instruction: goalText,
+    successDescription: `Agents attempt this goal: ${goalText}`,
+    startRoute: '/',
+    successCriterion: { type: 'best_effort' },
   },
   populationSize: 8,
   personaAllocation: [{ persona: 'novice', count: 8 }],
@@ -53,11 +54,12 @@ const draftExperiment = {
   },
 } as const;
 
-const runningExperiment = {
+const finishedExperiment = {
   ...draftExperiment,
-  status: 'running',
+  status: 'completed',
   runnerId: 'github-actions-123',
   startedAt: timestamp,
+  completedAt: timestamp,
   runs: [
     {
       runId: 'lab-run-layout-test',
@@ -67,14 +69,37 @@ const runningExperiment = {
       persona: 'novice',
       viewport: { class: 'desktop', width: 1440, height: 960 },
       agentModel: 'gpt-5.6-luna',
-      status: 'running',
+      status: 'succeeded',
       startedAt: timestamp,
-      finishedAt: null,
-      durationMs: null,
-      taskOutcome: 'open',
+      finishedAt: timestamp,
+      durationMs: 4200,
+      taskOutcome: 'success',
       frictionLabels: [],
       telemetryEventIds: [],
-      actions: [],
+      actions: [
+        {
+          actionId: 'lab-action-1',
+          ordinal: 1,
+          occurredAt: timestamp,
+          action: 'click',
+          targetId: 'assigned-task-card',
+          targetRole: 'button',
+          inputLength: null,
+          key: null,
+          expectation: 'Opens the assigned task',
+          fromUrl: 'http://localhost:5174/study/dashboard',
+          toUrl: 'http://localhost:5174/study/my-work',
+          durationMs: 320,
+          outcome: 'changed',
+          accessibilityNodeCount: 42,
+          telemetryEventIds: [],
+          error: null,
+          provenance: {
+            ...draftExperiment.provenance,
+            runIds: ['lab-run-layout-test'],
+          },
+        },
+      ],
       error: null,
       populationOrdinal: 1,
       studyId: draftExperiment.studyId,
@@ -89,63 +114,49 @@ const runningExperiment = {
   ],
 } as const;
 
+const jsonResponse = (body: unknown, status: number) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('Darwin Lab view', () => {
-  it('keeps Darwin Lab evidence separate and queues a bounded population', async () => {
+  it('sends a plain-English goal to the agents with one action', async () => {
     const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, init?: RequestInit) =>
-        new Response(
-          JSON.stringify(
-            init?.method === 'POST' ? draftExperiment : { experiments: [] },
-          ),
-          { status: init?.method === 'POST' ? 201 : 200 },
-        ),
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method === 'POST' && url.endsWith('/start')) {
+          return jsonResponse(
+            { ...draftExperiment, status: 'awaiting_runner' },
+            200,
+          );
+        }
+        if (init?.method === 'POST' && url.endsWith('/api/lab/experiments')) {
+          return jsonResponse(draftExperiment, 201);
+        }
+        return jsonResponse({ experiments: [] }, 200);
+      },
     );
     vi.stubGlobal('fetch', fetchMock);
 
     render(
-      <DarwinLabView
-        apiBaseUrl="http://localhost:8787"
-        defaultTargetUrl="http://localhost:5174/"
-        liveReasoningAvailable
-      />,
+      <DarwinLabView apiBaseUrl="http://localhost:8787" liveReasoningAvailable />,
     );
 
-    expect(
-      screen.queryByRole('heading', { level: 1, name: 'Darwin Lab' }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: 'Define a real task' }),
-    ).toBeVisible();
-    const experimentForm = screen
-      .getByRole('button', { name: 'Create Lab task' })
-      .closest('form');
-    expect(experimentForm).not.toBeNull();
-    const parameterLabels = [...experimentForm!.querySelectorAll('label')];
-    expect(parameterLabels.length).toBeGreaterThanOrEqual(16);
-    parameterLabels.forEach((label) => {
-      expect(label).toHaveAttribute('data-explain');
-      expect(label.getAttribute('data-explain')?.length).toBeGreaterThan(20);
-    });
-    expect(
-      experimentForm!.querySelector('.lab-task-card > summary'),
-    ).toHaveAttribute('data-explain', expect.stringContaining('population'));
-    fireEvent.change(screen.getByLabelText('Action budget'), {
-      target: { value: '' },
-    });
+    // The old parameter-heavy form is gone: no start route, seed, or budgets.
+    expect(screen.queryByLabelText('Action budget')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Seed')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Lab task' }));
+    fireEvent.change(
+      screen.getByPlaceholderText(/Find the task assigned to me/i),
+      { target: { value: goalText } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Send agents/ }));
 
-    expect(
-      await screen.findByRole('heading', { name: 'Apollo discovery study' }),
-    ).toBeVisible();
-    expect(screen.getByText('0/8')).toBeVisible();
-    expect(
-      screen.getByRole('button', { name: /Queue population/ }),
-    ).toBeVisible();
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         'http://localhost:8787/api/lab/experiments',
@@ -153,51 +164,50 @@ describe('Darwin Lab view', () => {
       ),
     );
     const createRequest = fetchMock.mock.calls.find(
-      ([, init]) => init?.method === 'POST',
+      ([url, init]) =>
+        init?.method === 'POST' &&
+        String(url).endsWith('/api/lab/experiments'),
     );
-    expect(JSON.parse(String(createRequest?.[1]?.body))).toMatchObject({
-      maxActions: 12,
-      task: {
-        taskId: 'find-assigned-task',
-        successCriterion: {
-          type: 'workflow_outcome',
-          workflowId: 'find-assigned-task',
-          outcome: 'success',
-        },
-      },
+    expect(JSON.parse(String(createRequest?.[1]?.body))).toEqual({
+      goal: goalText,
     });
+
+    // Create is immediately followed by starting the population — no extra click.
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            init?.method === 'POST' && String(url).endsWith('/start'),
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByRole('heading', { name: goalText })).toBeVisible();
   });
 
-  it('renders the replay below a full-width population workspace', async () => {
+  it('shows the agent population and a replay for a finished run', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ experiments: [runningExperiment] }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+      vi.fn(async () =>
+        jsonResponse({ experiments: [finishedExperiment] }, 200),
       ),
     );
 
     const { container } = render(
       <DarwinLabView
         apiBaseUrl="http://localhost:8787"
-        defaultTargetUrl="http://localhost:5174/"
-        liveReasoningAvailable
+        liveReasoningAvailable={false}
       />,
     );
 
     expect(
-      await screen.findByRole('heading', { name: 'Novice · open' }),
+      await screen.findByRole('heading', { name: 'Novice · success' }),
     ).toBeVisible();
     const population = screen.getByLabelText('Darwin Labs agent population');
     const populationWorkspace = container.querySelector(
       '.lab-population-workspace',
     );
-    const replay = screen.getByText('Run replay').closest('section');
+    const replay = screen.getByText('What one agent did').closest('section');
     expect(populationWorkspace).toContainElement(population);
-    expect(populationWorkspace?.children).toHaveLength(1);
     expect(replay).not.toBeNull();
     expect(
       populationWorkspace!.compareDocumentPosition(replay!) &

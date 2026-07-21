@@ -6,7 +6,11 @@ compatibility_date = "2026-07-01"
 crons = ["17 3 * * *"]
 
 [vars]
-DARWIN_AI_MODE = "mock"
+# Darwin Lab agents call the live model to decide each browser action. In "mock"
+# mode agent-decision returns 502, so every run produces zero actions and the
+# experiment is force-failed. Keep this "live" (with an OPENAI_API_KEY secret)
+# for the Lab to function.
+DARWIN_AI_MODE = "live"
 OPENAI_MODEL = "gpt-5.6"
 OPENAI_LAB_AGENT_MODEL = "gpt-5.6-luna"
 OPENAI_TIMEOUT_MS = "90000"
@@ -23,7 +27,9 @@ PROJECTFLOW_DEPLOYMENT_TIMEOUT_MS = "90000"
 PROJECTFLOW_DEPLOYMENT_POLL_MS = "5000"
 PROJECTFLOW_RESET_MAX_ATTEMPTS = "60"
 PROJECTFLOW_LAB_STUDY_ID = "projectflow-darwin-lab"
-DARWIN_LAB_ALLOWED_ORIGINS = "http://localhost:5174,http://127.0.0.1:5174"
+# The configured PROJECTFLOW_STUDY_URL / PROJECTFLOW_PRODUCTION_URL origins are
+# always allowed automatically; list any additional preview/staging origins here.
+DARWIN_LAB_ALLOWED_ORIGINS = "http://localhost:5174,http://127.0.0.1:5174,https://darwin-projectflow.pages.dev"
 ALLOWED_ORIGINS = "https://darwin-control-room.pages.dev,https://darwin-projectflow.pages.dev,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
 
 # Create and bind after initial deployment:

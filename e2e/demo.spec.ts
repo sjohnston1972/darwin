@@ -162,16 +162,12 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
   const apiBase = 'http://127.0.0.1:8787';
   const operatorHeaders = { Authorization: 'Bearer e2e-token' };
 
+  const goal = 'Find the task assigned to me and open it';
   await page.goto('/?view=lab');
-  await page.getByLabel('Experiment name').fill('Assigned task population');
-  await page
-    .getByLabel('Verified ProjectFlow task')
-    .selectOption('find-assigned-task');
-  await page.getByRole('button', { name: 'Create Lab task' }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Assigned task population' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Queue population' }).click();
+  await page.getByPlaceholder(/Find the task assigned to me/i).fill(goal);
+  // Sending agents creates and starts the population in one action.
+  await page.getByRole('button', { name: /Send agents/ }).click();
+  await expect(page.getByRole('heading', { level: 2, name: goal })).toBeVisible();
   await expect(
     page.locator('.lab-status.status-awaiting_runner'),
   ).toBeVisible();
