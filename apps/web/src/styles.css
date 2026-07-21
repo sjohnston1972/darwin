@@ -46,21 +46,46 @@
 .workspace-hero-tag {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 14px;
-  padding: 6px 14px;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 6px 7px 6px 15px;
   color: var(--mist);
-  background: rgb(112 231 167 / 6%);
-  border: 1px solid rgb(112 231 167 / 22%);
+  background: rgb(112 231 167 / 10%);
+  border: 1px solid rgb(112 231 167 / 38%);
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow:
+    0 0 0 4px rgb(112 231 167 / 6%),
+    0 8px 22px -10px rgb(112 231 167 / 55%);
 }
 
 .workspace-hero-tag strong {
-  color: var(--signal);
+  padding: 4px 12px;
+  color: var(--carbon);
+  background: var(--signal);
+  border-radius: 999px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  box-shadow: 0 3px 10px -2px rgb(112 231 167 / 60%);
+}
+
+html[data-theme='light'] .workspace-hero-tag {
+  background: rgb(3 105 161 / 8%);
+  border-color: rgb(3 105 161 / 32%);
+  box-shadow:
+    0 0 0 4px rgb(3 105 161 / 5%),
+    0 8px 22px -10px rgb(3 105 161 / 40%);
+}
+
+html[data-theme='light'] .workspace-hero-tag strong {
+  color: #fff;
+  box-shadow: 0 3px 10px -2px rgb(3 105 161 / 45%);
 }
 
 .lab-composer,
@@ -1690,7 +1715,8 @@ a:focus-visible {
 }
 
 .live-evidence-actions {
-  gap: 10px;
+  align-items: flex-start;
+  gap: 14px;
 }
 
 .live-update-stack {
@@ -1698,6 +1724,15 @@ a:focus-visible {
   min-width: max-content;
   justify-items: end;
   gap: 6px;
+}
+
+/* Keep the status pill and the primary action on a shared top line. */
+.live-evidence-actions > .source-status {
+  align-self: flex-start;
+}
+
+.live-evidence-actions > .evidence-action {
+  align-self: flex-start;
 }
 
 .live-update-indicator {
@@ -4467,9 +4502,60 @@ a:focus-visible {
   padding: 26px;
 }
 
-.fossil-artifact {
+.genome-list {
+  margin-top: 18px;
+}
+
+.fossil-artifact,
+.genome-static-row {
   border-top: 1px solid #2b302d;
-  background: #151816;
+  background: transparent;
+}
+
+.genome-static-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 18px;
+  min-height: 72px;
+  padding: 14px 20px;
+}
+
+.genome-chevron-spacer {
+  display: block;
+  width: 22px;
+}
+
+/* One header row labels the columns; its flat 6-track grid (5 columns + the
+   22px chevron slot, 5 gaps) matches the fossil summary's outer+inner grid
+   exactly, so the header lines up with every value column below. */
+.genome-head-row {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.75fr) minmax(180px, 1.25fr) minmax(180px, 1.25fr)
+    minmax(150px, 1fr) auto 22px;
+  align-items: center;
+  gap: 18px;
+  padding: 0 20px 11px;
+}
+
+.genome-head-cell {
+  color: var(--mist);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.genome-head-state {
+  justify-self: start;
+}
+
+/* Per-row column captions are hidden on desktop; the header row labels them. */
+.fossil-artifact > summary .fossil-artifact-summary > div > span:not(.provenance-chip),
+.genome-static-row .fossil-artifact-summary > div > span:not(.provenance-chip) {
+  display: none;
 }
 
 .fossil-artifact > summary {
@@ -4477,8 +4563,8 @@ a:focus-visible {
   grid-template-columns: minmax(0, 1fr) 22px;
   align-items: center;
   gap: 18px;
-  min-height: 94px;
-  padding: 16px 20px;
+  min-height: 72px;
+  padding: 14px 20px;
   cursor: pointer;
   list-style: none;
 }
@@ -5575,9 +5661,10 @@ html[data-theme='light'] .execution-panel-embedded {
   background: #f7fafc;
 }
 
-html[data-theme='light'] .fossil-artifact {
-  border-color: #cbd8e2;
-  background: #edf6fb;
+html[data-theme='light'] .fossil-artifact,
+html[data-theme='light'] .genome-static-row {
+  border-color: #d7e0e8;
+  background: transparent;
 }
 
 html[data-theme='light'] .fossil-artifact > summary:hover,
@@ -6174,6 +6261,20 @@ html[data-theme='light'] .error-band {
 
   .fossil-artifact-summary > .status-badge {
     justify-self: start;
+  }
+
+  /* On narrow screens the single header row can't align to wrapped columns, so
+     fall back to the self-labelling per-row captions. */
+  .genome-head-row {
+    display: none;
+  }
+
+  .fossil-artifact > summary .fossil-artifact-summary > div > span:not(.provenance-chip),
+  .genome-static-row
+    .fossil-artifact-summary
+    > div
+    > span:not(.provenance-chip) {
+    display: block;
   }
 
   .observation-archive-stats,

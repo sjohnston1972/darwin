@@ -66,46 +66,33 @@ export function GenomeHistoryView({
           <option value="legacy">Unknown / legacy</option>
         </select>
       </label>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-sm">
-          <thead className="border-b border-line text-xs uppercase text-mist">
-            <tr>
-              <th className="px-6 py-3 font-medium">Genome</th>
-              <th className="px-6 py-3 font-medium">Mutation</th>
-              <th className="px-6 py-3 font-medium">Selection</th>
-              <th className="px-6 py-3 font-medium">Fitness</th>
-              <th className="px-6 py-3 text-right font-medium">State</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="px-6 py-5 font-mono">v0.1</td>
-              <td className="px-6 py-5 text-mist">Foundation established</td>
-              <td className="px-6 py-5 text-mist">Baseline</td>
-              <td className="px-6 py-5 font-mono text-mist">--</td>
-              <td className="px-6 py-5 text-right">
-                <span className="status-badge">RETAINED</span>
-              </td>
-            </tr>
-            {!executionCount && (
-              <tr className="border-t border-line">
-                <td className="px-6 py-5 font-mono">
-                  {baselineSha?.slice(0, 12) ?? 'baseline'}
-                </td>
-                <td className="px-6 py-5 text-mist">
-                  ProjectFlow repository snapshot connected
-                </td>
-                <td className="px-6 py-5 text-mist">Baseline</td>
-                <td className="px-6 py-5 font-mono text-mist">--</td>
-                <td className="px-6 py-5 text-right">
-                  <span className="status-badge">CURRENT</span>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="genome-list">
+        <div className="genome-head-row">
+          <span className="genome-head-cell">Genome</span>
+          <span className="genome-head-cell">Mutation</span>
+          <span className="genome-head-cell">Selection</span>
+          <span className="genome-head-cell">Fitness</span>
+          <span className="genome-head-cell genome-head-state">State</span>
+          <span className="genome-chevron-spacer" aria-hidden="true" />
+        </div>
+        <GenomeBaselineRow
+          genome="v0.1"
+          mutation="Foundation established"
+          selection="Baseline"
+          fitness="--"
+          state="RETAINED"
+        />
+        {!executionCount && (
+          <GenomeBaselineRow
+            genome={baselineSha?.slice(0, 12) ?? 'baseline'}
+            mutation="ProjectFlow repository snapshot connected"
+            selection="Baseline"
+            fitness="--"
+            state="CURRENT"
+          />
+        )}
+        {children}
       </div>
-      {children}
       {hasMore && (
         <button
           className="secondary-action artifact-load-more"
@@ -116,5 +103,46 @@ export function GenomeHistoryView({
         </button>
       )}
     </section>
+  );
+}
+
+// A non-expandable baseline entry laid out on the same grid as the expandable
+// fossil rows so every Genome row's columns and state chip line up.
+function GenomeBaselineRow({
+  genome,
+  mutation,
+  selection,
+  fitness,
+  state,
+}: {
+  genome: string;
+  mutation: string;
+  selection: string;
+  fitness: string;
+  state: string;
+}) {
+  return (
+    <div className="genome-static-row">
+      <div className="fossil-artifact-summary">
+        <div>
+          <span>Genome</span>
+          <strong>{genome}</strong>
+        </div>
+        <div>
+          <span>Mutation</span>
+          <strong title={mutation}>{mutation}</strong>
+        </div>
+        <div>
+          <span>Selection</span>
+          <strong>{selection}</strong>
+        </div>
+        <div>
+          <span>Fitness</span>
+          <strong>{fitness}</strong>
+        </div>
+        <span className="status-badge">{state}</span>
+      </div>
+      <span className="genome-chevron-spacer" aria-hidden="true" />
+    </div>
   );
 }
