@@ -3963,6 +3963,45 @@ a:focus-visible {
   display: grid;
 }
 
+.execution-detail,
+.mutation-causal-disclosure {
+  margin-top: 6px;
+}
+
+.execution-detail > summary,
+.mutation-causal-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 11px 0;
+  color: var(--mist);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.execution-detail > summary::-webkit-details-marker,
+.mutation-causal-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.execution-detail > summary::before,
+.mutation-causal-disclosure > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--fog);
+}
+
+.execution-detail[open] > summary::before,
+.mutation-causal-disclosure[open] > summary::before {
+  content: '▾';
+}
+
+.execution-detail > .execution-layout {
+  margin-top: 4px;
+}
+
 .repository-run-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

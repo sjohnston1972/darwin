@@ -1739,42 +1739,43 @@ function LabMutationHandoffWorkspace({
         <span>{mutation.evidenceIds.join(' · ')}</span>
         <span>{Math.round(mutation.confidence * 100)}% confidence</span>
       </div>
-      <div className="mutation-causal-change">
-        <div>
-          <span>Hypothesis</span>
-          <p>{mutation.hypothesis}</p>
+      <details className="mutation-causal-disclosure" open={!execution}>
+        <summary>Hypothesis &amp; implementation brief</summary>
+        <div className="mutation-causal-change">
+          <div>
+            <span>Hypothesis</span>
+            <p>{mutation.hypothesis}</p>
+          </div>
+          <div>
+            <span>Controlled implementation brief</span>
+            <p>{mutation.implementationBrief}</p>
+          </div>
         </div>
-        <div>
-          <span>Controlled implementation brief</span>
-          <p>{mutation.implementationBrief}</p>
-        </div>
-      </div>
+      </details>
       {error && (
         <div className="lab-error" role="alert">
           <AlertTriangle size={16} /> {error}
         </div>
       )}
-      <div className="lab-dispatch-action">
-        <button
-          className="primary-action"
-          type="button"
-          disabled={dispatching || Boolean(execution)}
-          onClick={onStart}
-        >
-          {dispatching ? (
-            <CircleDashed className="is-spinning" size={16} />
-          ) : execution ? (
-            <CheckCircle2 size={16} />
-          ) : (
-            <Rocket size={16} />
-          )}
-          {dispatching
-            ? 'Dispatching controlled mutation'
-            : execution
-              ? `Repository execution ${execution.status.replaceAll('_', ' ')}`
+      {!execution && (
+        <div className="lab-dispatch-action">
+          <button
+            className="primary-action"
+            type="button"
+            disabled={dispatching}
+            onClick={onStart}
+          >
+            {dispatching ? (
+              <CircleDashed className="is-spinning" size={16} />
+            ) : (
+              <Rocket size={16} />
+            )}
+            {dispatching
+              ? 'Dispatching controlled mutation'
               : 'Prepare and dispatch ProjectFlow mutation'}
-        </button>
-      </div>
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -3842,6 +3843,67 @@ function RepositoryExecutionWorkspace({
   const regionId = executionWorkspaceId(execution.executionId);
   const headingId = `${regionId}-title`;
 
+  // The one action a human can take right now. Lifted above the patch/checks so
+  // the operator never scrolls past the diff to find the button.
+  const executionActions = (
+    <div className="validation-actions">
+      {status === 'failed' && (
+        <button
+          className="approve-action"
+          type="button"
+          onClick={onRetry}
+          disabled={retrying}
+          data-explain="Start a fresh authenticated GitHub Actions run from the same immutable manifest after an infrastructure or validation failure."
+        >
+          {retrying ? (
+            <CircleDashed className="is-spinning" size={16} />
+          ) : (
+            <RotateCcw size={16} />
+          )}
+          {retrying ? 'Retrying repository run' : 'Retry repository run'}
+        </button>
+      )}
+      {status === 'preview_ready' && (
+        <button
+          className="approve-action"
+          type="button"
+          onClick={onRelease}
+          data-explain="Squash-merge the exact reviewed ProjectFlow pull request. GitHub then deploys the retained commit from main."
+        >
+          <Rocket size={16} /> Release reviewed mutation
+        </button>
+      )}
+      {(status === 'releasing' ||
+        (status !== 'deployment_verifying' && releasing)) && (
+        <button className="approve-action" type="button" disabled>
+          <CircleDashed className="is-spinning" size={16} /> Merging pull request
+        </button>
+      )}
+      {status === 'deployment_verifying' && releasing && (
+        <button className="approve-action" type="button" disabled>
+          <CircleDashed className="is-spinning" size={16} /> Verifying production
+          deployment
+        </button>
+      )}
+      {status === 'deployment_verifying' && !releasing && (
+        <button
+          className="approve-action"
+          type="button"
+          onClick={onRelease}
+          data-explain="Recheck the ProjectFlow production metadata. The evidence cycle advances only when the deployed commit and app version match the reviewed merge."
+        >
+          <ShieldCheck size={16} /> Check production deployment
+        </button>
+      )}
+      {status === 'released' && (
+        <div className="release-confirmation">
+          <CheckCircle2 size={17} /> Mutation survived selection at{' '}
+          <code>{execution.headSha?.slice(0, 12)}</code>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <section
       className={`${embedded ? 'execution-panel execution-panel-embedded' : 'mt-8 surface-panel execution-panel'}`}
@@ -3937,6 +3999,8 @@ function RepositoryExecutionWorkspace({
         />
       </div>
 
+      {executionActions}
+
       <div className="repository-run-summary">
         <div>
           <span>Repository</span>
@@ -4011,7 +4075,11 @@ function RepositoryExecutionWorkspace({
         </div>
       )}
 
-      <div className="execution-layout">
+      <details className="execution-detail" open={!reviewComplete}>
+        <summary className="execution-detail-summary">
+          Patch, checks &amp; Codex report
+        </summary>
+        <div className="execution-layout">
         <div className="diff-column">
           <div className="artifact-heading">
             <div>
@@ -4126,65 +4194,9 @@ function RepositoryExecutionWorkspace({
             </div>
           )}
 
-          <div className="validation-actions">
-            {status === 'failed' && (
-              <button
-                className="approve-action"
-                type="button"
-                onClick={onRetry}
-                disabled={retrying}
-                data-explain="Start a fresh authenticated GitHub Actions run from the same immutable manifest after an infrastructure or validation failure."
-              >
-                {retrying ? (
-                  <CircleDashed className="is-spinning" size={16} />
-                ) : (
-                  <RotateCcw size={16} />
-                )}
-                {retrying ? 'Retrying repository run' : 'Retry repository run'}
-              </button>
-            )}
-            {status === 'preview_ready' && (
-              <button
-                className="approve-action"
-                type="button"
-                onClick={onRelease}
-                data-explain="Squash-merge the exact reviewed ProjectFlow pull request. GitHub then deploys the retained commit from main."
-              >
-                <Rocket size={16} /> Release reviewed mutation
-              </button>
-            )}
-            {(status === 'releasing' ||
-              (status !== 'deployment_verifying' && releasing)) && (
-              <button className="approve-action" type="button" disabled>
-                <CircleDashed className="is-spinning" size={16} /> Merging pull
-                request
-              </button>
-            )}
-            {status === 'deployment_verifying' && releasing && (
-              <button className="approve-action" type="button" disabled>
-                <CircleDashed className="is-spinning" size={16} /> Verifying
-                production deployment
-              </button>
-            )}
-            {status === 'deployment_verifying' && !releasing && (
-              <button
-                className="approve-action"
-                type="button"
-                onClick={onRelease}
-                data-explain="Recheck the ProjectFlow production metadata. The evidence cycle advances only when the deployed commit and app version match the reviewed merge."
-              >
-                <ShieldCheck size={16} /> Check production deployment
-              </button>
-            )}
-            {status === 'released' && (
-              <div className="release-confirmation">
-                <CheckCircle2 size={17} /> Mutation survived selection at{' '}
-                <code>{execution.headSha?.slice(0, 12)}</code>
-              </div>
-            )}
-          </div>
         </div>
       </div>
+      </details>
 
       {status === 'released' && (
         <RollbackWorkspace
