@@ -767,6 +767,7 @@ function DarwinDashboard({
               liveReasoningAvailable={
                 health.analysis?.liveModelAvailable ?? false
               }
+              reasoningModel={health.analysis?.model ?? 'gpt-5.6'}
             />
           )}
 
@@ -1028,7 +1029,12 @@ function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
       DashboardView,
       'Control room' | 'Target application' | 'Darwin Labs'
     >,
-    { eyebrow: string; title: string; description: string }
+    {
+      eyebrow: string;
+      title: string;
+      description: string;
+      poweredBy?: string;
+    }
   > = {
     Observations: {
       eyebrow: 'Measured behavior',
@@ -1041,6 +1047,7 @@ function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
       title: 'Mutations',
       description:
         'Reason over verified evidence, compare candidates, and supervise the bounded Codex implementation.',
+      poweredBy: 'Codex',
     },
     'System status': {
       eyebrow: 'Runtime and genome',
@@ -1058,6 +1065,17 @@ function WorkspaceHeading({ activeView }: { activeView: DashboardView }) {
   const view = content[activeView as keyof typeof content];
 
   if (!view) return null;
+  if (view.poweredBy) {
+    return (
+      <header className="workspace-hero">
+        <p className="section-label">{view.eyebrow}</p>
+        <h1 className="workspace-hero-title">{view.title}</h1>
+        <p className="workspace-hero-tag">
+          powered by <strong>{view.poweredBy}</strong>
+        </p>
+      </header>
+    );
+  }
   return (
     <section className="border-b border-line pb-8">
       <p className="section-label">{view.eyebrow}</p>
@@ -2276,7 +2294,7 @@ function LiveTelemetryPanel({
               </span>
               <ProvenanceChip provenance={telemetry.evidence.provenance} />
               <strong>Evidence pack {telemetry.evidence.evidenceId}</strong>
-              <code>{telemetry.evidence.evidenceHash}</code>
+              <code>{telemetry.evidence.evidenceHash.slice(0, 16)}</code>
             </div>
             <dl>
               <div>
@@ -2767,26 +2785,7 @@ function LiveTelemetryPanel({
                     >
                       {liveModelAvailable ? 'LIVE API' : 'UNAVAILABLE'}
                     </span>
-                    <InfoTip text="This is the model invocation point. One request is made per evidence hash and cached; invalid citations or protected scope are rejected before a proposal can continue." />
-                  </div>
-                  <p>
-                    Ordered journeys are reconstructed first. GPT must explain
-                    competing causes and return a scored mutation portfolio.
-                  </p>
-                  <div
-                    className="model-context"
-                    aria-label="Context supplied to GPT"
-                  >
-                    <span>Context supplied</span>
-                    <code>product goals</code>
-                    <code>route inventory</code>
-                    <code>active variant</code>
-                    <code>capabilities</code>
-                    <code>friction signals</code>
-                    <code>complete ordered journeys</code>
-                    <code>coverage limitations</code>
-                    <code>50 mutation examples</code>
-                    <code>ProjectFlow source</code>
+                    <InfoTip text="The model invocation point. GPT reasons once per evidence hash over the product goals, route inventory, active variant, capabilities, friction signals, complete ordered journeys, coverage limitations, 50 mutation examples, and the ProjectFlow source snapshot. The request is cached; invalid citations or protected scope are rejected before a proposal can continue." />
                   </div>
                 </div>
                 <button
@@ -2816,24 +2815,27 @@ function LiveTelemetryPanel({
               </div>
               {telemetry.analysis && (
                 <div className="analysis-result">
-                  <div className="analysis-audit-line">
-                    <ProvenanceChip
-                      provenance={telemetry.analysis.provenance}
-                    />
-                    <span>{telemetry.analysis.mode}</span>
-                    <code>{telemetry.analysis.model}</code>
-                    <code>prompt {telemetry.analysis.promptVersion}</code>
-                    <code>{telemetry.analysis.cacheKey.slice(0, 16)}...</code>
-                    {telemetry.analysis.promptCache && (
-                      <code>
-                        prompt cache ·{' '}
-                        {telemetry.analysis.promptCache.cachedTokens ===
-                        undefined
-                          ? telemetry.analysis.promptCache.contextVersion
-                          : `${telemetry.analysis.promptCache.cachedTokens} tokens`}
-                      </code>
-                    )}
-                  </div>
+                  <details className="analysis-audit-disclosure">
+                    <summary>Reasoning provenance</summary>
+                    <div className="analysis-audit-line">
+                      <ProvenanceChip
+                        provenance={telemetry.analysis.provenance}
+                      />
+                      <span>{telemetry.analysis.mode}</span>
+                      <code>{telemetry.analysis.model}</code>
+                      <code>prompt {telemetry.analysis.promptVersion}</code>
+                      <code>{telemetry.analysis.cacheKey.slice(0, 16)}...</code>
+                      {telemetry.analysis.promptCache && (
+                        <code>
+                          prompt cache ·{' '}
+                          {telemetry.analysis.promptCache.cachedTokens ===
+                          undefined
+                            ? telemetry.analysis.promptCache.contextVersion
+                            : `${telemetry.analysis.promptCache.cachedTokens} tokens`}
+                        </code>
+                      )}
+                    </div>
+                  </details>
                   <div className="reasoning-assessment">
                     <div>
                       <span>Evidence assessment</span>

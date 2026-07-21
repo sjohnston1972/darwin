@@ -12,7 +12,12 @@
   display: grid;
   grid-template-columns: minmax(320px, 0.82fr) minmax(440px, 1.5fr);
   gap: 24px;
-  align-items: start;
+  align-items: stretch;
+}
+
+/* Both tiles share the row height by default so they read as a matched pair. */
+.lab-columns > .surface-panel {
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
@@ -21,16 +26,79 @@
   }
 }
 
-.lab-page-heading h1 {
-  margin-top: 6px;
-  font-size: calc(24px + 4pt);
-  font-weight: 640;
-  letter-spacing: -0.01em;
+.workspace-hero {
+  padding: 2px 0 26px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-hero-title {
+  margin-top: 10px;
+  font-size: clamp(34px, 5vw, 52px);
+  font-weight: 680;
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  background: linear-gradient(120deg, var(--white) 30%, var(--signal));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.workspace-hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 6px 14px;
+  color: var(--mist);
+  background: rgb(112 231 167 / 6%);
+  border: 1px solid rgb(112 231 167 / 22%);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.workspace-hero-tag strong {
+  color: var(--signal);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .lab-composer,
 .lab-run-panel {
   padding: 23px;
+}
+
+.lab-history-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.lab-history-select > span {
+  flex: 0 0 auto;
+  color: var(--fog);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.lab-history-select select {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  color: var(--white);
+  background: var(--carbon);
+  border: 1px solid var(--line);
+  outline: none;
+  font-size: 13px;
+}
+
+.lab-history-select select:focus {
+  border-color: rgb(112 231 167 / 52%);
+  box-shadow: 0 0 0 3px rgb(112 231 167 / 7%);
 }
 
 .lab-composer-lede {
@@ -3969,7 +4037,8 @@ a:focus-visible {
 }
 
 .execution-detail > summary,
-.mutation-causal-disclosure > summary {
+.mutation-causal-disclosure > summary,
+.analysis-audit-disclosure > summary {
   cursor: pointer;
   list-style: none;
   padding: 11px 0;
@@ -3981,12 +4050,14 @@ a:focus-visible {
 }
 
 .execution-detail > summary::-webkit-details-marker,
-.mutation-causal-disclosure > summary::-webkit-details-marker {
+.mutation-causal-disclosure > summary::-webkit-details-marker,
+.analysis-audit-disclosure > summary::-webkit-details-marker {
   display: none;
 }
 
 .execution-detail > summary::before,
-.mutation-causal-disclosure > summary::before {
+.mutation-causal-disclosure > summary::before,
+.analysis-audit-disclosure > summary::before {
   content: '▸';
   display: inline-block;
   margin-right: 8px;
@@ -3994,7 +4065,8 @@ a:focus-visible {
 }
 
 .execution-detail[open] > summary::before,
-.mutation-causal-disclosure[open] > summary::before {
+.mutation-causal-disclosure[open] > summary::before,
+.analysis-audit-disclosure[open] > summary::before {
   content: '▾';
 }
 

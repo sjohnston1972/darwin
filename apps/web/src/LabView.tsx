@@ -26,6 +26,8 @@ import { apiFetch } from './api';
 interface DarwinLabViewProps {
   apiBaseUrl: string;
   liveReasoningAvailable: boolean;
+  // The model powering the agent population and reasoning, shown in the hero.
+  reasoningModel?: string;
   // Accepted for compatibility with the dashboard; the server now chooses the
   // configured ProjectFlow target, so the UI no longer needs it.
   defaultTargetUrl?: string;
@@ -64,6 +66,14 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 const formatDuration = (durationMs: number | null) =>
   durationMs === null ? '--' : `${(durationMs / 1_000).toFixed(1)}s`;
 
+const formatRunStamp = (iso: string) =>
+  new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(iso));
+
 const personaLabel = (persona: string) =>
   persona
     .replaceAll('_', ' ')
@@ -78,6 +88,7 @@ const goalExamples = [
 export function DarwinLabView({
   apiBaseUrl,
   liveReasoningAvailable,
+  reasoningModel = 'gpt-5.6',
 }: DarwinLabViewProps) {
   const [experiments, setExperiments] = useState<LabExperiment[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -240,9 +251,12 @@ export function DarwinLabView({
 
   return (
     <div className="lab-workspace">
-      <header className="lab-page-heading">
+      <header className="workspace-hero">
         <p className="section-label">Autonomous usability</p>
-        <h1>Darwin Labs</h1>
+        <h1 className="workspace-hero-title">Darwin Labs</h1>
+        <p className="workspace-hero-tag">
+          powered by <strong>{reasoningModel.toUpperCase()}</strong>
+        </p>
       </header>
 
       {error && (
@@ -333,23 +347,21 @@ export function DarwinLabView({
           </div>
 
           {experiments.length > 1 && (
-            <div className="lab-experiment-tabs" aria-label="Recent goals">
-              {experiments.slice(0, 5).map((item) => (
-                <button
-                  key={item.experimentId}
-                  type="button"
-                  className={
-                    item.experimentId === selected.experimentId
-                      ? 'is-active'
-                      : ''
-                  }
-                  onClick={() => setSelectedId(item.experimentId)}
-                >
-                  <span>{item.name}</span>
-                  <small>{statusLabel[item.status]}</small>
-                </button>
-              ))}
-            </div>
+            <label className="lab-history-select">
+              <span>History</span>
+              <select
+                value={selected.experimentId}
+                onChange={(event) => setSelectedId(event.target.value)}
+                aria-label="Select a previous run"
+              >
+                {experiments.map((item) => (
+                  <option key={item.experimentId} value={item.experimentId}>
+                    {formatRunStamp(item.createdAt)} · {item.name} ·{' '}
+                    {statusLabel[item.status]}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
 
           <div className="lab-metrics">
