@@ -5,7 +5,20 @@
 .lab-workspace {
   display: grid;
   gap: 24px;
-  max-width: 900px;
+  max-width: 1400px;
+}
+
+.lab-columns {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.82fr) minmax(440px, 1.5fr);
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .lab-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 .lab-page-heading h1 {

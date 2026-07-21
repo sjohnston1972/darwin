@@ -236,7 +236,7 @@ export function DarwinLabView({
       Math.max(selected.populationSize, 1)
     : 0;
   const busy = working !== null;
-  const composerDisabled = busy || anyActive;
+  const composerDisabled = busy;
 
   return (
     <div className="lab-workspace">
@@ -251,7 +251,8 @@ export function DarwinLabView({
         </div>
       )}
 
-      <section className="surface-panel lab-composer">
+      <div className="lab-columns">
+        <section className="surface-panel lab-composer">
         <div className="panel-heading">
           <div>
             <p className="section-label">New run</p>
@@ -292,24 +293,18 @@ export function DarwinLabView({
             Send agents
           </button>
         </form>
-        {composerDisabled && anyActive ? (
-          <p className="lab-composer-hint">
-            Agents are busy on your current goal — one run at a time.
-          </p>
-        ) : (
-          <div className="lab-goal-examples">
-            {goalExamples.map((example) => (
-              <button
-                key={example}
-                type="button"
-                onClick={() => setGoal(example)}
-                disabled={composerDisabled}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="lab-goal-examples">
+          {goalExamples.map((example) => (
+            <button
+              key={example}
+              type="button"
+              onClick={() => setGoal(example)}
+              disabled={composerDisabled}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
       </section>
 
       {loading ? (
@@ -495,6 +490,7 @@ export function DarwinLabView({
           </div>
         </section>
       )}
+      </div>
     </div>
   );
 }
