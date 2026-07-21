@@ -125,7 +125,7 @@ describe('Darwin Lab view', () => {
       .closest('form');
     expect(experimentForm).not.toBeNull();
     const parameterLabels = [...experimentForm!.querySelectorAll('label')];
-    expect(parameterLabels.length).toBeGreaterThanOrEqual(20);
+    expect(parameterLabels.length).toBeGreaterThanOrEqual(16);
     parameterLabels.forEach((label) => {
       expect(label).toHaveAttribute('data-explain');
       expect(label.getAttribute('data-explain')?.length).toBeGreaterThan(20);
@@ -157,6 +157,14 @@ describe('Darwin Lab view', () => {
     );
     expect(JSON.parse(String(createRequest?.[1]?.body))).toMatchObject({
       maxActions: 12,
+      task: {
+        taskId: 'find-assigned-task',
+        successCriterion: {
+          type: 'workflow_outcome',
+          workflowId: 'find-assigned-task',
+          outcome: 'success',
+        },
+      },
     });
   });
 

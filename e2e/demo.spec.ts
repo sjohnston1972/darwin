@@ -163,15 +163,13 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
   const operatorHeaders = { Authorization: 'Bearer e2e-token' };
 
   await page.goto('/?view=lab');
-  await page.getByLabel('Experiment name').fill('Reports route population');
-  await page.getByLabel('Task name').fill('Reach reports');
+  await page.getByLabel('Experiment name').fill('Assigned task population');
   await page
-    .getByLabel('Participant-facing instruction')
-    .fill('Open the Reports workspace.');
-  await page.getByLabel('Success route').fill('/study/reports');
+    .getByLabel('Verified ProjectFlow task')
+    .selectOption('find-assigned-task');
   await page.getByRole('button', { name: 'Create Lab task' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Reports route population' }),
+    page.getByRole('heading', { name: 'Assigned task population' }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Queue population' }).click();
   await expect(
@@ -210,9 +208,9 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
     { length: experiment.populationSize },
     (_, index) => ({
       ordinal: index + 1,
-      runId: `lab-run-reports-${index + 1}`,
-      participantId: `lab-agent-reports-${index + 1}`,
-      sessionId: `lab-session-reports-${index + 1}`,
+      runId: `lab-run-assigned-${index + 1}`,
+      participantId: `lab-agent-assigned-${index + 1}`,
+      sessionId: `lab-session-assigned-${index + 1}`,
     }),
   );
   for (const run of runs) {
@@ -244,37 +242,65 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
     telemetryEventIds: string[],
   ) => {
     expect(telemetryEventIds.length).toBeGreaterThan(0);
-    const action = await request.post(
-      `${apiBase}/api/lab/experiments/${experiment.experimentId}/runs/${run.runId}/actions`,
+    const actionInputs = [
       {
-        headers: operatorHeaders,
-        data: {
-          action: {
-            actionId: `lab-action-reports-${run.ordinal}`,
-            ordinal: 1,
-            occurredAt: new Date().toISOString(),
-            action: 'click',
-            targetId: 'nav-reports',
-            targetRole: 'button',
-            inputLength: null,
-            key: null,
-            expectation: 'The Reports workspace should open.',
-            fromUrl: 'http://127.0.0.1:5174/dashboard',
-            toUrl: 'http://127.0.0.1:5174/study/reports',
-            durationMs: 500,
-            outcome: 'changed',
-            accessibilityNodeCount: 80,
-            telemetryEventIds,
-            error: null,
-            provenance: {
-              ...experiment.provenance,
-              runIds: [run.runId],
+        targetId: 'nav-projects',
+        expectation: 'The projects list should open.',
+        fromUrl: 'http://127.0.0.1:5174/study/dashboard',
+        toUrl: 'http://127.0.0.1:5174/study/projects',
+      },
+      {
+        targetId: 'project-open-apollo',
+        expectation: 'The Apollo Release project should open.',
+        fromUrl: 'http://127.0.0.1:5174/study/projects',
+        toUrl: 'http://127.0.0.1:5174/study/projects/apollo',
+      },
+      {
+        targetId: 'project-tasks-open',
+        expectation: 'The Apollo Release task list should open.',
+        fromUrl: 'http://127.0.0.1:5174/study/projects/apollo',
+        toUrl: 'http://127.0.0.1:5174/study/projects/apollo/tasks',
+      },
+      {
+        targetId: 'task-open-apl-241',
+        expectation: 'The assigned task should open and satisfy the task.',
+        fromUrl: 'http://127.0.0.1:5174/study/projects/apollo/tasks',
+        toUrl: 'http://127.0.0.1:5174/study/projects/apollo/tasks',
+      },
+    ];
+    for (const [actionIndex, actionInput] of actionInputs.entries()) {
+      const action = await request.post(
+        `${apiBase}/api/lab/experiments/${experiment.experimentId}/runs/${run.runId}/actions`,
+        {
+          headers: operatorHeaders,
+          data: {
+            action: {
+              actionId: `lab-action-assigned-${run.ordinal}-${actionIndex + 1}`,
+              ordinal: actionIndex + 1,
+              occurredAt: new Date().toISOString(),
+              action: 'click',
+              ...actionInput,
+              targetRole: 'button',
+              inputLength: null,
+              key: null,
+              durationMs: 500,
+              outcome: 'changed',
+              accessibilityNodeCount: 80,
+              telemetryEventIds:
+                actionIndex === 0
+                  ? telemetryEventIds.slice(0, 1)
+                  : telemetryEventIds.slice(1),
+              error: null,
+              provenance: {
+                ...experiment.provenance,
+                runIds: [run.runId],
+              },
             },
           },
         },
-      },
-    );
-    expect(action.ok(), await action.text()).toBeTruthy();
+      );
+      expect(action.ok(), await action.text()).toBeTruthy();
+    }
     const finished = await request.post(
       `${apiBase}/api/lab/experiments/${experiment.experimentId}/runs/${run.runId}/finish`,
       {
@@ -318,7 +344,7 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
     const initialIngestion = target.waitForResponse((response) =>
       response.url().endsWith('/api/telemetry/events'),
     );
-    await target.goto(`http://localhost:5174/dashboard?${parameters}`);
+    await target.goto(`http://localhost:5174/study/dashboard?${parameters}`);
     expect((await sessionResponse).status()).toBe(201);
     await expect(
       target.locator('[data-darwin-lab-ready="true"]'),
@@ -326,10 +352,20 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
     await expect(target.getByLabel('Captured events')).not.toHaveText(
       '0 events',
     );
-    await target.getByRole('button', { name: 'Reports' }).click();
+    await target.getByRole('button', { name: /Projects/ }).click();
     await expect(
-      target.getByRole('heading', { name: 'Reports' }),
+      target.getByRole('heading', { name: 'Projects' }),
     ).toBeVisible();
+    await target.getByRole('button', { name: /Apollo Release/ }).click();
+    await target.getByRole('button', { name: /Tasks/ }).click();
+    await target
+      .getByRole('button', { name: /Confirm launch checklist/ })
+      .click();
+    await expect(
+      target.locator(
+        '[data-darwin-workflow-outcome="find-assigned-task:success"]',
+      ),
+    ).toBeAttached();
     const interaction = await initialIngestion;
     expect(interaction.status()).toBe(202);
     const interactionReceipt = (await interaction.json()) as {
@@ -347,7 +383,7 @@ test('@smoke defines and completes a non-Apollo Darwin Lab population', async ({
     const trace = (await stored.json()) as {
       events: Array<{ eventId: string; targetId?: string }>;
     };
-    expect(trace.events.some((event) => event.targetId === 'nav-reports')).toBe(
+    expect(trace.events.some((event) => event.targetId === 'nav-projects')).toBe(
       true,
     );
     const write = labWriteChain.then(() =>

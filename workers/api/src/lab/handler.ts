@@ -14,6 +14,7 @@ import {
   LabMutationSelectionRequestSchema,
   LabRunnerClaimRequestSchema,
   LabSelectionSchema,
+  isSupportedProjectFlowLabTask,
   type LabExperiment,
   type LabTaskInput,
 } from '@darwin/shared';
@@ -118,6 +119,16 @@ const targetAllowed = (targetUrl: string, env?: LabHandlerEnvironment) => {
   const target = new URL(targetUrl);
   return allowedTargetOrigins(env).has(target.origin);
 };
+
+const unsupportedTask = (json: JsonResponder) =>
+  json(
+    {
+      error: 'lab_task_unsupported',
+      message:
+        'Select one of the three verified ProjectFlow Lab tasks. Custom task/oracle combinations are not executable in this MVP.',
+    },
+    { status: 400 },
+  );
 
 const canonicalStringify = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -267,6 +278,9 @@ export async function handleLabRequest(
       const input = LabExperimentCreateRequestSchema.parse(
         await parseBody(request),
       );
+      if (!isSupportedProjectFlowLabTask(input.task)) {
+        return unsupportedTask(json);
+      }
       if (!targetAllowed(input.targetUrl, env)) {
         return json(
           {
@@ -391,6 +405,9 @@ export async function handleLabRequest(
       const input = LabExperimentUpdateRequestSchema.parse(
         await parseBody(request),
       );
+      if (input.task && !isSupportedProjectFlowLabTask(input.task)) {
+        return unsupportedTask(json);
+      }
       const targetUrl = input.targetUrl ?? experiment.targetUrl;
       if (!targetAllowed(targetUrl, env)) {
         return json(
@@ -501,6 +518,9 @@ export async function handleLabRequest(
           },
           { status: 409 },
         );
+      }
+      if (!isSupportedProjectFlowLabTask(experiment.task)) {
+        return unsupportedTask(json);
       }
       const experimentId = `lab-exp-${crypto.randomUUID()}`;
       const retry = LabExperimentSchema.parse({
@@ -645,6 +665,9 @@ export async function handleLabRequest(
         },
         { status: 409 },
       );
+    }
+    if (!isSupportedProjectFlowLabTask(experiment.task)) {
+      return unsupportedTask(json);
     }
     if (
       experiment.runs.length > 0 ||
@@ -937,6 +960,23 @@ export async function handleLabRequest(
         latest.runs.length === latest.populationSize &&
         latest.runs.every((item) => isTerminal(item.status));
       if (!complete || latest.status !== 'running') return json(persistedRun);
+
+      const actionCount = latest.runs.reduce(
+        (total, item) => total + item.actions.length,
+        0,
+      );
+      if (actionCount === 0) {
+        const failed = LabExperimentSchema.parse({
+          ...latest,
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          error:
+            'Runner infrastructure failed: the complete population produced zero browser actions.',
+          evidenceError: null,
+        });
+        await repository.compareAndSwapExperiment(latest, failed);
+        return json(persistedRun);
+      }
 
       const completed = LabExperimentSchema.parse({
         ...latest,
@@ -1330,6 +1370,9 @@ export async function handleLabRequest(
         },
         { status: 409 },
       );
+    }
+    if (!isSupportedProjectFlowLabTask(source.task)) {
+      return unsupportedTask(json);
     }
     if (
       ['awaiting_runner', 'running'].includes(source.status) &&

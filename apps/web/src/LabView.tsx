@@ -1,6 +1,7 @@
 import {
   LabExperimentSchema,
   LabExperimentsResponseSchema,
+  PROJECTFLOW_LAB_TASKS,
   RepositoryMutationExecutionSchema,
   type BehaviouralEval,
   type LabAgentRun,
@@ -146,17 +147,9 @@ export function DarwinLabView({
   const [name, setName] = useState('Assigned work discovery');
   const [targetUrl, setTargetUrl] = useState(defaultTargetUrl);
   const [targetAppVersion, setTargetAppVersion] = useState('1.0.0');
-  const [taskName, setTaskName] = useState('Find assigned work');
-  const [instruction, setInstruction] = useState(
-    'Find and open the work assigned to you.',
+  const [taskPresetId, setTaskPresetId] = useState<string>(
+    PROJECTFLOW_LAB_TASKS[0].taskId,
   );
-  const [startRoute, setStartRoute] = useState('/study/dashboard');
-  const [successType, setSuccessType] = useState<
-    'route_reached' | 'semantic_marker' | 'workflow_outcome'
-  >('route_reached');
-  const [successRoute, setSuccessRoute] = useState('/study/my-work');
-  const [successMarker, setSuccessMarker] = useState('assigned-work-visible');
-  const [workflowId, setWorkflowId] = useState('find-assigned-work');
   const [populationSize, setPopulationSize] = useState(8);
   const [personaAllocation, setPersonaAllocation] = useState(() =>
     balancedPersonas(8),
@@ -202,6 +195,9 @@ export function DarwinLabView({
   const selected =
     experiments.find((experiment) => experiment.experimentId === selectedId) ??
     null;
+  const taskPreset =
+    PROJECTFLOW_LAB_TASKS.find((task) => task.taskId === taskPresetId) ??
+    PROJECTFLOW_LAB_TASKS[0];
   const selectedRun =
     selected?.runs.find((run) => run.runId === selectedRunId) ??
     selected?.runs.at(-1) ??
@@ -322,29 +318,11 @@ export function DarwinLabView({
 
   const createExperiment = async (event: FormEvent) => {
     event.preventDefault();
-    const successCriterion =
-      successType === 'route_reached'
-        ? { type: successType, route: successRoute }
-        : successType === 'semantic_marker'
-          ? { type: successType, markerId: successMarker }
-          : { type: successType, workflowId, outcome: 'success' as const };
     await mutateExperiment('create', '/api/lab/experiments', {
       name,
       targetUrl,
       targetAppVersion,
-      task: {
-        taskId: taskName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        name: taskName,
-        instruction,
-        startRoute,
-        successCriterion,
-        successDescription:
-          successType === 'route_reached'
-            ? `The browser reaches ${successRoute}.`
-            : successType === 'semantic_marker'
-              ? `The semantic marker ${successMarker} is present.`
-              : `The ${workflowId} workflow reports success.`,
-      },
+      task: taskPreset,
       populationSize,
       personaAllocation: labPersonas
         .map((persona) => ({ persona, count: personaAllocation[persona] }))
@@ -403,82 +381,27 @@ export function DarwinLabView({
                 onChange={(event) => setTargetAppVersion(event.target.value)}
               />
             </label>
-            <label data-explain="A concise task label. Darwin derives the stable task ID used to group runs and evidence from this value.">
-              <ParameterCaption>Task name</ParameterCaption>
-              <input
-                value={taskName}
-                onChange={(event) => setTaskName(event.target.value)}
-              />
+            <label data-explain="Darwin supports exactly three ProjectFlow tasks whose rendered workflow and hidden success marker are verified against the configured baseline.">
+              <ParameterCaption>Verified ProjectFlow task</ParameterCaption>
+              <select
+                value={taskPresetId}
+                onChange={(event) => setTaskPresetId(event.target.value)}
+              >
+                {PROJECTFLOW_LAB_TASKS.map((task) => (
+                  <option key={task.taskId} value={task.taskId}>
+                    {task.name}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label data-explain="The goal shown to every agent. Do not include the hidden answer, expected click path, private data, or implementation detail.">
-              <ParameterCaption>
-                Participant-facing instruction
-              </ParameterCaption>
-              <textarea
-                value={instruction}
-                onChange={(event) => setInstruction(event.target.value)}
-              />
-            </label>
-            <div className="lab-form-grid">
-              <label data-explain="The route loaded in a fresh isolated browser context before each agent begins the task.">
-                <ParameterCaption>Start route</ParameterCaption>
-                <input
-                  value={startRoute}
-                  onChange={(event) => setStartRoute(event.target.value)}
-                />
-              </label>
-              <label data-explain="The hidden deterministic oracle used to score completion without telling agents how to solve the task.">
-                <ParameterCaption>Success criterion</ParameterCaption>
-                <select
-                  value={successType}
-                  onChange={(event) =>
-                    setSuccessType(
-                      event.target.value as
-                        | 'route_reached'
-                        | 'semantic_marker'
-                        | 'workflow_outcome',
-                    )
-                  }
-                >
-                  <option value="route_reached">Route reached</option>
-                  <option value="semantic_marker">Semantic marker</option>
-                  <option value="workflow_outcome">Workflow outcome</option>
-                </select>
-              </label>
+            <div className="lab-task-card">
+              <span>Participant-facing instruction</span>
+              <strong>{taskPreset.instruction}</strong>
+              <small>
+                Starts at {taskPreset.startRoute}; completion requires the{' '}
+                {taskPreset.successCriterion.workflowId} workflow marker.
+              </small>
             </div>
-            <label
-              data-explain={
-                successType === 'route_reached'
-                  ? 'The exact pathname that deterministically marks this task as complete.'
-                  : successType === 'semantic_marker'
-                    ? 'A stable data-darwin-id whose presence deterministically marks the task as complete.'
-                    : 'A stable workflow identifier whose success outcome deterministically marks the task as complete.'
-              }
-            >
-              <ParameterCaption>
-                {successType === 'route_reached'
-                  ? 'Success route'
-                  : successType === 'semantic_marker'
-                    ? 'Semantic marker ID'
-                    : 'Workflow ID'}
-              </ParameterCaption>
-              <input
-                value={
-                  successType === 'route_reached'
-                    ? successRoute
-                    : successType === 'semantic_marker'
-                      ? successMarker
-                      : workflowId
-                }
-                onChange={(event) =>
-                  successType === 'route_reached'
-                    ? setSuccessRoute(event.target.value)
-                    : successType === 'semantic_marker'
-                      ? setSuccessMarker(event.target.value)
-                      : setWorkflowId(event.target.value)
-                }
-              />
-            </label>
             <label data-explain="The number of independent isolated browser agents. Larger populations improve coverage but increase model calls and runtime.">
               <ParameterCaption>
                 Population <strong>{populationSize} agents</strong>
@@ -585,13 +508,7 @@ export function DarwinLabView({
             </div>
             <div className="lab-task-card">
               <span>Declarative success oracle</span>
-              <strong>
-                {successType === 'route_reached'
-                  ? successRoute
-                  : successType === 'semantic_marker'
-                    ? successMarker
-                    : workflowId}
-              </strong>
+              <strong>{taskPreset.successCriterion.workflowId}:success</strong>
               <small>
                 No operator JavaScript, shell command, or private field value.
               </small>
@@ -738,33 +655,7 @@ export function DarwinLabView({
                           maxActions,
                           maxDurationMs: maxDurationSeconds * 1_000,
                           seed,
-                          task: {
-                            taskId: taskName
-                              .toLowerCase()
-                              .replace(/[^a-z0-9]+/g, '-'),
-                            name: taskName,
-                            instruction,
-                            startRoute,
-                            successCriterion:
-                              successType === 'route_reached'
-                                ? { type: successType, route: successRoute }
-                                : successType === 'semantic_marker'
-                                  ? {
-                                      type: successType,
-                                      markerId: successMarker,
-                                    }
-                                  : {
-                                      type: successType,
-                                      workflowId,
-                                      outcome: 'success',
-                                    },
-                            successDescription:
-                              successType === 'route_reached'
-                                ? `The browser reaches ${successRoute}.`
-                                : successType === 'semantic_marker'
-                                  ? `The semantic marker ${successMarker} is present.`
-                                  : `The ${workflowId} workflow reports success.`,
-                          },
+                          task: taskPreset,
                         },
                         'PUT',
                       )

@@ -192,6 +192,10 @@ export const sanitiseLabObservedUrl = (
     : new URL('/', expectedOrigin).toString();
 };
 
+export const populationProducedBehavior = (
+  runs: ReadonlyArray<Pick<LabAgentRun, 'actions'>>,
+) => runs.some((run) => run.actions.length > 0);
+
 // A missing or stale accessibility target is an observation for the agent, not
 // a reason to spend Playwright's full 30-second default timeout on one action.
 export const labActionTimeoutMs = 5_000;
@@ -584,6 +588,7 @@ export async function main() {
   const browser = await chromium.launch({ headless });
   try {
     const population = seededPersonas(experiment);
+    const runs: LabAgentRun[] = [];
     for (let index = 0; index < population.length; index += 1) {
       const run = await runAgent(
         browser,
@@ -591,8 +596,14 @@ export async function main() {
         population[index]!,
         index,
       );
+      runs.push(run);
       process.stdout.write(
         `${run.runId} ${run.persona} ${run.taskOutcome} ${run.actions.length} actions\n`,
+      );
+    }
+    if (!populationProducedBehavior(runs)) {
+      throw new Error(
+        'Darwin Lab runner failed: the complete population produced zero browser actions.',
       );
     }
   } catch (error) {

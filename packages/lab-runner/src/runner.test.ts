@@ -5,6 +5,7 @@ import {
   deriveFrictionLabels,
   labActionTimeoutMs,
   labTargetUrl,
+  populationProducedBehavior,
   reconcileSessionEventIds,
   retryFinishOperation,
   sanitiseLabObservedUrl,
@@ -67,6 +68,18 @@ describe('Darwin Lab runner', () => {
         'https://projectflow.example',
       ),
     ).toBe('https://projectflow.example/');
+  });
+
+  it('rejects an infrastructure-only population with no browser behavior', () => {
+    expect(populationProducedBehavior([{ actions: [] }, { actions: [] }])).toBe(
+      false,
+    );
+    expect(
+      populationProducedBehavior([
+        { actions: [] },
+        { actions: [{ action: 'click' }] as LabAgentActionRecord[] },
+      ]),
+    ).toBe(true);
   });
 
   it('preserves the telemetry high-water mark across a transient read failure', () => {

@@ -104,12 +104,74 @@ export const LabTaskInputSchema = z
   .object({
     taskId: LabIdentifierSchema,
     name: z.string().trim().min(1).max(120),
-    instruction: z.string().trim().min(1).max(500),
+    instruction: z.string().trim().min(1).max(300),
     startRoute: LabRouteSchema,
     successCriterion: LabSuccessCriterionSchema,
     successDescription: z.string().trim().min(1).max(300),
   })
   .strict();
+
+export const ProjectFlowLabTaskIdSchema = z.enum([
+  'find-assigned-task',
+  'create-project',
+  'create-assigned-task',
+]);
+
+export const PROJECTFLOW_LAB_TASKS = [
+  {
+    taskId: 'find-assigned-task',
+    name: 'Find assigned task',
+    instruction:
+      'Find and open the task named Confirm launch checklist assigned to you.',
+    startRoute: '/study/dashboard',
+    successCriterion: {
+      type: 'workflow_outcome',
+      workflowId: 'find-assigned-task',
+      outcome: 'success',
+    },
+    successDescription:
+      'ProjectFlow reports successful completion of the find-assigned-task workflow.',
+  },
+  {
+    taskId: 'create-project',
+    name: 'Create project',
+    instruction: 'Create a project named Polaris Launch.',
+    startRoute: '/study/dashboard',
+    successCriterion: {
+      type: 'workflow_outcome',
+      workflowId: 'create-project',
+      outcome: 'success',
+    },
+    successDescription:
+      'ProjectFlow reports successful completion of the create-project workflow.',
+  },
+  {
+    taskId: 'create-assigned-task',
+    name: 'Create assigned task',
+    instruction:
+      'In Project Apollo, create a task named Draft rollback plan assigned to Alex Morgan.',
+    startRoute: '/study/dashboard',
+    successCriterion: {
+      type: 'workflow_outcome',
+      workflowId: 'create-assigned-task',
+      outcome: 'success',
+    },
+    successDescription:
+      'ProjectFlow reports successful completion of the create-assigned-task workflow.',
+  },
+] as const satisfies ReadonlyArray<z.input<typeof LabTaskInputSchema>>;
+
+export const isSupportedProjectFlowLabTask = (input: LabTaskInput) =>
+  PROJECTFLOW_LAB_TASKS.some(
+    (task) =>
+      task.taskId === input.taskId &&
+      task.name === input.name &&
+      task.instruction === input.instruction &&
+      task.startRoute === input.startRoute &&
+      task.successDescription === input.successDescription &&
+      JSON.stringify(task.successCriterion) ===
+        JSON.stringify(input.successCriterion),
+  );
 
 export const LabTaskSchema = LabTaskInputSchema.extend({
   taskDefinitionId: LabIdentifierSchema,
@@ -129,18 +191,7 @@ export const LabExperimentCreateRequestSchema = z
     name: z.string().trim().min(1).max(100).default('Apollo discovery study'),
     targetUrl: z.string().url().max(512),
     targetAppVersion: z.string().min(1).max(32).default('baseline'),
-    task: LabTaskInputSchema.default({
-      taskId: 'find-apollo-assignees',
-      name: 'Find Project Apollo assignees',
-      instruction: 'Find everyone assigned to Project Apollo.',
-      startRoute: '/',
-      successCriterion: {
-        type: 'semantic_marker',
-        markerId: 'project-apollo-assignees-found',
-      },
-      successDescription:
-        'The agent identifies the complete Project Apollo assignment set.',
-    }),
+    task: LabTaskInputSchema.default(PROJECTFLOW_LAB_TASKS[0]),
     populationSize: z.number().int().min(8).max(20).default(8),
     personaAllocation: z.array(LabPersonaAllocationSchema).max(8).default([]),
     maxActions: z.number().int().min(4).max(30).default(12),

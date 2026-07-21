@@ -23,6 +23,31 @@ beforeEach(async () => {
 });
 
 describe('Darwin Lab API', () => {
+  it('rejects custom tasks whose success oracle is not executable by ProjectFlow', async () => {
+    const response = await handleRequest(
+      request('/api/lab/experiments', 'POST', {
+        targetUrl: 'http://localhost:5174/',
+        task: {
+          taskId: 'mark-task-complete',
+          name: 'Mark task complete',
+          instruction: 'Mark an assigned task as complete.',
+          startRoute: '/study/dashboard',
+          successCriterion: {
+            type: 'route_reached',
+            route: '/study/my-work',
+          },
+          successDescription: 'The assigned-work route is visible.',
+        },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'lab_task_unsupported',
+      message: expect.stringContaining('three verified ProjectFlow Lab tasks'),
+    });
+  });
+
   it('allows only explicitly configured remote target origins', async () => {
     const body = {
       name: 'Configured ProjectFlow target',
@@ -93,6 +118,87 @@ describe('Darwin Lab API', () => {
       status: 'awaiting_runner',
       runnerId: null,
       runs: [],
+    });
+  });
+
+  it('fails an infrastructure-only population that produced zero browser actions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status: 204 })),
+    );
+    const createdResponse = await handleRequest(
+      request('/api/lab/experiments', 'POST', {
+        name: 'Infrastructure failure boundary',
+        targetUrl: 'http://localhost:5174/',
+        populationSize: 8,
+      }),
+    );
+    const created = LabExperimentSchema.parse(await createdResponse.json());
+    const startResponse = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}/start`, 'POST'),
+      { GITHUB_TOKEN: 'github-test-token' },
+    );
+    expect(startResponse.status).toBe(200);
+    const claimResponse = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}/claim`, 'POST', {
+        runnerId: 'lab-runner-zero-actions',
+      }),
+    );
+    expect(claimResponse.status).toBe(200);
+
+    for (let index = 0; index < 8; index += 1) {
+      const runId = `lab-run-zero-actions-${index + 1}`;
+      const startedAt = new Date(
+        Date.UTC(2026, 6, 21, 8, 0, index),
+      ).toISOString();
+      const runResponse = await handleRequest(
+        request(`/api/lab/experiments/${created.experimentId}/runs`, 'POST', {
+          runId,
+          participantId: `lab-agent-zero-${index + 1}`,
+          sessionId: `lab-session-zero-${index + 1}`,
+          persona: 'novice',
+          viewport: { class: 'desktop', width: 1440, height: 960 },
+          agentModel: 'gpt-5.6-luna',
+          startedAt,
+          populationOrdinal: index + 1,
+          studyId: created.studyId,
+          taskDefinitionId: created.task.taskDefinitionId,
+          taskDefinitionHash: created.task.definitionHash,
+          appVersion: created.targetAppVersion,
+        }),
+      );
+      expect(runResponse.status).toBe(201);
+      const finishResponse = await handleRequest(
+        request(
+          `/api/lab/experiments/${created.experimentId}/runs/${runId}/finish`,
+          'POST',
+          {
+            status: 'blocked',
+            finishedAt: new Date(
+              Date.UTC(2026, 6, 21, 8, 0, index, 500),
+            ).toISOString(),
+            durationMs: 500,
+            taskOutcome: 'failed',
+            frictionLabels: [],
+            telemetryEventIds: [],
+            error: 'Runner contract failed before the first browser action.',
+          },
+        ),
+      );
+      expect(finishResponse.status).toBe(200);
+    }
+
+    const failedResponse = await handleRequest(
+      request(`/api/lab/experiments/${created.experimentId}`),
+    );
+    expect(
+      LabExperimentSchema.parse(await failedResponse.json()),
+    ).toMatchObject({
+      status: 'failed',
+      evidence: null,
+      error: expect.stringContaining('zero browser actions'),
     });
   });
 
