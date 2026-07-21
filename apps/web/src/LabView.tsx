@@ -110,11 +110,20 @@ export function DarwinLabView({
     const parsed = LabExperimentsResponseSchema.parse(payload).experiments;
     if (generation !== loadGeneration.current) return;
     setExperiments(parsed);
-    setSelectedId((current) =>
-      current && parsed.some((item) => item.experimentId === current)
-        ? current
-        : (parsed[0]?.experimentId ?? null),
-    );
+    setSelectedId((current) => {
+      // Keep the current selection unless it is gone or a failed run, so a
+      // failed latest run never stays in focus.
+      const keep =
+        current &&
+        parsed.some(
+          (item) => item.experimentId === current && item.status !== 'failed',
+        );
+      if (keep) return current;
+      const newest = parsed[0];
+      // Auto-focus the newest run only when it is not a failure; otherwise fall
+      // back to the "Select a previous run" placeholder.
+      return newest && newest.status !== 'failed' ? newest.experimentId : null;
+    });
   }, [apiBaseUrl]);
 
   useEffect(() => {
@@ -249,6 +258,26 @@ export function DarwinLabView({
   const busy = working !== null;
   const composerDisabled = busy;
 
+  const historyPicker =
+    experiments.length > 0 ? (
+      <label className="lab-history-select">
+        <span>History</span>
+        <select
+          value={selected?.experimentId ?? ''}
+          onChange={(event) => setSelectedId(event.target.value || null)}
+          aria-label="Select a previous run"
+        >
+          <option value="">Select a previous run</option>
+          {experiments.map((item) => (
+            <option key={item.experimentId} value={item.experimentId}>
+              {formatRunStamp(item.createdAt)} · {item.name} ·{' '}
+              {statusLabel[item.status]}
+            </option>
+          ))}
+        </select>
+      </label>
+    ) : null;
+
   return (
     <div className="lab-workspace">
       <header className="workspace-hero">
@@ -346,23 +375,7 @@ export function DarwinLabView({
             </span>
           </div>
 
-          {experiments.length > 1 && (
-            <label className="lab-history-select">
-              <span>History</span>
-              <select
-                value={selected.experimentId}
-                onChange={(event) => setSelectedId(event.target.value)}
-                aria-label="Select a previous run"
-              >
-                {experiments.map((item) => (
-                  <option key={item.experimentId} value={item.experimentId}>
-                    {formatRunStamp(item.createdAt)} · {item.name} ·{' '}
-                    {statusLabel[item.status]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+          {historyPicker}
 
           <div className="lab-metrics">
             <LabMetric
@@ -495,10 +508,13 @@ export function DarwinLabView({
           )}
         </section>
       ) : (
-        <section className="surface-panel">
+        <section className="surface-panel lab-run-panel">
+          {historyPicker}
           <div className="lab-empty">
-            <Bot size={24} /> No runs yet — describe a goal above to send in the
-            first agents.
+            <Bot size={24} />{' '}
+            {experiments.length > 0
+              ? 'Pick a run from history above, or describe a goal to send fresh agents.'
+              : 'No runs yet — describe a goal above to send in the first agents.'}
           </div>
         </section>
       )}
