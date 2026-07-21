@@ -1699,6 +1699,12 @@ describe('Rosalind control room', () => {
         name: 'Ranked by severity and independent support',
       }),
     ).toBeVisible();
+    // The full signal inspector is collapsed by default to reduce clutter.
+    fireEvent.click(
+      document.querySelector(
+        '#signal-inspector-disclosure > summary',
+      ) as HTMLElement,
+    );
     expect(
       screen.getByRole('heading', {
         name: 'Exact detector output and raw event links',

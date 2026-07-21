@@ -4073,7 +4073,8 @@ a:focus-visible {
 
 .execution-detail > summary,
 .mutation-causal-disclosure > summary,
-.analysis-audit-disclosure > summary {
+.analysis-audit-disclosure > summary,
+.signal-inspector-disclosure > summary {
   cursor: pointer;
   list-style: none;
   padding: 11px 0;
@@ -4086,13 +4087,15 @@ a:focus-visible {
 
 .execution-detail > summary::-webkit-details-marker,
 .mutation-causal-disclosure > summary::-webkit-details-marker,
-.analysis-audit-disclosure > summary::-webkit-details-marker {
+.analysis-audit-disclosure > summary::-webkit-details-marker,
+.signal-inspector-disclosure > summary::-webkit-details-marker {
   display: none;
 }
 
 .execution-detail > summary::before,
 .mutation-causal-disclosure > summary::before,
-.analysis-audit-disclosure > summary::before {
+.analysis-audit-disclosure > summary::before,
+.signal-inspector-disclosure > summary::before {
   content: '▸';
   display: inline-block;
   margin-right: 8px;
@@ -4101,8 +4104,30 @@ a:focus-visible {
 
 .execution-detail[open] > summary::before,
 .mutation-causal-disclosure[open] > summary::before,
-.analysis-audit-disclosure[open] > summary::before {
+.analysis-audit-disclosure[open] > summary::before,
+.signal-inspector-disclosure[open] > summary::before {
   content: '▾';
+}
+
+.signal-inspector-disclosure {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.empty-evidence-action {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.empty-evidence-action > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.empty-evidence-action .primary-action {
+  align-self: flex-start;
 }
 
 .execution-detail > .execution-layout {

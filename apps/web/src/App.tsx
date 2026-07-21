@@ -1819,6 +1819,10 @@ function LiveTelemetryPanel({
   const [signalTaskFilter, setSignalTaskFilter] = useState('all');
   const [signalPage, setSignalPage] = useState(0);
   const pendingSignalRevealPage = useRef<number | null>(null);
+  // Set only when the operator clicks "Analyse latest behaviour" so evidence
+  // generation auto-advances into reasoning; a page load with existing evidence
+  // never sets it, keeping reasoning a deliberate action.
+  const pendingAnalyse = useRef(false);
   const [implementationMutationIds, setImplementationMutationIds] = useState<
     string[]
   >([]);
@@ -1970,6 +1974,18 @@ function LiveTelemetryPanel({
         : [...current, mutationId],
     );
   };
+  // One linear step: build evidence from the latest sessions if needed, then
+  // reason over it. Evidence generation auto-advances into analysis via the
+  // effect below so the operator never leaves the Mutations view.
+  const analyseLatest = async () => {
+    if (telemetry.evidence) {
+      await telemetry.analyseEvidence();
+      return;
+    }
+    pendingAnalyse.current = true;
+    await telemetry.generateEvidence();
+  };
+
   const focusPressureGroup = (group: SignalPressureGroup) => {
     setSignalSeverityFilter('all');
     setSignalRuleEventFilter(`rule:${group.ruleId}`);
@@ -1977,13 +1993,20 @@ function LiveTelemetryPanel({
     setSignalSessionFilter('all');
     setSignalTaskFilter('all');
     setSignalPage(0);
+    openSignalInspector();
     window.requestAnimationFrame(() =>
       document
         .getElementById('signal-inspector')
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
     );
   };
+  const openSignalInspector = () => {
+    const disclosure = document.getElementById('signal-inspector-disclosure');
+    if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
+  };
+
   const revealExactSignal = (signal: EvidenceSignal) => {
+    openSignalInspector();
     setSignalSeverityFilter('all');
     setSignalRuleEventFilter('all');
     setSignalTargetFilter('all');
@@ -2052,6 +2075,26 @@ function LiveTelemetryPanel({
     if (signalIndex < 0) return;
     revealExactSignal(rankedSignals[signalIndex]!);
   }, [isObservations, telemetry.evidence?.evidenceId]);
+
+  useEffect(() => {
+    if (
+      pendingAnalyse.current &&
+      telemetry.evidence &&
+      !telemetry.analysis &&
+      !telemetry.analysing &&
+      telemetry.evidence.frictionSignals.length > 0 &&
+      liveModelAvailable
+    ) {
+      pendingAnalyse.current = false;
+      void telemetry.analyseEvidence();
+    }
+  }, [
+    telemetry.evidence,
+    telemetry.analysis,
+    telemetry.analysing,
+    liveModelAvailable,
+    telemetry,
+  ]);
 
   return (
     <section className="mt-8 surface-panel live-evidence" id="real-evidence">
@@ -2426,11 +2469,19 @@ function LiveTelemetryPanel({
                     </div>
                   </section>
 
-                  <section
-                    className="signal-inspector"
-                    id="signal-inspector"
-                    aria-labelledby="signal-inspector-title"
+                  <details
+                    className="signal-inspector-disclosure"
+                    id="signal-inspector-disclosure"
                   >
+                    <summary className="signal-inspector-summary">
+                      Full signal inspector · {evidenceSignals.length} exact
+                      signals with filters and raw traces
+                    </summary>
+                    <section
+                      className="signal-inspector"
+                      id="signal-inspector"
+                      aria-labelledby="signal-inspector-title"
+                    >
                     <div className="signal-section-heading">
                       <div>
                         <span className="section-label">
@@ -2669,7 +2720,8 @@ function LiveTelemetryPanel({
                         </button>
                       </div>
                     </nav>
-                  </section>
+                    </section>
+                  </details>
                 </>
               ) : (
                 <div className="evidence-signals">
@@ -2978,17 +3030,45 @@ function LiveTelemetryPanel({
         </details>
       )}
       {!isObservations && !telemetry.evidence && (
-        <div className="empty-evidence">
-          <FileCheck2 size={18} />
+        <div className="empty-evidence empty-evidence-action">
           <div>
-            <strong>
-              Evidence is required before a mutation can be selected
-            </strong>
-            <span>
-              Generate an evidence pack from the Observations workspace, then
-              return here to invoke GPT.
-            </span>
+            <FileCheck2 size={18} />
+            <div>
+              <strong>Analyse the latest measured behaviour</strong>
+              <span>
+                One step builds the evidence pack from real ProjectFlow sessions
+                and asks {configuredModel} for a ranked, evidence-cited mutation
+                portfolio — no need to switch to Observations.
+              </span>
+            </div>
           </div>
+          <button
+            className="primary-action evidence-action"
+            type="button"
+            disabled={
+              telemetry.generating ||
+              telemetry.analysing ||
+              !telemetry.count ||
+              !liveModelAvailable
+            }
+            onClick={() => void analyseLatest()}
+            data-explain="Build deterministic evidence from the measured study, then invoke the model once over that evidence hash. Stale-version telemetry is rejected until a matching cohort is measured."
+          >
+            {telemetry.generating || telemetry.analysing ? (
+              <CircleDashed className="is-spinning" size={15} />
+            ) : (
+              <BrainCircuit size={15} />
+            )}
+            {telemetry.generating
+              ? 'Building evidence'
+              : telemetry.analysing
+                ? 'Reasoning over evidence'
+                : !telemetry.count
+                  ? 'Awaiting measured behavior'
+                  : liveModelAvailable
+                    ? 'Analyse latest behaviour'
+                    : 'Live model unavailable'}
+          </button>
         </div>
       )}
     </section>
