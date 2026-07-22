@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Miniflare } from 'miniflare';
 import type { CodexImplementationManifest } from '@darwin/shared';
 
@@ -79,7 +79,10 @@ describe('D1 telemetry repository boundaries', () => {
     repository = new D1TelemetryRepository(database);
   });
 
-  afterEach(async () => miniflare.dispose());
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await miniflare.dispose();
+  });
 
   it('permits exactly one compare-and-swap execution transition', async () => {
     const prepared = createRepositoryExecution(
@@ -100,6 +103,45 @@ describe('D1 telemetry repository boundaries', () => {
     expect(
       (await repository.getRepositoryExecution(prepared.executionId))?.revision,
     ).toBe(1);
+  });
+
+  it('skips corrupt execution rows without blanking fossil-record pages', async () => {
+    const valid = createRepositoryExecution(
+      manifest,
+      '2026-07-19T08:02:00.000Z',
+    );
+    expect(await repository.saveRepositoryExecution(valid, null)).toBe(true);
+    const corruptId = 'execution-corrupt-d1';
+    await database
+      .prepare(
+        `INSERT INTO repository_executions (
+          execution_id, manifest_id, analysis_id, status, updated_at,
+          execution_json, revision
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        corruptId,
+        'manifest-corrupt-d1',
+        'analysis-corrupt-d1',
+        'failed',
+        '2026-07-19T08:03:00.000Z',
+        '{"private":"must-not-leak"}',
+        0,
+      )
+      .run();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(repository.listRepositoryExecutions()).resolves.toEqual([
+      valid,
+    ]);
+    await expect(
+      repository.listRepositoryExecutionPage({ limit: 1 }),
+    ).resolves.toMatchObject({ executions: [valid] });
+    expect(warning).toHaveBeenCalledWith(
+      '[darwin:persistence]',
+      expect.stringContaining(corruptId),
+    );
+    expect(JSON.stringify(warning.mock.calls)).not.toContain('must-not-leak');
   });
 
   it('fails closed with the poisoned record identity but not its JSON contents', async () => {

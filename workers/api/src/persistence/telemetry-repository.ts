@@ -54,6 +54,27 @@ const parseStoredValue = <T>(
   }
 };
 
+const parseStoredValueOrNull = <T>(
+  schema: StoredValueSchema<T>,
+  json: string,
+  kind: string,
+  recordId: string,
+) => {
+  try {
+    return parseStoredValue(schema, json, kind, recordId);
+  } catch {
+    console.warn(
+      '[darwin:persistence]',
+      JSON.stringify({
+        event: 'corrupt_stored_record_skipped',
+        kind,
+        recordId: safeDiagnosticId(recordId),
+      }),
+    );
+    return null;
+  }
+};
+
 import {
   addDeletedCounts,
   emptyDeletedCounts,
@@ -332,7 +353,7 @@ interface ExecutionCursor {
   executionId: string;
 }
 
-const encodeExecutionCursor = (execution: RepositoryMutationExecution) =>
+const encodeExecutionCursor = (execution: ExecutionCursor) =>
   btoa(`${execution.updatedAt}\n${execution.executionId}`)
     .replaceAll('+', '-')
     .replaceAll('/', '_')
@@ -1924,20 +1945,31 @@ export class D1TelemetryRepository implements TelemetryRepository {
   async listRepositoryExecutions() {
     const result = await this.database
       .prepare(
-        `SELECT execution_json, revision FROM repository_executions ORDER BY updated_at DESC`,
+        `SELECT execution_id, execution_json, revision
+         FROM repository_executions
+         ORDER BY updated_at DESC`,
       )
-      .all<{ execution_json: string; revision: number }>();
-    return result.results.map((row, index) =>
-      RepositoryMutationExecutionSchema.parse({
-        ...parseStoredValue(
-          RepositoryMutationExecutionSchema,
-          row.execution_json,
-          'repository execution',
-          `list:${index}`,
-        ),
-        revision: row.revision,
-      }),
-    );
+      .all<{
+        execution_id: string;
+        execution_json: string;
+        revision: number;
+      }>();
+    return result.results.flatMap((row) => {
+      const execution = parseStoredValueOrNull(
+        RepositoryMutationExecutionSchema,
+        row.execution_json,
+        'repository execution',
+        row.execution_id,
+      );
+      return execution
+        ? [
+            RepositoryMutationExecutionSchema.parse({
+              ...execution,
+              revision: row.revision,
+            }),
+          ]
+        : [];
+    });
   }
 
   async listRepositoryExecutionPage(
@@ -1957,7 +1989,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
     }
     const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const statement = this.database.prepare(
-      `SELECT execution_id, execution_json
+      `SELECT execution_id, updated_at, execution_json
        FROM repository_executions
        ${whereClause}
        ORDER BY updated_at DESC, execution_id DESC
@@ -1966,23 +1998,31 @@ export class D1TelemetryRepository implements TelemetryRepository {
     const bound = statement.bind(...bindings, options.limit + 1);
     const result = await bound.all<{
       execution_id: string;
+      updated_at: string;
       execution_json: string;
     }>();
-    const executions = result.results.map((row) =>
-      parseStoredValue(
+    const parsed = result.results.flatMap((row) => {
+      const execution = parseStoredValueOrNull(
         RepositoryMutationExecutionSchema,
         row.execution_json,
         'repository execution',
         row.execution_id,
-      ),
-    );
-    const page = executions.slice(0, options.limit);
+      );
+      return execution ? [{ execution, row }] : [];
+    });
+    const page = parsed.slice(0, options.limit);
+    const scanCursor = result.results.at(-1);
     return {
-      executions: page,
+      executions: page.map(({ execution }) => execution),
       nextCursor:
-        executions.length > options.limit && page.length
-          ? encodeExecutionCursor(page.at(-1)!)
-          : null,
+        parsed.length > options.limit && page.length
+          ? encodeExecutionCursor(page.at(-1)!.execution)
+          : result.results.length > options.limit && scanCursor
+            ? encodeExecutionCursor({
+                updatedAt: scanCursor.updated_at,
+                executionId: scanCursor.execution_id,
+              })
+            : null,
     };
   }
 
@@ -2036,7 +2076,7 @@ export class D1TelemetryRepository implements TelemetryRepository {
       ? `AND (r.updated_at < ? OR (r.updated_at = ? AND r.execution_id < ?))`
       : '';
     const statement = this.database.prepare(
-      `SELECT r.execution_id, r.execution_json, a.analysis_id,
+      `SELECT r.execution_id, r.updated_at, r.execution_json, a.analysis_id,
               a.analysis_json, e.evidence_id, e.evidence_pack_json
        FROM repository_executions r
        JOIN evidence_analyses a ON a.analysis_id = r.analysis_id
@@ -2055,39 +2095,49 @@ export class D1TelemetryRepository implements TelemetryRepository {
       : statement.bind(options.limit + 1);
     const result = await bound.all<{
       execution_id: string;
+      updated_at: string;
       execution_json: string;
       analysis_id: string;
       analysis_json: string;
       evidence_id: string;
       evidence_pack_json: string;
     }>();
-    const records = result.results.map((row) => ({
-      execution: parseStoredValue(
+    const parsed = result.results.flatMap((row) => {
+      const execution = parseStoredValueOrNull(
         RepositoryMutationExecutionSchema,
         row.execution_json,
         'repository execution',
         row.execution_id,
-      ),
-      analysis: parseStoredValue(
+      );
+      const analysis = parseStoredValueOrNull(
         StoredEvidenceAnalysisSchema,
         row.analysis_json,
         'evidence analysis',
         row.analysis_id,
-      ),
-      evidence: parseStoredValue(
+      );
+      const evidence = parseStoredValueOrNull(
         StoredEvidencePackSchema,
         row.evidence_pack_json,
         'evidence pack',
         row.evidence_id,
-      ),
-    }));
-    const archives = records.slice(0, options.limit);
+      );
+      return execution && analysis && evidence
+        ? [{ archive: { execution, analysis, evidence }, row }]
+        : [];
+    });
+    const archives = parsed.slice(0, options.limit);
+    const scanCursor = result.results.at(-1);
     return {
-      archives,
+      archives: archives.map(({ archive }) => archive),
       nextCursor:
-        records.length > options.limit && archives.length
-          ? encodeExecutionCursor(archives.at(-1)!.execution)
-          : null,
+        parsed.length > options.limit && archives.length
+          ? encodeExecutionCursor(archives.at(-1)!.archive.execution)
+          : result.results.length > options.limit && scanCursor
+            ? encodeExecutionCursor({
+                updatedAt: scanCursor.updated_at,
+                executionId: scanCursor.execution_id,
+              })
+            : null,
     };
   }
 
@@ -2190,14 +2240,15 @@ export class D1TelemetryRepository implements TelemetryRepository {
         'SELECT validation_id, validation_json FROM outcome_validations ORDER BY generated_at DESC',
       )
       .all<{ validation_id: string; validation_json: string }>();
-    return result.results.map((row) =>
-      parseStoredValue(
+    return result.results.flatMap((row) => {
+      const outcome = parseStoredValueOrNull(
         FitnessOutcomeSchema,
         row.validation_json,
         'fitness outcome',
         row.validation_id,
-      ),
-    );
+      );
+      return outcome ? [outcome] : [];
+    });
   }
 
   async saveExecutionCallbackCredential(
