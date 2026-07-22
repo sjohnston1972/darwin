@@ -1,12 +1,14 @@
 node_modules/
 dist/
 .dev.vars
-.env
+.env*
+!.env.example
 .wrangler/
 coverage/
 playwright-report/
 test-results/
 .artifacts/
+.tmp-ci-*/
 .DS_Store
 *.log
 # Local duplicate starter/reference material reviewed during Phase 8.

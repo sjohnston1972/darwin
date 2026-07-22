@@ -7,6 +7,7 @@ export default tseslint.config(
     ignores: [
       '**/.wrangler/**',
       '**/.artifacts/**',
+      '**/.tmp-ci-*/**',
       '**/coverage/**',
       '**/dist/**',
       '**/node_modules/**',
