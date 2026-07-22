@@ -1019,13 +1019,16 @@ export const handleRequest = async (
         verifiedDeployment,
         verified.verifiedAt,
       );
-      resetSimulationStore();
-      await telemetryRepository.reset({ preserveResetExecutions: true });
-      await getLabRepository(env?.DB).reset();
+      // Capture and persist the verified baseline snapshot before clearing any
+      // evidence. A transient GitHub failure must leave the current demo state
+      // intact so the deploying reset can be reconciled safely on a later poll.
       await refreshVerifiedTargetSnapshot({
         commitSha: verified.commitSha,
         verifiedAt: verified.verifiedAt,
       });
+      resetSimulationStore();
+      await telemetryRepository.reset({ preserveResetExecutions: true });
+      await getLabRepository(env?.DB).reset();
       await telemetryRepository.resetEvolutionCycle({
         startedAt: verified.verifiedAt,
         measuredCommit: verified.commitSha,

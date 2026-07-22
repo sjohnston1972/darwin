@@ -1713,6 +1713,9 @@ describe('Darwin API', () => {
 
   it('preserves state through reset workflow and deployment failures, then clears only after baseline verification', async () => {
     let deployedSha = 'a'.repeat(40);
+    let snapshotAvailable = true;
+    installOpenAIResponse({});
+    expect((await connectTargetApplication()).status).toBe(201);
     const fetcher = vi.fn(
       async (input: string | URL | Request, _init?: RequestInit) => {
         void _init;
@@ -1725,16 +1728,32 @@ describe('Darwin API', () => {
             `<!doctype html><meta name="darwin-app-version" content="${deployedSha.slice(0, 12)}"><meta name="darwin-commit-sha" content="${deployedSha}">`,
           );
         }
+        if (
+          url.includes('api.github.com/repos/') ||
+          url.includes('raw.githubusercontent.com/')
+        ) {
+          if (!snapshotAvailable) {
+            return new Response(null, { status: 503 });
+          }
+          if (url.endsWith(`/${deployedSha}/darwin.target.json`)) {
+            return new Response(JSON.stringify(repositoryTarget));
+          }
+          if (url.includes('raw.githubusercontent.com/')) {
+            return new Response(
+              url.endsWith('/AGENTS.md')
+                ? '# ProjectFlow repository constraints'
+                : 'export function App() { return null; }',
+            );
+          }
+          return Response.json({ sha: deployedSha });
+        }
         return new Response(null, { status: 404 });
       },
     );
     vi.stubGlobal('fetch', fetcher);
-    await handleRequest(
-      new Request('http://localhost/api/telemetry/events', {
-        method: 'POST',
-        body: JSON.stringify({ events: [studyEvent] }),
-      }),
-    );
+    await ingestConnectedTelemetry([
+      { ...studyEvent, appVersion: repositorySha.slice(0, 12) },
+    ]);
     const resetEnv = {
       GITHUB_TOKEN: 'github-test-token',
       DARWIN_CALLBACK_TOKEN: 'callback-test-token',
@@ -1769,9 +1788,20 @@ describe('Darwin API', () => {
       nonce: string,
       callback: Record<string, unknown>,
     ) => {
+      const response = await sendRawResetCallback(execution, nonce, callback);
+      return {
+        response,
+        execution: DemoResetResponseSchema.parse(await response.json()),
+      };
+    };
+    const sendRawResetCallback = async (
+      execution: ReturnType<typeof DemoResetResponseSchema.parse>,
+      nonce: string,
+      callback: Record<string, unknown>,
+    ) => {
       const path = `http://localhost/api/demo/reset/${execution.resetId}/callback`;
       const body = JSON.stringify(callback);
-      const response = await handleRequest(
+      return handleRequest(
         await signedCallbackRequest({
           path,
           method: 'POST',
@@ -1783,10 +1813,6 @@ describe('Darwin API', () => {
         }),
         resetEnv,
       );
-      return {
-        response,
-        execution: DemoResetResponseSchema.parse(await response.json()),
-      };
     };
     const eventCount = async () => {
       const response = await handleRequest(
@@ -1855,11 +1881,26 @@ describe('Darwin API', () => {
       status: 'validating',
     });
     deployedSha = 'c'.repeat(40);
-    const completed = await sendResetCallback(
+    snapshotAvailable = false;
+    const snapshotFailure = await sendRawResetCallback(
       successfulReset.execution,
       successfulReset.nonce,
       { status: 'deploying', baselineCommit: deployedSha },
     );
+    expect(snapshotFailure.status).toBe(409);
+    await expect(snapshotFailure.json()).resolves.toMatchObject({
+      error: 'invalid_transition',
+    });
+    expect(await eventCount()).toBe(1);
+
+    snapshotAvailable = true;
+    const completedResponse = await handleRequest(
+      new Request('http://localhost/api/demo/reset'),
+      resetEnv,
+    );
+    const completed = {
+      execution: DemoResetResponseSchema.parse(await completedResponse.json()),
+    };
     expect(completed.execution).toMatchObject({
       status: 'complete',
       baselineCommit: deployedSha,
